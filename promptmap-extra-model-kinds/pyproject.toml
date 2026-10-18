@@ -10,6 +10,9 @@ dependencies = [
     "httpx>=0.27",
 ]
 
+[project.urls]
+Repository = "https://github.com/conradbez/promptmap"
+
 [project.entry-points."promptmap.model_kinds"]
 python_modal = "promptmap_extra_model_kinds.modal_exec"
 agent_modal = "promptmap_extra_model_kinds.agent_exec"

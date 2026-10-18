@@ -18,6 +18,10 @@ dependencies = [
     "mini-swe-agent>=2.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/conradbez/promptmap"
+Repository = "https://github.com/conradbez/promptmap"
+
 [project.optional-dependencies]
 extras = ["promptmap-extra-model-kinds; python_version >= '3.11'"]
 

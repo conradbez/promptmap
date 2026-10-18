@@ -3,7 +3,7 @@
 The code, docs, examples and tests have been renamed. Still PoC with no external
 users, so no migration path or backwards compatibility is needed.
 
-- [ ] Rename the GitHub repo `conradbez/prompt-build-tool` → `conradbez/promptmap`, then update the link in `promptmap/html_templates/_nav.html`.
+- [x] Rename the GitHub repo `conradbez/prompt-build-tool` → `conradbez/promptmap`, then update the link in `promptmap/html_templates/_nav.html`.
 - [ ] Publish `promptmap` to PyPI.
 - [ ] Publish `promptmap-extra-model-kinds` to PyPI.
 - [ ] Re-run `uv lock` in `promptmap-extra-model-kinds/` once `promptmap` is on PyPI (its lockfile still references `prompt-build-tool` / `pbt-extra-model-kinds`).

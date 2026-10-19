@@ -1,13 +1,16 @@
 [project]
 name = "promptmap-extra-model-kinds"
-version = "0.2.0"
-description = "Extra promptmap model kinds (python_modal, agent_modal, agent37) and RAG kinds (brave_search)."
+version = "0.3.0"
+description = "Extra promptmap model kinds (python_modal, agent_modal, agent37) and RAG kinds (brave_search, gemini_search, openai_search, anthropic_search)."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "promptmap>=0.5.16",
     "modal>=1.0",
     "httpx>=0.27",
+    "python-dotenv>=1.0",
+    "openai>=2.26",
+    "anthropic>=1.15",
 ]
 
 [project.urls]
@@ -20,6 +23,9 @@ agent37 = "promptmap_extra_model_kinds.agent37_exec"
 
 [project.entry-points."promptmap.rag_kinds"]
 brave_search = "promptmap_extra_model_kinds.brave_search"
+gemini_search = "promptmap_extra_model_kinds.gemini_search"
+openai_search = "promptmap_extra_model_kinds.openai_search"
+anthropic_search = "promptmap_extra_model_kinds.anthropic_search"
 
 [build-system]
 requires = ["hatchling"]

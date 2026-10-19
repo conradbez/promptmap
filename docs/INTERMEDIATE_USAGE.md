@@ -203,8 +203,17 @@ Packages declare RAG kinds under the `promptmap.rag_kinds` entry point group.
 brave_search = "my_pkg.brave"     # a module that registers on import
 ```
 
-`pip install "promptmap[extras]"` ships `rag_brave_search(query, count=8)`, a web
-search through the Brave Search API (set `BRAVE_API_KEY`).
+`pip install "promptmap[extras]"` ships four web searches:
+
+| Call | Backend | Key (env or `.env`) |
+|---|---|---|
+| `rag_brave_search(query, count=8)` | Brave Search API, one `title / url / snippet` per result | `BRAVE_API_KEY` |
+| `rag_gemini_search(query)` | Gemini Flash + Google Search grounding | `GEMINI_API_KEY` |
+| `rag_openai_search(query)` | OpenAI Responses API `web_search` tool | `OPENAI_API_KEY` |
+| `rag_anthropic_search(query)` | Claude `web_search` server tool | `ANTHROPIC_API_KEY` |
+
+The three LLM searches return `[answer, "title\nurl", ...]` and take
+`instructions="..."` and `model="..."`.
 
 ### Legacy: `return_list_RAG_results` / `do_RAG`
 

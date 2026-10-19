@@ -48,6 +48,7 @@ results = promptmap.run(
 | `promptfiles` | `dict \| None` | File paths by name, provided to models that declare `promptfiles:` in their config block |
 | `validation_dir` | `str` | Directory with per-model `validate(prompt, result) -> bool` files |
 | `global_instruction` | `str \| () -> str \| None` | Text rendered into every model's prompt. Falls back to `global.prompt` (next to map/) |
+| `wrap_refs` | `bool \| (name: str, is_open: bool) -> str \| None` | Wrap each `ref()` output as `[name]\n<output>\n[/name]`, or in the tags your function returns. JSON and file outputs pass through unwrapped. CLI: `promptmap run --wrap-refs` |
 | `on_model_start` | `(name: str) -> None \| None` | Called just before each model starts |
 | `secrets` | `dict[str, str] \| None` | Per-run credentials for kinds (`call.secrets`) and `llm_call(prompt, secrets)`. Never rendered, cached or stored |
 | `on_model_done` | `(result: ModelRunResult) -> None \| None` | Called when each model finishes; `result.status` is `"success"`, `"error"` or `"skipped"` |

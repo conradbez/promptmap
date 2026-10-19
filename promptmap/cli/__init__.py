@@ -204,7 +204,13 @@ def main() -> None:
         "with {{ config(gate=False) }}."
     ),
 )
-def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple[str, ...], secret_flags: tuple[str, ...], promptfiles: tuple[str, ...], validation_dir: str, clear_cache: bool, global_instruction_path: str | None, tests_dir: str) -> None:
+@click.option(
+    "--wrap-refs",
+    is_flag=True,
+    default=False,
+    help="Wrap each ref() output in [model_name]...[/model_name] tags.",
+)
+def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple[str, ...], secret_flags: tuple[str, ...], promptfiles: tuple[str, ...], validation_dir: str, clear_cache: bool, global_instruction_path: str | None, tests_dir: str, wrap_refs: bool) -> None:
     """Execute all prompt models in dependency order.
 
     Tests in the tests dir are gates unless they set {{ config(gate=False) }}:
@@ -397,6 +403,7 @@ def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple
         global_instruction=global_instruction,
         secrets=secrets,
         cache_check=cache_check,
+        wrap_refs=wrap_refs,
     )
     gated = None
     try:

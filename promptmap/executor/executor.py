@@ -326,6 +326,7 @@ async def execute_run(
     skip_downstream: set[str] | None = None,
     secrets: Mapping[str, str] | None = None,
     cache_check: Callable[..., Any] | None = None,
+    wrap_refs: bool | Callable[[str, bool], str] | None = None,
 ) -> list[ModelRunResult]:
     """
     Execute all *ordered_models* in dependency order.
@@ -368,6 +369,9 @@ async def execute_run(
         Asked on an exact prompt-cache miss whether a model's last result can
         be reused for its changed prompt (see
         :meth:`~promptmap.executor.run_context.RunContext.reusable_previous`).
+    wrap_refs:
+        Wrap each ``ref()`` output in ``[name]…[/name]`` tags, or in the tags a
+        callable ``(name, is_open) -> str`` returns.
 
     Returns
     -------
@@ -403,6 +407,7 @@ async def execute_run(
         blobs=blob_store,
         secrets=secrets,
         cache_check=cache_check,
+        wrap_refs=wrap_refs,
     )
     if skipped is not None:
         ctx.skipped = skipped

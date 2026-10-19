@@ -135,6 +135,7 @@ async def async_run(
     on_model_done: Callable[[ModelRunResult], None] | None = None,
     secrets: Mapping[str, str] | None = None,
     cache_check: Callable[..., bool | Awaitable[bool]] | None = None,
+    wrap_refs: bool | Callable[[str, bool], str] | None = None,
 ):
     """
     Execute prompt models as a Python library call.
@@ -212,6 +213,17 @@ async def async_run(
         meaningfully.  Sync or async; may also declare ``config``,
         ``secrets`` and ``model`` parameters.  Falls back to ``cache_check``
         in client.py.
+    wrap_refs:
+        When truthy, the text each ``ref()`` returns is wrapped in tags naming
+        the referenced model, so the LLM can tell inputs apart::
+
+            [outline]
+            <outline's output>
+            [/outline]
+
+        Pass a callable ``(name, is_open) -> str`` to write the tags yourself,
+        e.g. ``lambda name, is_open: f"<{'' if is_open else '/'}{name}>"``.
+        JSON and file outputs are passed through unwrapped.
 
     Returns
     -------
@@ -396,6 +408,7 @@ async def async_run(
         blob_store=blob_store,
         secrets=secrets,
         cache_check=cache_check,
+        wrap_refs=wrap_refs,
     )
 
     errors = sum(1 for r in results if r.status == "error")
@@ -450,6 +463,7 @@ def run(
     on_model_done: "Callable[[ModelRunResult], None] | None" = None,
     secrets: "Mapping[str, str] | None" = None,
     cache_check: "Callable[..., bool | Awaitable[bool]] | None" = None,
+    wrap_refs: "bool | Callable[[str, bool], str] | None" = None,
 ):
     """Run prompt models synchronously.
 
@@ -476,4 +490,5 @@ def run(
         on_model_done=on_model_done,
         secrets=secrets,
         cache_check=cache_check,
+        wrap_refs=wrap_refs,
     ))

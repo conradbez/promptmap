@@ -159,6 +159,10 @@ class RunContext:
     validators: dict | None = None
     global_instruction: str | None = None
 
+    #: Wrap each ref() output in ``[name]…[/name]`` tags — or, given a
+    #: callable ``(name, is_open) -> str``, in the tags it returns.
+    wrap_refs: bool | Callable[[str, bool], str] | None = None
+
     #: Run-scoped credentials.  Handed to kinds as ``call.secrets`` and to an
     #: ``llm_call`` that declares a ``secrets`` parameter — never to templates,
     #: the cache key or storage.
@@ -223,6 +227,7 @@ class RunContext:
             global_instruction=self.global_instruction_for(spec),
             extra_context=extra_context,
             previous=self.previous_for(spec),
+            wrap_refs=self.wrap_refs,
         )
         state.extra_outputs = extra_outputs
         acct = self._acct(spec.name)

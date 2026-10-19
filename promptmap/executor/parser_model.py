@@ -79,6 +79,7 @@ def render_prompt(
     global_instruction: str | None = None,
     extra_context: dict | None = None,
     previous: PreviousRun | None = None,
+    wrap_refs: "bool | Callable[[str, bool], str] | None" = None,
 ) -> "tuple[str, _RenderState]":
     """
     Render *template_source* as a Jinja2 template.
@@ -103,6 +104,12 @@ def render_prompt(
         This model's result from its last run of the same template, exposed
         as ``{{ previous }}`` (``previous.prompt``, ``previous.output``), or
         None.
+    wrap_refs:
+        When truthy, every text value ``ref()`` returns is wrapped in tags
+        naming what was referenced: ``[name]\n<output>\n[/name]``.  Pass a
+        callable ``(name, is_open) -> str`` to produce the opening
+        (``is_open=True``) and closing tags yourself.  Structured (JSON) and
+        file values are returned unwrapped so ``ref('m').key`` keeps working.
 
     Returns
     -------
@@ -122,7 +129,10 @@ def render_prompt(
                 f"ref('{path}') — model '{name}' has no output yet. "
                 "This is likely a missing dependency or execution-order bug."
             )
-        return jsonpath.resolve(model_outputs[name], steps, f"ref('{path}')")
+        value = jsonpath.resolve(model_outputs[name], steps, f"ref('{path}')")
+        if wrap_refs and isinstance(value, str):
+            return _wrap_ref(wrap_refs, path, value)
+        return value
 
     def _promptdata_fn(name: str):
         return _promptdata.get(name)
@@ -178,6 +188,13 @@ def render_prompt(
         rendered = _apply_global_instruction(env, global_instruction, rendered, context)
 
     return rendered, state
+
+
+def _wrap_ref(wrap_refs: "bool | Callable[[str, bool], str]", name: str, value: str) -> str:
+    """Wrap *value* in the opening and closing tags for the referenced *name*."""
+    if callable(wrap_refs):
+        return f"{wrap_refs(name, True)}\n{value}\n{wrap_refs(name, False)}"
+    return f"[{name}]\n{value}\n[/{name}]"
 
 
 def _apply_global_instruction(

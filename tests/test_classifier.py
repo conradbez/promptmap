@@ -234,10 +234,9 @@ def classify_call(state: str, question: str) -> float:
 def classifier_proj(tmp_path: Path) -> Path:
     proj = tmp_path / "proj"
     (proj / "map").mkdir(parents=True)
-    (proj / "tests").mkdir()
     (proj / "map" / "haiku.prompt").write_text("Write a haiku.", encoding="utf-8")
     # gate=False: the stub LLM fails this test, and promptmap run would judge it with the LLM.
-    (proj / "tests" / "three_lines.prompt").write_text(
+    (proj / "map" / "three_lines.testprompt").write_text(
         "{{ config(gate=False) }}\n" + CLASSIFIER_TEST, encoding="utf-8"
     )
     (proj / "client.py").write_text(CLIENT_PY, encoding="utf-8")

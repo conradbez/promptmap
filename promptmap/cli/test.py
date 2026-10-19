@@ -1,5 +1,5 @@
 """
-promptmap test — run test prompts from the tests/ directory against model outputs.
+promptmap test — run *.testprompt tests from the map/ directory against model outputs.
 
 The `promptmap test` Click command lives here and is attached to the main Click
 group via :func:`register_command`, called from ``promptmap/cli/__init__.py``.
@@ -9,7 +9,7 @@ passes when the LLM returns JSON containing ``{"results": "pass"}``.
 
 Two modes:
 
-* **Per-case** — when YAML cases are found (``tests/**/*.yml`` or
+* **Per-case** — when YAML cases are found (``map/**/*.yml`` or
   ``--promptparams``), or inline ``--promptdata`` /
   ``--promptfile`` params are supplied, ``promptmap run`` is executed once per case
   and tests are reported for each named case individually.
@@ -68,13 +68,7 @@ def register_command(main) -> None:
         "--map-dir",
         default="map",
         show_default=True,
-        help="Directory containing *.prompt model files.",
-    )
-    @click.option(
-        "--tests-dir",
-        default="tests",
-        show_default=True,
-        help="Directory containing *.prompt test files and *.yml test cases.",
+        help="Directory containing *.prompt models, *.testprompt tests and *.yml test cases.",
     )
     @click.option(
         "--run-id",
@@ -89,7 +83,7 @@ def register_command(main) -> None:
         metavar="PATH",
         help=(
             "YAML file or directory of test cases (repeatable; files are combined). "
-            "Default: every *.yml under the tests dir. "
+            "Default: every *.yml under the map dir. "
             "When cases are found, promptmap run is executed for each case and tests "
             "are reported per case."
         ),
@@ -146,7 +140,7 @@ def register_command(main) -> None:
         metavar="NAME",
         help=(
             "After running, save the inline --promptdata/--promptfile params as a "
-            "named case in <tests-dir>/<name>.yml so it is re-tested in future "
+            "named case in <map-dir>/<name>.yml so it is re-tested in future "
             "parameterised runs. Requires at least one --promptdata or --promptfile."
         ),
     )
@@ -172,7 +166,6 @@ def register_command(main) -> None:
     )
     def test(
         map_dir: str,
-        tests_dir: str,
         run_id: str | None,
         no_color: bool,
         promptparams_paths: tuple[str, ...],
@@ -186,7 +179,7 @@ def register_command(main) -> None:
         secret_flags: tuple[str, ...],
     ) -> None:
         """
-        Run test prompts from the tests/ directory against model outputs.
+        Run *.testprompt tests from the map/ directory against model outputs.
 
         Each test prompt has full Jinja2 context (ref() works as in models).
         A test passes when the LLM returns JSON containing {"results": "pass"}.
@@ -211,7 +204,11 @@ def register_command(main) -> None:
         # ------------------------------------------------------------------
         # Discover tests
         # ------------------------------------------------------------------
-        tests = load_tests(tests_dir)
+        try:
+            tests = load_tests(map_dir)
+        except ValueError as exc:
+            err_console.print(f"[red]Error:[/red] {exc}")
+            sys.exit(1)
         # ------------------------------------------------------------------
         # Load models
         # ------------------------------------------------------------------
@@ -254,7 +251,7 @@ def register_command(main) -> None:
         dag_promptfiles = get_dag_promptfiles(all_models)
 
         # Not a *.yml file, so it is never loaded as cases itself; users copy
-        # it into place (cp promptparams.yml.example tests/cases.yml).
+        # it into place (cp promptparams.yml.example map/cases.yml).
         example_path = Path(EXAMPLE_PATH)
         try:
             write_example(example_path, dag_promptdata, dag_promptfiles)
@@ -300,7 +297,7 @@ def register_command(main) -> None:
         # ------------------------------------------------------------------
         # Load promptparams cases (optional; skipped when --check-latest).
         # ------------------------------------------------------------------
-        promptparams_paths = promptparams_paths or (tests_dir,)
+        promptparams_paths = promptparams_paths or (map_dir,)
         inline_spec: dict = {"promptdata": inline_data, "promptfiles": inline_files}
         if extends:
             inline_spec["extends"] = list(extends)
@@ -327,7 +324,7 @@ def register_command(main) -> None:
             sys.exit(1)
 
         if not tests and not any(case.expect for case in cases):
-            c.print(f"[yellow]No tests found.[/yellow] Create *.prompt files in '{tests_dir}' or add expect to YAML cases.")
+            c.print(f"[yellow]No tests found.[/yellow] Create *.testprompt files in '{map_dir}' or add expect to YAML cases.")
             return
 
         if cases:
@@ -379,7 +376,7 @@ def register_command(main) -> None:
                 row_run_id = db.create_run(model_count=len(case_models), git_sha=git_sha)
                 record_run_ids(
                     db, row_run_id, all_models.values(), case_models,
-                    tests_dir=tests_dir, global_instruction=global_instruction,
+                    map_dir=map_dir, global_instruction=global_instruction,
                     promptdata=row_promptdata, promptfiles=row_promptfiles,
                 )
                 model_run_results: list = []
@@ -457,7 +454,7 @@ def register_command(main) -> None:
             if save_case_name is not None:
                 try:
                     saved = save_case(
-                        tests_dir,
+                        map_dir,
                         save_case_name,
                         inline_data,
                         inline_files,
@@ -495,7 +492,7 @@ def register_command(main) -> None:
             model_names = list(all_models.keys())
             model_outputs = db.get_model_outputs_from_run(target_run["run_id"], model_names)
 
-            pretty_print.print_test_header(c, tests_dir, tests, target_run)
+            pretty_print.print_test_header(c, map_dir, tests, target_run)
 
             test_results: list = []
             on_start, on_done = pretty_print.make_test_callbacks(c, test_results, total=len(tests))

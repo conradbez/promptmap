@@ -24,7 +24,7 @@ Edit your `.prompt` files in `map/`, then run the pipeline, test expectations, a
 export ANTHROPIC_API_KEY=your_key_here
 
 promptmap run     # Execute the prompt DAG
-promptmap test    # Validate outputs against tests/
+promptmap test    # Validate outputs against map/*.testprompt
 promptmap docs    # Generate HTML report of the run and run history
 promptmap serve   # Launch the interactive local UI / HTTP server
 ```
@@ -58,12 +58,12 @@ Not every node in your pipeline needs to be a standard LLM call. Override `model
 
 *(Optional extra model kinds like `python_modal`, `agent_modal`, and `agent37` are available via `pip install "promptmap[extras]"`).*
 
-### 3. Tests (`tests/*.prompt`)
+### 3. Tests (`map/*.testprompt`)
 
 Run `promptmap test` to validate the latest run's outputs against your expectations:
 
-* **LLM-as-a-judge:** Prompt tests in `tests/*.prompt` pass when the LLM returns `{"results": "pass"}`.
-* **Deterministic checks:** Compare output fields directly in YAML using `expect` (no LLM judge needed).
+* **LLM-as-a-judge:** Prompt tests in `map/*.testprompt` (alongside your models) pass when the LLM returns `{"results": "pass"}`.
+* **Deterministic checks:** Compare output fields directly in YAML cases (`map/*.yml`) using `expect` (no LLM judge needed).
 
 ### 4. Visualizing & serving (`promptmap docs` & `promptmap serve`)
 

@@ -103,7 +103,7 @@ def llm_call(prompt: str) -> promptmap.LLMResult:
 
 ## Bulk testing with YAML cases (`promptmap test`)
 
-List named sets of inputs in any `*.yml` under `tests/`, at any depth (all files are combined). `promptmap test` runs the models once per case and reports each test as `test_name[case name]`. Shared inputs go in `baselines`; every case inherits `default` unless it `extends` another, and only lists what it changes:
+List named sets of inputs in any `*.yml` under `map/`, at any depth (all files are combined). `promptmap test` runs the models once per case and reports each test as `test_name[case name]`. Shared inputs go in `baselines`; every case inherits `default` unless it `extends` another, and only lists what it changes:
 
 ```yaml
 baselines:
@@ -115,7 +115,7 @@ cases:
     promptdata: {topic: How rockets reach orbit}
 ```
 
-See [`examples/generate_articles_example/tests/`](../examples/generate_articles_example/tests/) for a full example, and the `promptmap.promptparams` docstring for every rule. Handy flags: `--case "Rocket*"` to run matching cases, `--promptdata k=v` for a one-off case, `--save-case NAME` to keep it.
+See [`examples/generate_articles_example/map/`](../examples/generate_articles_example/map/) for a full example, and the `promptmap.promptparams` docstring for every rule. Handy flags: `--case "Rocket*"` to run matching cases, `--promptdata k=v` for a one-off case, `--save-case NAME` to keep it.
 
 ### Testing one model on a known input (`given`)
 
@@ -136,13 +136,13 @@ cases:
 
 `promptmap test --case "Reversed flyback diode"` then runs only what sits downstream
 of `board`. A full example, pinning only `parts` and `board` while the rest of
-the pipeline runs, is [`examples/pcb_design/tests/reversed_flyback_diode.yml`](../examples/pcb_design/tests/reversed_flyback_diode.yml).
+the pipeline runs, is [`examples/pcb_design/map/reversed_flyback_diode.yml`](../examples/pcb_design/map/reversed_flyback_diode.yml).
 
 
 ### Checking expected outputs (`expect`)
 
 A case can assert selected output fields directly, without an LLM judge or
-any files under `tests/`:
+any `.testprompt` files:
 
 ```yaml
 cases:
@@ -157,17 +157,17 @@ cases:
 ```
 
 The snippet illustrates the format; the complete runnable fixture is in
-`examples/pcb_design/tests/reversed_flyback_diode.yml`.
+`examples/pcb_design/map/reversed_flyback_diode.yml`.
 
 ### One folder per model
 
 A file whose direct parent folder is named after a model belongs to that
 model, like Ansible's `host_vars/<host>/`. Its `given` and `expect` are that
 model's value, written without the model header. Folders above the parent
-are free, so `tests/fixtures/board/reversed.yml` belongs to `board`:
+are free, so `map/2_build/board/reversed.yml` belongs to `board`:
 
 ```yaml
-# tests/fixtures/board/reversed.yml
+# map/2_build/board/reversed.yml
 baselines:
   reversed_board:
     given:                        # = given: {board: {...}}
@@ -177,9 +177,9 @@ baselines:
 ```
 
 Baselines are shared across files, so a case elsewhere can combine it with
-others: `extends: [default, reversed_board]`. A subfolder that is not named
-after a model is an error, so a typo or a renamed model fails loudly. Files
-directly in `tests/` are not scoped.
+others: `extends: [default, reversed_board]`. Files in a subfolder that is
+not named after a model (an organising folder like `map/1_design/`) or
+directly in `map/` are not scoped.
 
 `expect` maps model names to expected outputs. Mappings compare only listed
 fields, recursively. Nonempty lists whose expected items all have a `ref`
@@ -196,7 +196,7 @@ expectation. Expected values are never injected into model prompts.
 Results appear as `expect.polarity[Reversed flyback diode]`. Missing models,
 items, fields, and unequal values fail with the affected field path. A failed
 assertion or model execution makes `promptmap test` exit nonzero for CI. Existing
-`tests/*.prompt` checks can run alongside assertions. `--check-latest` skips
+`map/*.testprompt` checks can run alongside assertions. `--check-latest` skips
 YAML cases, including their expectations.
 
 ---
@@ -365,7 +365,7 @@ Two exclusions are automatic:
 
 - **`execute_python` models** never receive it — their template renders to
   Python source, and prepending prose to it would be a `SyntaxError`.
-- **Test prompts** in `tests/` never receive it. The models under test render
+- **Test prompts** (`*.testprompt`) never receive it. The models under test render
   exactly as they do in a real run, but a judge told how to write is a biased
   judge.
 
@@ -383,7 +383,7 @@ two runs of identical inputs share them:
 | ID | Hash of | Stored on |
 | --- | --- | --- |
 | `template_hash` | one model's raw `.prompt` source, before Jinja | each `model_results` row |
-| `map_hash` | every model's name and source, `global.prompt`, and every file under `tests/` | the `runs` row |
+| `map_hash` | every model's name and source, `global.prompt`, and every `*.testprompt` and `*.yml` test file under `map/` | the `runs` row |
 | `run_hash` | `map_hash`, the template hashes of the models this run executed, the promptdata, and the promptfiles' contents | the `runs` row |
 
 So a changed `--promptdata` value changes `run_hash` but not `map_hash`, and

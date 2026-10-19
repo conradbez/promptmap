@@ -61,16 +61,15 @@ pcb_design/
 ├── map/
 │   ├── 1_design/        # 1_a_brief -> 1_b_requirements -> 1_c_architecture -> 1_d_electrical_check
 │   ├── 2_build/         # 2_a_parts -> 2_b_research -> 2_c_layout_rules -> 2_d_board
-│   └── 3_qa/            # 3_a_bom_line, 3_b_polarity, 3_c_bringup -> 3_d_review
-└── tests/
-    └── reversed_flyback_diode.yml
+│   ├── 3_qa/            # 3_a_bom_line, 3_b_polarity, 3_c_bringup -> 3_d_review
+│   └── reversed_flyback_diode.yml   # a landmark, kept on the map
 
 ```
 
 1. **The Map (`map/`):** Instead of asking an LLM to "design a PCB" in one massive prompt, the problem is broken into stages (`1_design`, `2_build`, `3_qa`). Each `.prompt` file is a hypothesis that feeds downstream via `ref()`—from initial architecture (`1_c_architecture.prompt`) to physical board generation (`2_d_board.prompt`) and QA (`3_b_polarity.prompt`).
 2. **The Mistake (Drifting off the map):** During iteration, the pipeline generated a board where a flyback diode's logical net names looked right, but its physical pad connections were reversed—a classic LLM blind spot that would fry the board on bring-up.
 3. **Updating the Map (`3_b_polarity.prompt`):** Instead of rewriting the whole pipeline from scratch, we update a specific node in the graph (`2_b_research.prompt` or `3_b_polarity.prompt`) to explicitly cross-check datasheet pin-to-pad mappings against cathode/anode orientation.
-4. **Preserving the Landmark (`tests/reversed_flyback_diode.yml`):** Finally, we lock in that hard-won lesson as a test:
+4. **Preserving the Landmark (`map/reversed_flyback_diode.yml`):** Finally, we lock in that hard-won lesson as a test:
 
 > *"I discovered that correct logical pin names don’t guarantee correct physical pad connections. I’ve changed my process to account for that. `reversed_flyback_diode.yml` checks that my pipeline still catches this mistake as I keep iterating."*
 

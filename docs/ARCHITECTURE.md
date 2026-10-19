@@ -90,7 +90,7 @@ than being sent to the LLM with a missing input.
 
 **Files are content-addressed blobs plus a manifest in the output string.** `promptmap/files.py` holds `File`, `Dir` and `Output`. Anything that produces an output can return them: `llm_call`, `call.compute`, a kind's `exec_fn`, a validator or a skip. `RunContext.cached()` and `execute_model()` write their bytes to a `BlobStore` (sha256 → bytes; `put`/`get`/`exists`) and store `encode_output(value)`: plain text and file-free JSON unchanged, anything with files as `$promptmap:v1\n` + JSON with each file tagged by the `"$promptmap"` marker key. `encode_output` is the only producer of markers. It escapes marker-looking keys in model data (`$promptmap` → `$$promptmap`) and text that starts with `$promptmap:`. `decode_output` is the only reader, and it validates every marker. So text or JSON from a model can never pose as a file reference. `StorageBackend` is unchanged apart from an optional `blob_store()`; the SQLite backend keeps blobs in a `blobs` table unless given another store, and `client.py` can supply one (`blob_store`). A `promptfiles` name that names a model becomes a DAG edge (`graph._link_promptfile_deps`), and `RunContext.files_for()` resolves it to that model's files, per item for an `each=` model. Test prompts use the same syntax: `tester._open_test_files()` resolves their `promptfiles` against the decoded model outputs, and the files' hashes join the test's cache key.
 
-**Test inputs are named YAML cases, resolved before anything runs.** `promptmap/promptparams.py` loads every `tests/**/*.yml` file (a file in a folder named after a model has its `given`/`expect` put under that model), pools their `baselines`, and resolves each case's `extends` chain (implicit `default`, left-to-right merge, `null` deletes) into a flat `TestCase(name, promptdata, promptfiles)`, with promptfile paths made relative to the working directory. `execute_tests` and the CLI only ever see resolved cases; the case name is the test's `param_label`.
+**Test inputs are named YAML cases, resolved before anything runs.** `promptmap/promptparams.py` loads every `map/**/*.yml` file (a file in a folder named after a model has its `given`/`expect` put under that model), pools their `baselines`, and resolves each case's `extends` chain (implicit `default`, left-to-right merge, `null` deletes) into a flat `TestCase(name, promptdata, promptfiles)`, with promptfile paths made relative to the working directory. `execute_tests` and the CLI only ever see resolved cases; the case name is the test's `param_label`.
 
 **Storage keeps raw and validated output separately.** `mark_model_success` stores the raw output, which is what the prompt cache serves, so editing a validator never forces a new LLM call. When a validator transforms the output, the executor also calls `record_validated_output`, and `get_model_outputs_from_run` prefers it — so `promptmap test` judges the value the pipeline actually passed downstream.
 
@@ -175,9 +175,9 @@ Results stored in `PromptModel.promptdata_used`, shown in `promptmap ls`, and wa
 
 ## Validation vs. tests
 
-| | `tests/` | `validation/` |
+| | `map/*.testprompt` | `validation/` |
 |---|---|---|
-| **Format** | `.prompt` Jinja files | `.py` Python files |
+| **Format** | `.testprompt` Jinja files | `.py` Python files |
 | **When** | Explicit `promptmap test` after a run | Automatically inside `promptmap run` |
 | **Input** | Model outputs from a previous run | Rendered prompt + LLM output of the current model |
 | **Pass criterion** | LLM returns `{"results": "pass"}` | `validate(prompt, result) -> bool` |

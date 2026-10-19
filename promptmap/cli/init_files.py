@@ -17,8 +17,7 @@ INIT_FILES = {
 | File / Directory | Purpose |
 |-----------------|---------|
 | `client.py` | LLM backend (which model/API to call) |
-| `map/` | START HERE: Prompt files |
-| `tests/` | LLM-as-judge tests |
+| `map/` | START HERE: Prompt files (`.prompt`) and LLM-as-judge tests (`.testprompt`) |
 | `validation/` | Pre-pass quality gates |
 | `outputs/` | Generated outputs from `promptmap run` (auto-created) |
 
@@ -50,11 +49,11 @@ Example chain — `map/topic.prompt` → `map/article.prompt` → `map/summary.p
 
 ---
 
-## tests/
+## Tests (`map/*.testprompt`)
 
 Used when you change prompts to make sure everything still works and passes quality standards.
 
-Each `.prompt` file in this directory is an LLM-as-judge test.
+Each `.testprompt` file in `map/` (next to the models it checks) is an LLM-as-judge test.
 The prompt should reference model outputs via `{{ ref('model_name') }}` and return JSON:
   - Pass: `{"results": "pass"}`
   - Fail: `{"results": "fail"}`
@@ -63,7 +62,7 @@ Tests are also gates: `promptmap run` judges each one right after the models it
 reads, and stops the run if it fails. Add `{{ config(gate=False) }}` to a
 test that should only run under `promptmap test`.
 
-Example `tests/summary_has_bullets.prompt`:
+Example `map/summary_has_bullets.testprompt`:
 
     Does the following text contain at least 3 bullet points (lines starting with - or •)?
 
@@ -155,16 +154,15 @@ unorganized mess of every prompt ever tried — promptmap models structures prom
 a Directed Acyclic Graph (DAG) of lower- and higher-order hypotheses. Like
 keeping failed working in physics, it externalizes your mental map so you can
 tweak underlying assumptions rather than doing blind, one-shot rewrites.
-""",
-    "tests/README.md": """\
-# promptmap tests (The Landmarks)
 
-Tests preserve hard-earned domain lessons across iterations (such as catching
-a reversed diode where logical pin names matched, but physical pad connections
-were backward). They act as smoke tests to verify that a change actually moved
-the project toward the destination.
+## Tests (The Landmarks)
+
+`*.testprompt` files live here too. Tests preserve hard-earned domain lessons
+across iterations (such as catching a reversed diode where logical pin names
+matched, but physical pad connections were backward). They act as smoke tests
+to verify that a change actually moved the project toward the destination.
 """,
-    "tests/summary_has_bullets.prompt": """\
+    "map/summary_has_bullets.testprompt": """\
 {# gate=False: summaries is the last model; nothing downstream for a gate to protect #}
 {{ config(gate=False) }}
 Does the following JSON summaries object contain at least 3 key points in the first summary entry?

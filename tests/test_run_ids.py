@@ -92,15 +92,23 @@ def test_editing_any_prompt_changes_both_run_level_hashes(storage) -> None:
 
 def test_map_hash_covers_test_files(tmp_path) -> None:
     models = build_models_from_dict({"a": "Hi"}).values()
-    tests = tmp_path / "tests"
-    tests.mkdir()
-    (tests / "a_is_short.prompt").write_text("Is {{ ref('a') }} short?")
-    before = map_hash(models, tests)
+    map_dir = tmp_path / "map"
+    map_dir.mkdir()
+    (map_dir / "a_is_short.testprompt").write_text("Is {{ ref('a') }} short?")
+    before = map_hash(models, map_dir)
 
-    (tests / "a_is_short.prompt").write_text("Is {{ ref('a') }} very short?")
+    (map_dir / "a_is_short.testprompt").write_text("Is {{ ref('a') }} very short?")
+    after = map_hash(models, map_dir)
+    assert after != before
+    assert after != map_hash(models, None)
 
-    assert map_hash(models, tests) != before
-    assert map_hash(models, tests) != map_hash(models, None)
+    (map_dir / "cases.yml").write_text("cases:\n  - name: X\n")
+    assert map_hash(models, map_dir) != after
+
+    # Model sources are hashed from their specs; other files don't count.
+    with_cases = map_hash(models, map_dir)
+    (map_dir / "README.md").write_text("notes")
+    assert map_hash(models, map_dir) == with_cases
 
 
 def test_run_hash_covers_promptfile_contents() -> None:

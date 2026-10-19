@@ -151,12 +151,12 @@ def print_gate_failure(c: Console, gated) -> None:
 
 def print_test_header(
     c: Console,
-    tests_dir: str,
+    map_dir: str,
     tests: dict,
     target_run: dict,
 ) -> None:
     c.rule("[bold cyan]promptmap test[/bold cyan]")
-    c.print(f"  Tests dir  : [dim]{tests_dir}[/dim]")
+    c.print(f"  Map dir    : [dim]{map_dir}[/dim]")
     c.print(f"  Tests      : {len(tests)}")
     c.print(f"  Using run  : [dim]{target_run['run_id']}[/dim]  ({target_run['run_date']})")
     c.print()

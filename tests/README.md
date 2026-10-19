@@ -28,7 +28,7 @@ Client description: {{ promptdata("client_description") }}
 ```
 
 ```jinja
-{# tests/cad_box_fits_project.prompt #}
+{# map/cad_box_fits_project.testprompt #}
 {{ config(judge="classifier", threshold=0.8) }}
 Does this box design match the client description and fit the project goal?
 CLIENT DESCRIPTION: {{ promptdata("client_description") }}
@@ -50,19 +50,19 @@ Expressing a map in promptmap is only as useful as knowing that the path followe
 When prompts build on each other (`extract_facts → outline → article`), one bad step poisons everything after it. Put a cheap classifier test on each hop so a failure points at the step that broke, not the final output:
 
 ```jinja
-{# tests/facts_are_only_about_topic.prompt #}
+{# map/facts_are_only_about_topic.testprompt #}
 Are all of these facts about the printing press?
 ---
 {{ ref('extract_facts') }}
 
-{# tests/outline_uses_the_facts.prompt #}
+{# map/outline_uses_the_facts.testprompt #}
 {{ config(threshold=0.8) }}
 Does this outline only use claims from the facts below?
 ---
 FACTS: {{ ref('extract_facts') }}
 OUTLINE: {{ ref('outline') }}
 
-{# tests/article_follows_outline.prompt #}
+{# map/article_follows_outline.testprompt #}
 Does this article follow the outline's section order?
 ---
 OUTLINE: {{ ref('outline') }}

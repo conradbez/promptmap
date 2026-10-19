@@ -40,10 +40,9 @@ GATE = "TEST outline_ok\n{{ ref('outline') }}"  # a gate by default
 @pytest.fixture()
 def proj(tmp_path: Path) -> Path:
     (tmp_path / "map").mkdir()
-    (tmp_path / "tests").mkdir()
     for name, source in MODELS.items():
         (tmp_path / "map" / f"{name}.prompt").write_text(source, encoding="utf-8")
-    (tmp_path / "tests" / "outline_ok.prompt").write_text(GATE, encoding="utf-8")
+    (tmp_path / "map" / "outline_ok.testprompt").write_text(GATE, encoding="utf-8")
     (tmp_path / "client.py").write_text(CLIENT_PY, encoding="utf-8")
     (tmp_path / "verdict.txt").write_text("pass", encoding="utf-8")
     return tmp_path
@@ -78,7 +77,7 @@ def test_failing_gate_stops_the_pipeline(proj: Path) -> None:
 
 
 def test_gate_false_opts_a_test_out_of_promptmap_run(proj: Path) -> None:
-    (proj / "tests" / "outline_ok.prompt").write_text("{{ config(gate=False) }}\n" + GATE, encoding="utf-8")
+    (proj / "map" / "outline_ok.testprompt").write_text("{{ config(gate=False) }}\n" + GATE, encoding="utf-8")
 
     result = run_promptmap("run", cwd=proj, check=False)
 
@@ -103,7 +102,7 @@ def test_selecting_downstream_of_a_gate_runs_the_gate_first(proj: Path) -> None:
 
 
 def test_gate_referencing_unknown_model_is_a_dependency_error(proj: Path) -> None:
-    (proj / "tests" / "outline_ok.prompt").write_text(GATE.replace("outline')", "nope')"), encoding="utf-8")
+    (proj / "map" / "outline_ok.testprompt").write_text(GATE.replace("outline')", "nope')"), encoding="utf-8")
 
     result = run_promptmap("run", cwd=proj, check=False)
 
@@ -115,7 +114,7 @@ def test_skip_downstream_carries_past_the_gate(proj: Path) -> None:
     (proj / "map" / "topic.prompt").write_text(
         'MODEL topic\n{{ skip_this_and_downstream("no topic") }}', encoding="utf-8"
     )
-    (proj / "tests" / "outline_ok.prompt").write_text(
+    (proj / "map" / "outline_ok.testprompt").write_text(
         "TEST topic_ok\n{{ ref('topic') }}", encoding="utf-8"
     )
 
@@ -124,3 +123,26 @@ def test_skip_downstream_carries_past_the_gate(proj: Path) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
     assert calls(proj) == ["TEST topic_ok", "MODEL other"]
     assert "Unresolvable" not in result.stdout
+
+
+def test_tests_are_found_at_any_depth_of_the_map_dir(tmp_path: Path) -> None:
+    from promptmap.tester import load_tests
+
+    (tmp_path / "1_design").mkdir()
+    (tmp_path / "top.testprompt").write_text("A", encoding="utf-8")
+    (tmp_path / "1_design" / "nested.testprompt").write_text("B", encoding="utf-8")
+    (tmp_path / "model.prompt").write_text("not a test", encoding="utf-8")
+
+    assert load_tests(tmp_path) == {"nested": "B", "top": "A"}
+
+
+def test_duplicate_test_names_across_folders_are_an_error(tmp_path: Path) -> None:
+    from promptmap.tester import load_tests
+
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    (tmp_path / "a" / "same.testprompt").write_text("A", encoding="utf-8")
+    (tmp_path / "b" / "same.testprompt").write_text("B", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Duplicate test name 'same'"):
+        load_tests(tmp_path)

@@ -5,7 +5,7 @@ Commands
 --------
 promptmap init         Scaffold a starter project (or add secrets/data/files YAML).
 promptmap run          Execute all prompt models (or a subset via --select).
-promptmap test         Run test prompts from the tests/ directory.
+promptmap test         Run *.testprompt tests from the map/ directory.
 promptmap ls           List discovered models and their dependencies.
 promptmap show-runs    Show recent run history from the SQLite store.
 promptmap show-result  Print the stored output for a specific model + run.
@@ -195,25 +195,15 @@ def main() -> None:
     ),
 )
 @click.option(
-    "--tests-dir",
-    default="tests",
-    show_default=True,
-    help=(
-        "Directory holding gate tests: every test there runs right after the "
-        "models it reads, and a failing one stops the run. Opt a test out "
-        "with {{ config(gate=False) }}."
-    ),
-)
-@click.option(
     "--wrap-refs",
     is_flag=True,
     default=False,
     help="Wrap each ref() output in [model_name]...[/model_name] tags.",
 )
-def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple[str, ...], secret_flags: tuple[str, ...], promptfiles: tuple[str, ...], validation_dir: str, clear_cache: bool, global_instruction_path: str | None, tests_dir: str, wrap_refs: bool) -> None:
+def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple[str, ...], secret_flags: tuple[str, ...], promptfiles: tuple[str, ...], validation_dir: str, clear_cache: bool, global_instruction_path: str | None, wrap_refs: bool) -> None:
     """Execute all prompt models in dependency order.
 
-    Tests in the tests dir are gates unless they set {{ config(gate=False) }}:
+    *.testprompt tests in the map dir are gates unless they set {{ config(gate=False) }}:
     they run first, after only the models they read, and the rest of the
     pipeline runs if they all pass.
 
@@ -311,11 +301,14 @@ def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple
     try:
         gates = {
             name: source
-            for name, source in load_gates(tests_dir).items()
+            for name, source in load_gates(map_dir).items()
             if set(gate_reads(name, source, all_models)) <= run_names
         }
     except UnknownModelError as exc:
         err_console.print(f"[red]Dependency error:[/red] {exc}")
+        sys.exit(1)
+    except ValueError as exc:
+        err_console.print(f"[red]Error:[/red] {exc}")
         sys.exit(1)
 
     # ------------------------------------------------------------------
@@ -387,7 +380,7 @@ def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple
 
     record_run_ids(
         db, run_id, all_models.values(), ordered,
-        tests_dir=tests_dir, global_instruction=global_instruction,
+        map_dir=map_dir, global_instruction=global_instruction,
         promptdata=promptdata_vars, promptfiles=promptfiles_dict,
     )
 

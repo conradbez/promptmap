@@ -29,7 +29,7 @@ def test_cli_run_all_model_types(tmp_path: Path) -> None:
     run_promptmap("init", "proj", "--provider", "openai", cwd=tmp_path)
     proj = tmp_path / "proj"
 
-    for folder in ("map", "validation", "tests"):
+    for folder in ("map", "validation"):
         shutil.rmtree(proj / folder, ignore_errors=True)
 
     _write_models(proj / "map", MODELS)
@@ -77,11 +77,10 @@ def simple_proj(tmp_path: Path) -> Path:
     proj = tmp_path / "simple"
     (proj / "map").mkdir(parents=True)
     (proj / "validation").mkdir()
-    (proj / "tests").mkdir()
 
     (proj / "map" / "greet.prompt").write_text("Say hello in one word.", encoding="utf-8")
     (proj / "validation" / "greet.py").write_text(SIMPLE_VALIDATION_PY, encoding="utf-8")
-    (proj / "tests" / "greet_is_greeting.prompt").write_text(SIMPLE_TEST_PROMPT, encoding="utf-8")
+    (proj / "map" / "greet_is_greeting.testprompt").write_text(SIMPLE_TEST_PROMPT, encoding="utf-8")
     (proj / "client.py").write_text(SIMPLE_CLIENT_PY, encoding="utf-8")
 
     yield proj

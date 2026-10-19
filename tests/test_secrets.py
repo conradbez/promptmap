@@ -232,13 +232,12 @@ def llm_call(prompt, secrets):
 
 def _secret_project(root):
     (root / "map").mkdir()
-    (root / "tests").mkdir()
     (root / "client.py").write_text(SECRET_CLIENT_PY)
     (root / "map" / "m.prompt").write_text(
         '{{ config(model_type="needs_secret_cli_test") }}\nhi'
     )
-    (root / "tests" / "t.prompt").write_text("Is {{ ref('m') }} fine?")
-    (root / "tests" / "cases.yml").write_text("cases:\n  - name: one\n")
+    (root / "map" / "t.testprompt").write_text("Is {{ ref('m') }} fine?")
+    (root / "map" / "cases.yml").write_text("cases:\n  - name: one\n")
 
 
 def test_promptmap_test_passes_secrets_to_runs_and_judge(tmp_path, monkeypatch):

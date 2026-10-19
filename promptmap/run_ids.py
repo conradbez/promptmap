@@ -11,7 +11,8 @@ two runs of the same inputs share them:
 
 ``map_hash``
     The whole project end to end: every model's name and source, the global
-    instruction, and every file under the tests directory.  The same for a
+    instruction, and every test file (``*.testprompt`` and test-case YAML)
+    under the map directory.  The same for a
     ``--select`` run as for a full one.
 
 ``run_hash``
@@ -38,9 +39,13 @@ def template_hash(source: str) -> str:
     return hashlib.sha256(source.encode()).hexdigest()
 
 
+#: Files under the map directory that are tests rather than models.
+_TEST_FILE_SUFFIXES = (".testprompt", ".yml", ".yaml")
+
+
 def map_hash(
     models: Iterable[ModelSpec],
-    tests_dir: str | Path | None = None,
+    map_dir: str | Path | None = None,
     global_instruction: str | None = None,
 ) -> str:
     """The hash of every prompt, the global instruction and every test file."""
@@ -48,9 +53,11 @@ def map_hash(
     for spec in sorted(models, key=lambda s: s.name):
         _update(digest, "model", spec.name, template_hash(spec.source))
     _update(digest, "global", global_instruction or "")
-    root = Path(tests_dir) if tests_dir is not None else None
+    root = Path(map_dir) if map_dir is not None else None
     if root is not None and root.is_dir():
-        for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        for path in sorted(
+            p for p in root.rglob("*") if p.is_file() and p.suffix in _TEST_FILE_SUFFIXES
+        ):
             content = hashlib.sha256(path.read_bytes()).hexdigest()
             _update(digest, "test", path.relative_to(root).as_posix(), content)
     return digest.hexdigest()
@@ -78,7 +85,7 @@ def record_run_ids(
     run_id: str,
     all_models: Iterable[ModelSpec],
     run_models: Iterable[ModelSpec],
-    tests_dir: str | Path | None = None,
+    map_dir: str | Path | None = None,
     global_instruction: str | None = None,
     promptdata: Mapping[str, Any] | None = None,
     promptfiles: Mapping[str, Any] | None = None,
@@ -88,7 +95,7 @@ def record_run_ids(
     Storing is optional for a backend: one without ``record_run_ids`` still
     gets the hashes returned.
     """
-    map_id = map_hash(all_models, tests_dir, global_instruction)
+    map_id = map_hash(all_models, map_dir, global_instruction)
     run_id_hash = run_hash(map_id, run_models, promptdata, promptfiles)
     record = getattr(storage, "record_run_ids", None)
     if record is not None:

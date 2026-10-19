@@ -1,7 +1,7 @@
 """
 Gate tests — tests that guard every ``promptmap run``.
 
-Every test in ``tests/`` is a gate unless it opts out with
+Every ``*.testprompt`` test in the map directory is a gate unless it opts out with
 ``{{ config(gate=False) }}``.  ``promptmap run`` splits the run in two:
 
   1. Run the models the gate tests read, and everything upstream of them.
@@ -38,9 +38,9 @@ def is_gate(source: str) -> bool:
     return parse_model_config(source).get("gate", "true").strip().lower() not in ("false", "0", "no")
 
 
-def load_gates(tests_dir: str | Path = "tests") -> dict[str, str]:
-    """The gate tests in *tests_dir*, as test_name → source."""
-    return {name: source for name, source in load_tests(tests_dir).items() if is_gate(source)}
+def load_gates(map_dir: str | Path = "map") -> dict[str, str]:
+    """The gate tests in *map_dir*, as test_name → source."""
+    return {name: source for name, source in load_tests(map_dir).items() if is_gate(source)}
 
 
 def gate_reads(name: str, source: str, models: dict[str, ModelSpec]) -> list[str]:

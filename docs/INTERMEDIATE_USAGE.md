@@ -229,11 +229,13 @@ The model is recorded as a successful run, downstream templates can detect it wi
 
 # promptmap tests
 
+Tests are `*.testprompt` files in `map/`, next to the models they check (at any depth; names must be unique). They are Jinja templates like models, but are judged rather than run as pipeline steps.
+
 
 **Attaching model files (`promptfiles`)** — a test attaches files the models produced with the same `config()` syntax models use, so the judge sees the actual bytes rather than a `[file: …]` handle. Name a model for all its files, or `model.key` for one:
 
 ```jinja
-{# tests/logo_is_a_fox.prompt #}
+{# map/logo_is_a_fox.testprompt #}
 {{ config(promptfiles=["logo"]) }}
 Is the attached image a fox? Respond {"results": "pass"} or {"results": "fail"}.
 ```
@@ -243,7 +245,7 @@ Names that aren't models are run-level `--promptfile`s. A test that declares no 
 **Classifier judge** — instead of an LLM, a test can be judged by a classifier such as [Jev](https://typesafe.ai) or a local [Ollaya](https://ollaya.dev) model, which answers a yes/no question with a probability. Put the question above a `---` line and the text to judge below it; the test passes when P(yes) ≥ 0.5 (or `{{ config(threshold=0.8) }}`):
 
 ```jinja
-{# tests/haiku_has_three_lines.prompt #}
+{# map/haiku_has_three_lines.testprompt #}
 Does this haiku have exactly three lines?
 ---
 {{ ref('haiku') }}
@@ -269,7 +271,7 @@ The judge is chosen per test with `{{ config(judge="llm") }}` / `{{ config(judge
 Opt a test out when it should only run under `promptmap test` — for example a subjective quality check that should not block a run, or one whose judge needs a service `promptmap run` should not depend on:
 
 ```jinja
-{# tests/memo_reads_well.prompt #}
+{# map/memo_reads_well.testprompt #}
 {# gate=False: style judgement; a borderline verdict should not block the run #}
 {{ config(gate=False) }}
 Is this memo clear and concise? {{ ref('memo') }}

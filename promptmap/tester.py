@@ -1,7 +1,7 @@
 """
-promptmap test runner — discovers and executes *.prompt test files.
+promptmap test runner — discovers and executes *.testprompt test files.
 
-Test files live in the tests/ directory (sibling to map/).
+Test files live in the map/ directory alongside the models, at any depth.
 They have full Jinja2 context (ref() works just like in model prompts).
 
 Pass / fail rule
@@ -9,10 +9,10 @@ Pass / fail rule
 The LLM response must be valid JSON containing ``"results": "pass"``.
 Any other response — wrong JSON, extra fields, wrong value — is a failure.
 
-Example test (tests/smoke_test.prompt):
+Example test (map/smoke_test.testprompt):
     Always respond with exactly this JSON: {"results": "pass"}
 
-Example test that inspects a model output (tests/haiku_has_lines.prompt):
+Example test that inspects a model output (map/haiku_has_lines.testprompt):
     The following haiku should have exactly 3 lines:
 
     {{ ref('haiku') }}
@@ -86,21 +86,33 @@ class TestResult:
     score: float | None = None  # classifier P(yes); None for LLM-judged tests
 
 
-def load_tests(tests_dir: str | Path = "tests") -> dict[str, str]:
-    """
-    Discover *.prompt files in *tests_dir*.
+TEST_SUFFIX = ".testprompt"
 
-    Returns a mapping of test_name → raw source.
+
+def load_tests(map_dir: str | Path = "map") -> dict[str, str]:
+    """
+    Discover *.testprompt files anywhere under *map_dir*.
+
+    Returns a mapping of test_name (the file stem) → raw source.
     Returns an empty dict (not an error) when the directory doesn't exist,
     so `promptmap test` gives a friendly message rather than crashing.
+    Test names must be unique across subdirectories.
     """
-    tests_dir = Path(tests_dir)
-    if not tests_dir.exists():
+    map_dir = Path(map_dir)
+    if not map_dir.exists():
         return {}
-    return {
-        f.stem: f.read_text(encoding="utf-8")
-        for f in sorted(tests_dir.glob("*.prompt"))
-    }
+    tests: dict[str, str] = {}
+    paths: dict[str, Path] = {}
+    for f in sorted(map_dir.rglob(f"*{TEST_SUFFIX}")):
+        name = f.name[: -len(TEST_SUFFIX)]
+        if name in tests:
+            raise ValueError(
+                f"Duplicate test name '{name}': found in both '{paths[name]}' "
+                f"and '{f}'. Test names must be unique across all subdirectories."
+            )
+        tests[name] = f.read_text(encoding="utf-8")
+        paths[name] = f
+    return tests
 
 
 def _parse_pass(llm_output: str) -> bool:

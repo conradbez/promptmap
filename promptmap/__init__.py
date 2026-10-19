@@ -127,7 +127,6 @@ async def async_run(
     promptdata: dict | None = None,
     promptfiles: dict[str, PromptFile] | None = None,
     validation_dir: str | None = "validation",
-    tests_dir: str | None = "tests",
     storage_backend: StorageBackend | None = None,
     global_instruction: str | Callable[[], str] | None = None,
     blob_store: BlobStore | None = None,
@@ -143,7 +142,10 @@ async def async_run(
     Parameters
     ----------
     map_dir:
-        Path to the directory containing *.prompt files.
+        Path to the directory containing *.prompt files.  Test files there
+        (``*.testprompt`` and test-case YAML) are hashed into the run's
+        ``map_hash`` so a changed test changes the map's ID (see
+        :mod:`promptmap.run_ids`).
     select:
         Optional list of model names to run. All upstream dependencies are
         also executed fresh; the prompt cache makes unchanged nodes instant.
@@ -167,10 +169,6 @@ async def async_run(
         Values may be a **string path**, a :class:`pathlib.Path`, or any
         **binary file-like object** (``open(..., "rb")``, ``io.BytesIO``,
         etc.) — whatever your ``llm_call`` implementation accepts.
-    tests_dir:
-        The tests directory, hashed into the run's ``map_hash`` so a changed
-        test changes the map's ID (see :mod:`promptmap.run_ids`).  Ignored
-        for ``models_from_dict`` runs.
     global_instruction:
         Optional prompt text rendered into **every** model prompt — promptmap's
         analogue of dbt's query-comment.  Either a string or a zero-argument
@@ -339,7 +337,7 @@ async def async_run(
         run_id,
         all_models.values(),
         ordered,
-        tests_dir=tests_dir if models_from_dict is None else None,
+        map_dir=map_dir if models_from_dict is None else None,
         global_instruction=global_instruction,
         promptdata=promptdata,
         promptfiles=promptfiles,
@@ -455,7 +453,6 @@ def run(
     promptdata: "dict | None" = None,
     promptfiles: "dict[str, PromptFile] | None" = None,
     validation_dir: "str | None" = "validation",
-    tests_dir: "str | None" = "tests",
     storage_backend: "StorageBackend | None" = None,
     global_instruction: "str | Callable[[], str] | None" = None,
     blob_store: "BlobStore | None" = None,
@@ -482,7 +479,6 @@ def run(
         promptdata=promptdata,
         promptfiles=promptfiles,
         validation_dir=validation_dir,
-        tests_dir=tests_dir,
         storage_backend=storage_backend,
         global_instruction=global_instruction,
         blob_store=blob_store,

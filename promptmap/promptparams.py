@@ -6,29 +6,31 @@ reports every test prompt against that case's outputs.
 
 Where cases live
 ----------------
-Every ``*.yml`` / ``*.yaml`` file under the tests directory (``tests/``, at
-any depth) is loaded and combined (``--promptparams PATH`` replaces that
-default; it is repeatable and accepts files or directories).  Files are read
-in sorted path order, so the case order is stable.
+Every ``*.yml`` / ``*.yaml`` file under the map directory (``map/``, at any
+depth, alongside the models and ``*.testprompt`` tests) is loaded and combined
+(``--promptparams PATH`` replaces that default; it is repeatable and accepts
+files or directories).  Files are read in sorted path order, so the case order
+is stable.
 
-A file in a subfolder belongs to the model the folder is named after, like
+A file in a subfolder named after a model belongs to that model, like
 Ansible's ``host_vars/<host>/``: only the direct parent folder counts, so
-``tests/fixtures/board/reversed.yml`` belongs to ``board``.  Its ``given`` and
+``map/2_build/board/reversed.yml`` belongs to ``board``.  Its ``given`` and
 ``expect`` values are that model's, written without the model header::
 
-    # tests/board/reversed.yml
+    # map/board/reversed.yml
     cases:
       - name: Reversed diode
         given: {pad_nets: [...]}     # = given: {board: {pad_nets: [...]}}
 
-A subfolder that is not named after a model is an error.  Files directly in
-the tests directory (or named explicitly) are not scoped.
+Files in a subfolder that is not named after a model (an organising folder
+like ``map/1_design/``), directly in the map directory, or named explicitly
+are not scoped.
 
 Format
 ------
 ::
 
-    # tests/base.yml
+    # map/base.yml
     baselines:
       default:                       # every case starts from this ...
         promptdata:
@@ -94,7 +96,7 @@ from typing import Any
 import yaml
 
 
-DEFAULT_PATHS = ("tests",)
+DEFAULT_PATHS = ("map",)
 DEFAULT_BASELINE = "default"
 EXAMPLE_PATH = "promptparams.yml.example"
 
@@ -133,7 +135,7 @@ ModelsArg = "set[str] | list[str] | None"
 def find_promptparams_files(paths: PathsArg = None) -> list[Path]:
     """Return the YAML files *paths* name, expanding directories.
 
-    With no *paths*, the default (the ``tests/`` directory) is used and
+    With no *paths*, the default (the ``map/`` directory) is used and
     skipped when it does not exist.  A path given explicitly must exist.
     """
     return [f for f, _ in _discover(paths)]
@@ -170,8 +172,8 @@ def _discover(paths: PathsArg) -> list[tuple[Path, str | None]]:
 def load_cases(paths: PathsArg = None, models: ModelsArg = None) -> list[TestCase]:
     """Load, combine and resolve every case in the promptparams files.
 
-    *models* are the project's model names; a file in a subfolder must sit in
-    a folder named after one of them.  Returns an empty list when there are
+    *models* are the project's model names; a file in a subfolder named after
+    one of them is scoped to that model.  Returns an empty list when there are
     no files, so callers can treat that the same as "no parameterisation
     requested".
     """
@@ -214,13 +216,8 @@ def _load(paths, models) -> tuple[dict[str, dict], list[tuple[dict, Path, int]]]
     known_models = set(models or ())
 
     for path, scope in _discover(paths):
-        if scope is not None and scope not in known_models:
-            known = ", ".join(sorted(known_models)) or "none"
-            raise PromptParamsError(
-                f"{path}: folder '{scope}' is not a model (models: {known}). "
-                "Test-case YAML in a subfolder must sit in a folder named after "
-                "the model it gives or expects."
-            )
+        if scope not in known_models:
+            scope = None  # an organising folder, not a model's
         doc = _read_yaml(path)
         for name, spec in _mapping(doc.get("baselines"), path, "baselines").items():
             name = str(name)
@@ -428,7 +425,7 @@ def write_example(
         else ["    promptfiles:", f"      {promptfiles_keys[0]}: <path/to/another>"]
     )
     lines = [
-        "# Copy to any *.yml in tests/ (every one there is combined).",
+        "# Copy to any *.yml in map/ (every one there is combined).",
         "baselines:",
         "  default:            # every case starts from this unless it sets `extends`",
         *block("    "),

@@ -1790,7 +1790,7 @@ wheels = [
 
 [[package]]
 name = "promptmap"
-version = "0.5.12"
+version = "0.5.16"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -1802,14 +1802,14 @@ dependencies = [
     { name = "pyyaml" },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/03/03/ea06b30c156fddd9ce3fa022bcf0156b3f2bac44f488067a430442dba5a9/promptmap-0.5.12.tar.gz", hash = "sha256:6bb35a0fc9931904a7569a64cd0c8c56a9d72729a85441027c2128270c27aecc", size = 198314, upload-time = "2026-10-18T01:34:55.077Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b7/2b/5f5bcd8f7d2d60225d7fc538d06572bf6cb36864ab92fb2040c024691d79/promptmap-0.5.16.tar.gz", hash = "sha256:eb3382f9613088f46a4d309f6be83627a229d8e82966deb319e03670688b8a09", size = 204129, upload-time = "2026-10-19T12:38:00.256Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/95/c2/268073ce92243b4ecef0b4adc165eaf61fa68d2723811553144ce4a0b629/promptmap-0.5.12-py3-none-any.whl", hash = "sha256:f0a84361ebe5da2a5786409a1bd57fcfc61f9e9429443b71882cfcb240fa35a2", size = 181022, upload-time = "2026-10-18T01:34:53.363Z" },
+    { url = "https://files.pythonhosted.org/packages/a5/1c/fc0bbb08f25616ccc586f6c0ddedadea0adeadcc3686a7826b3a4575bc2d/promptmap-0.5.16-py3-none-any.whl", hash = "sha256:500e22acc7f1ce4368aa027252f2dbd9510e268264e9113cd51b44053e391100", size = 185505, upload-time = "2026-10-19T12:37:58.604Z" },
 ]
 
 [[package]]
 name = "promptmap-extra-model-kinds"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
@@ -1821,7 +1821,7 @@ dependencies = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "modal", specifier = ">=1.0" },
-    { name = "promptmap", specifier = ">=0.5.10" },
+    { name = "promptmap", specifier = ">=0.5.16" },
 ]
 
 [[package]]

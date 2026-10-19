@@ -14,6 +14,7 @@ from jinja2 import Environment, StrictUndefined, meta
 
 from promptmap import jsonpath
 from promptmap.files import contains_files
+from promptmap.rag import template_functions
 
 
 @dataclass
@@ -155,6 +156,7 @@ def render_prompt(
         "config": lambda **_: "",   # no-op during real render; config already parsed
         "model": model_context,
         "previous": previous,
+        **template_functions(template_source + (global_instruction or "")),
         **(extra_context or {}),
     }
 

@@ -1,0 +1,1 @@
+{{ config(model_type="template") }}{{ promptdata('question') or "How do I roll back a bad deploy, and who gets paged if it breaks at night?" }}

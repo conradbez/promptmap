@@ -2110,7 +2110,7 @@ wheels = [
 
 [[package]]
 name = "promptmap"
-version = "0.5.15"
+version = "0.5.16"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
@@ -2167,7 +2167,7 @@ dev = [
 
 [[package]]
 name = "promptmap-extra-model-kinds"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "promptmap-extra-model-kinds" }
 dependencies = [
     { name = "httpx", marker = "python_full_version >= '3.11'" },
@@ -2179,7 +2179,7 @@ dependencies = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "modal", specifier = ">=1.0" },
-    { name = "promptmap", specifier = ">=0.5.10" },
+    { name = "promptmap", specifier = ">=0.5.16" },
 ]
 
 [[package]]

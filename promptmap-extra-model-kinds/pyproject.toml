@@ -1,11 +1,11 @@
 [project]
 name = "promptmap-extra-model-kinds"
-version = "0.1.0"
-description = "Extra promptmap model kinds: python_modal, agent_modal and agent37."
+version = "0.2.0"
+description = "Extra promptmap model kinds (python_modal, agent_modal, agent37) and RAG kinds (brave_search)."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "promptmap>=0.5.10",
+    "promptmap>=0.5.16",
     "modal>=1.0",
     "httpx>=0.27",
 ]
@@ -17,6 +17,9 @@ Repository = "https://github.com/conradbez/promptmap"
 python_modal = "promptmap_extra_model_kinds.modal_exec"
 agent_modal = "promptmap_extra_model_kinds.agent_exec"
 agent37 = "promptmap_extra_model_kinds.agent37_exec"
+
+[project.entry-points."promptmap.rag_kinds"]
+brave_search = "promptmap_extra_model_kinds.brave_search"
 
 [build-system]
 requires = ["hatchling"]

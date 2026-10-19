@@ -157,39 +157,60 @@ A model with `{{ config(each="imgs") }}` can iterate over a list of files, or ov
 
 ## RAG inside prompts (`rag.py`)
 
-`promptmap` has very little to say about RAG and leaves that up to you - you do this through the
-`return_list_RAG_results(*args)` function `promptmap` give you access to in the .prompt template. `promptmap` will pass this call to
-the `do_RAG` function you define in `rag.py` (at the project root, alongside your `map/` directory):
+`promptmap` leaves retrieval up to you. Register a search function as a *RAG kind*
+and every template can call it as `rag_<name>(...)`, the same way model kinds
+are registered:
 
 ```python
-# rag.py
-def do_RAG(*args) -> list[str] | str:
-    query = args[0]
+# rag.py (at the project root, alongside your map/ directory)
+import promptmap
+
+@promptmap.rag_kind("notes")
+def search_notes(query: str, k: int = 3) -> list[str]:
     # your vector search, keyword lookup, etc.
     return ["Relevant document 1", "Relevant document 2"]
 ```
 
-`do_RAG` receives whatever arguments you pass to `return_list_RAG_results`
-in the template. It can return a `list[str]` or a bare `str` (wrapped
-automatically). Return `False` or `None` to signal no results.
-
-Use it in any `.prompt` file:
-
 ```jinja
-{% set hits = return_list_RAG_results(ref('topic')) %}
+{% set hits = rag_notes(ref('topic'), k=5) %}
 {% if hits[0] %}
-A related article in our library: "{{ hits[0] }}"
-
-Write a paragraph explaining how the topic below connects to it:
-{{ ref('topic') }}
+Related notes:
+{{ hits | join("\n\n") }}
 {% else %}
-Write a paragraph introducing this topic as a fresh subject:
-{{ ref('topic') }}
+Write about this topic as a fresh subject:
 {% endif %}
+{{ ref('topic') }}
 ```
 
-If `rag.py` is absent and a template calls `return_list_RAG_results`,
-promptmap raises a clear error at render time.
+- Arguments are whatever the template passes, keywords included.
+- Return a `list[str]`, or a bare `str` (wrapped automatically). Return `False` or
+  `None` for "no results"; the template gets `[False]`, so `{% if hits[0] %}` is safe.
+- RAG functions are plain `def`s: templates render synchronously.
+- Calling a `rag_<name>` nobody registered raises a clear error, but only if
+  that line actually renders, so `{% if promptdata('web') %}` branches are safe.
+- `rag.py` is imported before the models render; `client.py` works too.
+
+[`examples/rag_kinds`](../examples/rag_kinds) registers a small vector search over
+a folder of notes, and shows where to plug in a real embedding model and vector DB.
+
+### RAG kinds from installed packages
+
+Packages declare RAG kinds under the `promptmap.rag_kinds` entry point group.
+`pip install` is then enough:
+
+```toml
+[project.entry-points."promptmap.rag_kinds"]
+brave_search = "my_pkg.brave"     # a module that registers on import
+```
+
+`pip install "promptmap[extras]"` ships `rag_brave_search(query, count=8)`, a web
+search through the Brave Search API (set `BRAVE_API_KEY`).
+
+### Legacy: `return_list_RAG_results` / `do_RAG`
+
+A `do_RAG(*args)` defined in `rag.py` (or `run(rag_call=...)`) still backs
+`return_list_RAG_results(...)` in templates. It is a single unnamed RAG. Prefer
+named kinds for anything new.
 
 ---
 

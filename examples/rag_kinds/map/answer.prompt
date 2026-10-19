@@ -1,0 +1,16 @@
+{% set notes = rag_notes(ref('question'), k=3) %}
+Answer the question using only the team notes below. Cite the note file for each fact.
+If the notes do not cover it, say so.
+
+Question: {{ ref('question') }}
+
+{% for hit in notes if hit %}
+{{ hit }}
+
+{% else %}
+(No matching notes.)
+{% endfor %}
+{% if promptdata('web') %}
+Web results, for anything the notes miss:
+{{ rag_brave_search(ref('question'), count=3) | join("\n\n") }}
+{% endif %}

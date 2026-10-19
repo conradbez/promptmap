@@ -19,6 +19,13 @@ from jinja2 import Environment, Undefined
 _REF_PATTERN = re.compile(r"""\bref\(\s*['"](\w+)(?:[.\[][^'"]*)?['"]\s*\)""")
 _PROMPTDATA_PATTERN = re.compile(r"""\bpromptdata\(\s*['"](\w+)['"]\s*\)""")
 
+
+def _rag_call_names(template_source: str) -> list[str]:
+    """Names of the ``rag_<name>()`` calls in *template_source* — stubbed at parse time."""
+    from promptmap.rag import _CALL_PATTERN
+    return list(dict.fromkeys(_CALL_PATTERN.findall(template_source)))
+
+
 # Every config() key promptmap acts on regardless of model kind.  Kind-specific keys
 # are declared by the kind itself and come from the registry, so registering a
 # kind is the only step needed to make its keys legal.  Anything left over is either a typo or a key consumed by a custom
@@ -172,6 +179,8 @@ def extract_jinja_config(template_source: str) -> dict[str, str]:
         "previous": None,
         "skip_and_set_to_value": lambda value="": "",
         "skip_this_and_downstream": lambda value="": "",
+        # Unregistered rag_x() calls would raise and cut the config capture short.
+        **{f"rag_{name}": (lambda *a, **kw: []) for name in _rag_call_names(template_source)},
     }
 
     try:

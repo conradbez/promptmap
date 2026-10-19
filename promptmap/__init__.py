@@ -32,6 +32,7 @@ from promptmap.files import (
     Output,
     SQLiteBlobStore,
 )
+from promptmap.rag import get_rag_kind, known_rag_kinds, rag_kind, register_rag_kind
 from promptmap.secrets import Secrets
 from promptmap.storage.base import StorageBackend
 from promptmap.tokens import LLMResult
@@ -54,6 +55,10 @@ __all__ = [
     "register_model_kind",
     "get_model_kind",
     "known_model_kinds",
+    "rag_kind",
+    "register_rag_kind",
+    "get_rag_kind",
+    "known_rag_kinds",
     "register_config_keys",
     "known_config_keys",
     "UnknownConfigKeyWarning",

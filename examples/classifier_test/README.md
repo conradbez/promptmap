@@ -41,8 +41,8 @@ Both tests should pass:
 | File | What it does |
 |---|---|
 | `map/haiku.prompt` | A fixed haiku (`model_type="template"`, no LLM call) |
-| `map/haiku_has_three_lines.testprompt` | Passes when P(yes) ≥ 0.5 |
-| `map/haiku_is_about_autumn.testprompt` | Passes when P(yes) ≥ 0.8, set with `config(threshold=0.8)` |
+| `map/tests/haiku_has_three_lines.testprompt` | Passes when P(yes) ≥ 0.5 |
+| `map/tests/haiku_is_about_autumn.testprompt` | Passes when P(yes) ≥ 0.8, set with `config(threshold=0.8)` |
 | `client.py` | `classify_call` pointing at Ollaya, and `test_judge = "classifier"` |
 
 A classifier test is a question, a `---` line, then the text to judge:

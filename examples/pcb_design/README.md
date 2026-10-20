@@ -51,6 +51,7 @@ map/
   1_design/  1_a_brief  1_b_requirements  1_c_architecture  1_d_electrical_check
   2_build/   2_a_parts  2_b_research  2_c_layout_rules  2_d_board
   3_qa/      3_a_bom_line  3_b_polarity  3_c_bringup  3_d_review
+  tests/     reversed_flyback_diode.yml
 ```
 
 | Model | What it does |
@@ -90,7 +91,7 @@ it re-runs only when the design, parts or layout rules change.
 
 ## Known-fault cases
 
-`map/reversed_flyback_diode.yml` replays the real reversed SS34
+`map/tests/reversed_flyback_diode.yml` replays the real reversed SS34
 (`circuit_board_as_code/qaqc/common_issues/diode_error.md`): the circuit
 intent is right, the library mapped the cathode to pin 2, and the built board
 puts the band on the MOSFET drain. It pins only the two models that carry the

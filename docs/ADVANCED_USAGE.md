@@ -136,7 +136,7 @@ cases:
 
 `promptmap test --case "Reversed flyback diode"` then runs only what sits downstream
 of `board`. A full example, pinning only `parts` and `board` while the rest of
-the pipeline runs, is [`examples/pcb_design/map/reversed_flyback_diode.yml`](../examples/pcb_design/map/reversed_flyback_diode.yml).
+the pipeline runs, is [`examples/pcb_design/map/tests/reversed_flyback_diode.yml`](../examples/pcb_design/map/tests/reversed_flyback_diode.yml).
 
 
 ### Checking expected outputs (`expect`)
@@ -157,7 +157,7 @@ cases:
 ```
 
 The snippet illustrates the format; the complete runnable fixture is in
-`examples/pcb_design/map/reversed_flyback_diode.yml`.
+`examples/pcb_design/map/tests/reversed_flyback_diode.yml`.
 
 ### One folder per model
 

@@ -1,0 +1,12 @@
+# Copy to any *.yml in map/ (every one there is combined).
+baselines:
+  default:            # every case starts from this unless it sets `extends`
+    promptdata:
+      topic: <topic>
+      audience: <audience>
+
+cases:
+  - name: Baseline inputs
+  - name: <describe what this case checks>
+    promptdata:
+      topic: <another topic>

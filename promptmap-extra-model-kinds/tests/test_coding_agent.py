@@ -1,4 +1,4 @@
-"""``local_functional_agent``: Dir in, patched Dir out, with diff/verify/merge reuse."""
+"""``coding_agent``: Dir in, patched Dir out, with diff/verify/merge reuse."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from promptmap.files import Dir
 from promptmap.model_spec import ModelSpec
 from promptmap.model_types import ModelCall, get_model_kind
 
-from promptmap_extra_model_kinds import functional_agent_exec as fa
+from promptmap_extra_model_kinds import coding_agent_exec as fa
 
 BASE = {
     "shared.py": b"x = 1\n",
@@ -85,7 +85,7 @@ def run(base: Dir, tmp_path, llm, prompt="add the feature", **config) -> dict:
         return llm["replies"].pop(0)
 
     call = ModelCall(spec=spec, outputs={"up": base}, llm=call_llm, compute=compute)
-    return asyncio.run(fa.run_functional_agent(prompt, call))
+    return asyncio.run(fa.run_coding_agent(prompt, call))
 
 
 def files(d: Dir) -> dict[str, bytes]:
@@ -111,7 +111,7 @@ def test_registered_and_declared():
     assert {"jev_cache_threshold", "merge_max_files"} <= kind.config_keys
     assert "base_dir" not in kind.config_keys
     eps = {ep.name: ep.value for ep in entry_points(group="promptmap.model_kinds")}
-    assert eps[fa.NAME] == "promptmap_extra_model_kinds.functional_agent_exec"
+    assert eps[fa.NAME] == "promptmap_extra_model_kinds.coding_agent_exec"
 
 
 def test_first_run_returns_patched_tree_and_sparse_changes(tmp_path, agent, jev, llm):
@@ -237,7 +237,7 @@ def test_force_refresh(tmp_path, agent, jev, llm):
     assert run(tree(), tmp_path, llm, force_refresh="true")["cache"] == "miss"
 
 
-def test_chained_dir_input_from_another_functional_agent(tmp_path, agent, jev, llm):
+def test_chained_dir_input_from_another_coding_agent(tmp_path, agent, jev, llm):
     first = run(tree(), tmp_path, llm)
     spec = ModelSpec(
         name="second", source="", model_type=fa.NAME,
@@ -312,8 +312,8 @@ def test_chain_through_the_executor(tmp_path, monkeypatch, jev):
         "repo": '{{ config(model_type="execute_python", cache=False) }}'
                 'from pathlib import Path\n'
                 f'output = Dir({{p.name: p.read_bytes() for p in Path("{app}").iterdir() if p.suffix != ".log"}}, name="app")',
-        "api": f'{{{{ config(model_type="{fa.NAME}", promptfiles=["repo"], state_dir="{state}") }}}}add /health',
-        "tests": f'{{{{ config(model_type="{fa.NAME}", promptfiles=["api"], state_dir="{state}") }}}}test it',
+        "api": f'{{{{ config(model_type="{fa.NAME}", promptfiles="repo", state_dir="{state}") }}}}add /health',
+        "tests": f'{{{{ config(model_type="{fa.NAME}", promptfiles="api", state_dir="{state}") }}}}test it',
         "apply": '{{ config(model_type="execute_python") }}'
                  f'ref("tests")["result"].save("{tmp_path / "out"}")',
     }

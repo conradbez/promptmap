@@ -118,6 +118,8 @@ Models can receive files (PDFs, images, etc.) alongside the text prompt. Declare
 Summarise the attached document in 3 bullet points.
 ```
 
+A single name can also be written without the list: `promptfiles="my_document"`.
+
 Multiple files use a JSON array:
 
 ```jinja

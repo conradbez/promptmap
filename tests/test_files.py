@@ -185,6 +185,15 @@ def test_promptfiles_naming_a_model_is_a_dependency():
     assert get_dag_promptfiles(models) == ["brief"]
 
 
+def test_promptfiles_accepts_a_single_name():
+    models = build_models_from_dict({
+        "repo": "draw",
+        "agent": '{{ config(promptfiles="repo") }}\nx',
+    })
+    assert models["agent"].promptfiles_used == ["repo"]
+    assert models["agent"].depends_on == ["repo"]
+
+
 def test_attach_one_file_from_a_structured_output():
     def llm(prompt, files=None, config=None):
         if prompt.startswith("make"):

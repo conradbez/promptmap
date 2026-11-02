@@ -54,7 +54,7 @@ def _prompt_name(p: Path) -> str:
 
 
 # Kinds shipped by promptmap-extra-model-kinds, so the error can say what to install.
-_EXTRAS_KINDS = {"python_modal", "agent_modal", "agent37", "local_functional_agent"}
+_EXTRAS_KINDS = {"python_modal", "agent_modal", "agent37", "coding_agent"}
 
 
 class UnknownModelTypeError(Exception):

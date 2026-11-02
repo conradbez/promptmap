@@ -7,7 +7,7 @@ Extra model kinds for [promptmap](https://pypi.org/project/promptmap/):
 | `python_modal` | `modal_exec`    | the bullet's upstream Python in a Modal sandbox        |
 | `agent_modal`  | `agent_exec`    | an OpenCode agent (plus optional MCP server) on Modal  |
 | `agent37`      | `agent37_exec`  | a Hermes agent on an Agent37 workspace (`agent37.md`)  |
-| `local_functional_agent` | `functional_agent_exec` | the local `agent` kind as a function: a `Dir` in, a patched `Dir` out, reusing its last change when it still holds |
+| `coding_agent` | `coding_agent_exec` | the local `agent` kind as a function: a `Dir` in, a patched `Dir` out, reusing its last change when it still holds |
 
 And RAG kinds, called from any template:
 
@@ -34,7 +34,7 @@ groups and loads them on first use. Nothing has to import it.
 
 Configuration is read from the environment — see each module's docstring.
 
-## `local_functional_agent`
+## `coding_agent`
 
 A coding agent as a pure function: a `Dir` in, the patched `Dir` out. The agent
 works on a scratch copy of its input, free to build and run tests; the copy only
@@ -48,11 +48,11 @@ a real repo into a `Dir` is a static node's job:
 output = Dir("../app")
 
 {# map/api.prompt #}
-{{ config(model_type="local_functional_agent", promptfiles=["repo"]) }}
+{{ config(model_type="coding_agent", promptfiles="repo") }}
 Add a /health endpoint to the API.
 
-{# map/tests.prompt — takes the previous agent's patched tree #}
-{{ config(model_type="local_functional_agent", promptfiles=["api"]) }}
+{# map/tests.prompt — takes the previous coding_agent's patched tree #}
+{{ config(model_type="coding_agent", promptfiles="api") }}
 Add tests for every endpoint.
 ```
 

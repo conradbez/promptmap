@@ -1,16 +1,16 @@
 """
-``local_functional_agent`` — a coding agent as a pure function: Dir in, Dir out.
+``coding_agent`` — a coding agent as a pure function: Dir in, Dir out.
 
 The model receives a directory tree, lets the local ``agent`` kind work on a
 throwaway copy of it (where it may build, run tests, install packages), and
 returns the tree with its changes already applied.  The real repository is
 never touched; a later node decides what to do with the result.
 
-Input: ``promptfiles=["fix"]`` — an upstream model's :class:`~promptmap.files.Dir`.
-If that model is another functional agent, its ``result`` is used;
+Input: ``promptfiles="fix"`` — an upstream model's :class:`~promptmap.files.Dir`.
+If that model is another coding_agent, its ``result`` is used;
 ``"fix.result"`` names it outright.  Where the tree comes from is the upstream
 model's business (an ``execute_python`` node returning ``Dir("../app")``, an
-earlier functional agent, …).  Where the agent works is nobody's: a scratch
+earlier coding_agent, …).  Where the agent works is nobody's: a scratch
 copy that exists only to find out which files to create, edit or delete.
 
 Output::
@@ -22,7 +22,7 @@ Output::
      "cache":   "hit" | "replay" | "merged" | "miss",
      ...the agent kind's "logs" and "time_run" on a miss}
 
-so the next functional agent takes ``promptfiles=["this_model"]``.
+so the next coding_agent takes ``promptfiles="this_model"``.
 
 Reuse
 -----
@@ -77,7 +77,7 @@ from promptmap.model_types import ModelCall, register_model_kind
 
 log = logging.getLogger("promptmap")
 
-NAME = "local_functional_agent"
+NAME = "coding_agent"
 DEFAULT_THRESHOLD = 0.85
 DEFAULT_MERGE_MAX = 5
 DEFAULT_CONTEXT_MAX = 20_000
@@ -266,7 +266,7 @@ def resolve_base(call: ModelCall) -> Dir:
             return value
     raise ValueError(
         f"Model '{call.spec.name}': model_type=\"{NAME}\" needs an input tree — "
-        "config(promptfiles=[\"<upstream model>\"]) naming a model whose output is a Dir "
+        "config(promptfiles=\"<upstream model>\") naming a model whose output is a Dir "
         "(e.g. an execute_python model ending in output = Dir(\"path\"))."
     )
 
@@ -399,7 +399,7 @@ async def merge(call: ModelCall, goal: str, sides: dict[str, tuple]) -> dict[str
 # exec_fn
 # ---------------------------------------------------------------------------
 
-async def run_functional_agent(rendered: str, call: ModelCall) -> dict:
+async def run_coding_agent(rendered: str, call: ModelCall) -> dict:
     config = call.spec.config
     base = resolve_base(call)
     store = StateStore(state_path(call))
@@ -512,7 +512,7 @@ async def _run_agent(rendered, call, store, state, base, base_hashes, phash, rea
     task = rendered + OUTCOME_CONTRACT + _previous_attempt(call, store, state, base_hashes, reason)
 
     def work() -> dict:
-        scratch = Path(tempfile.mkdtemp(prefix="promptmap-functional-"))
+        scratch = Path(tempfile.mkdtemp(prefix="promptmap-coding-agent-"))
         try:
             root = base.save(scratch)
             spec = call.spec.derive(config={**call.spec.config, "agent_dir": str(root)})
@@ -601,7 +601,7 @@ def _threshold(value: Any) -> float:
 KIND = register_model_kind(dataclasses.replace(
     builtin_kinds.AGENT,
     name=NAME,
-    exec_fn=run_functional_agent,
+    exec_fn=run_coding_agent,
     config_keys=(builtin_kinds.AGENT.config_keys - {"agent_dir"}) | {
         "jev_cache_threshold", "merge_max_files", "context_max_chars",
         "force_refresh", "state_dir",

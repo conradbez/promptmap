@@ -6,13 +6,12 @@ throwaway copy of it (where it may build, run tests, install packages), and
 returns the tree with its changes already applied.  The real repository is
 never touched; a later node decides what to do with the result.
 
-Input — exactly one of:
-
-``promptfiles=["fix"]``  an upstream model's :class:`~promptmap.files.Dir`.  If
-                         that model is another functional agent, its
-                         ``result`` is used; ``"fix.result"`` names it outright.
-``base_dir="../app"``    a folder on disk, snapshotted (``git ls-files`` when it
-                         is a git checkout, else everything but the usual junk).
+Input: ``promptfiles=["fix"]`` — an upstream model's :class:`~promptmap.files.Dir`.
+If that model is another functional agent, its ``result`` is used;
+``"fix.result"`` names it outright.  Where the tree comes from is the upstream
+model's business (an ``execute_python`` node returning ``Dir("../app")``, an
+earlier functional agent, …).  Where the agent works is nobody's: a scratch
+copy that exists only to find out which files to create, edit or delete.
 
 Output::
 
@@ -48,7 +47,6 @@ It passes when the score reaches ``jev_cache_threshold``.
 Config keys, beyond the ``agent`` kind's (``agent_dir`` is not used — the
 agent always works in a scratch copy):
 
-``base_dir``             the input folder, when no promptfile supplies one
 ``jev_cache_threshold``  score needed to reuse over a changed input (0.85)
 ``merge_max_files``      most colliding files to merge rather than re-run (5)
 ``context_max_chars``    cap on each diff put into a prompt (20000)
@@ -69,7 +67,6 @@ import logging
 import os
 import re
 import shutil
-import subprocess
 import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
@@ -100,9 +97,9 @@ VERIFY_QUESTION = (
     "completely satisfy outcome_goal without requiring any further code or file changes?"
 )
 
-#: Never part of a snapshot of a folder or of the agent's scratch copy.
+#: Build and cache folders the agent may create while testing in its scratch copy.
 _IGNORED_DIRS = frozenset({
-    ".git", ".promptmap", "__pycache__", "node_modules", ".venv", ".pytest_cache", ".mypy_cache",
+    ".promptmap", "__pycache__", "node_modules", ".venv", ".pytest_cache", ".mypy_cache",
 })
 _IGNORED_PREFIXES = (".promptmap_out_",)
 
@@ -111,47 +108,29 @@ _IGNORED_PREFIXES = (".promptmap_out_",)
 # Trees
 # ---------------------------------------------------------------------------
 
-def snapshot_dir(root: Path, name: str | None = None) -> Dir:
-    """*root* as a Dir: tracked + untracked-not-ignored files in a git checkout,
-    else every regular file outside the usual build and cache folders."""
+def snapshot_dir(root: Path, keep: "set[str] | frozenset[str]" = frozenset(), name: str | None = None) -> Dir:
+    """The scratch copy at *root* as a Dir.
+
+    Build and cache folders the agent made while testing (``node_modules``,
+    ``.venv``, ``__pycache__``, …) are left out, unless the input already had
+    files under them (*keep* is the input's paths); ``.git`` always is.
+    """
     root = root.resolve()
-    paths = _git_files(root)
-    if paths is None:
-        paths = _walk(root)
-    entries = {
-        rel: (root / rel).read_bytes()
-        for rel in paths
-        if (root / rel).is_file() and not (root / rel).is_symlink()
-    }
-    return Dir(entries, name=name or root.name or "base")
-
-
-def _git_files(root: Path) -> list[str] | None:
-    try:
-        top = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
-        ).stdout.strip()
-        if Path(top).resolve() != root:
-            return None  # a subfolder of a repo: walk it instead
-        listed = subprocess.run(
-            ["git", "-C", str(root), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-            capture_output=True, check=True,
-        ).stdout
-    except (OSError, subprocess.CalledProcessError):
-        return None
-    return sorted({p for p in listed.decode().split("\0") if p})
-
-
-def _walk(root: Path) -> list[str]:
-    found = []
+    kept_dirs = {PurePosixPath(p).parent.as_posix() for p in keep}
+    kept_dirs = {str(d) for p in kept_dirs for d in [p, *map(str, PurePosixPath(p).parents)]}
+    entries: dict[str, bytes] = {}
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [
-            d for d in dirnames if d not in _IGNORED_DIRS and not d.startswith(_IGNORED_PREFIXES)
-        ]
         here = Path(dirpath)
-        found += [(here / f).relative_to(root).as_posix() for f in filenames]
-    return sorted(found)
+        dirnames[:] = [
+            d for d in dirnames
+            if d != ".git" and not d.startswith(_IGNORED_PREFIXES)
+            and (d not in _IGNORED_DIRS or (here / d).relative_to(root).as_posix() in kept_dirs)
+        ]
+        for f in filenames:
+            path = here / f
+            if path.is_file() and not path.is_symlink():
+                entries[path.relative_to(root).as_posix()] = path.read_bytes()
+    return Dir(entries, name=name or root.name or "tree")
 
 
 def apply_changes(base: Dir, changes: dict[str, bytes], deleted: list[str]) -> Dir:
@@ -274,7 +253,7 @@ def prompt_hash(rendered: str, config: dict) -> str:
 # ---------------------------------------------------------------------------
 
 def resolve_base(call: ModelCall) -> Dir:
-    """The input tree: the first promptfile holding a Dir, else ``base_dir``."""
+    """The input tree: the first promptfile holding a Dir."""
     for name in call.spec.promptfiles_used:
         found = split_model_path(name, call.outputs)
         if found is None:
@@ -285,18 +264,10 @@ def resolve_base(call: ModelCall) -> Dir:
             value = value["result"]
         if isinstance(value, Dir):
             return value
-    base_dir = call.spec.config.get("base_dir")
-    if base_dir:
-        path = Path(str(base_dir)).expanduser()
-        if not path.is_absolute():
-            path = (_project_root(call) or Path.cwd()) / path
-        if not path.is_dir():
-            raise ValueError(f"Model '{call.spec.name}': base_dir '{path}' is not a directory.")
-        return snapshot_dir(path)
     raise ValueError(
         f"Model '{call.spec.name}': model_type=\"{NAME}\" needs an input tree — "
-        "config(promptfiles=[\"<upstream model>\"]) naming a model whose output is a Dir, "
-        "or config(base_dir=\"path\")."
+        "config(promptfiles=[\"<upstream model>\"]) naming a model whose output is a Dir "
+        "(e.g. an execute_python model ending in output = Dir(\"path\"))."
     )
 
 
@@ -547,7 +518,7 @@ async def _run_agent(rendered, call, store, state, base, base_hashes, phash, rea
             spec = call.spec.derive(config={**call.spec.config, "agent_dir": str(root)})
             raw = builtin_kinds._exec_agent(task, dataclasses.replace(call, spec=spec))
             result = json.loads(raw) if isinstance(raw, str) else raw
-            result["result"] = snapshot_dir(root, name=base.name)
+            result["result"] = snapshot_dir(root, keep=set(base.entries), name=base.name)
             return result
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
@@ -632,7 +603,7 @@ KIND = register_model_kind(dataclasses.replace(
     name=NAME,
     exec_fn=run_functional_agent,
     config_keys=(builtin_kinds.AGENT.config_keys - {"agent_dir"}) | {
-        "base_dir", "jev_cache_threshold", "merge_max_files", "context_max_chars",
+        "jev_cache_threshold", "merge_max_files", "context_max_chars",
         "force_refresh", "state_dir",
     },
 ))

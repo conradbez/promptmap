@@ -36,23 +36,30 @@ Configuration is read from the environment — see each module's docstring.
 
 ## `local_functional_agent`
 
-A coding agent as a pure function. It receives a directory tree, works on a
-scratch copy (free to build and run tests) and returns the tree with its
-changes already applied. The real repository is never touched.
+A coding agent as a pure function: a `Dir` in, the patched `Dir` out. The agent
+works on a scratch copy of its input, free to build and run tests; the copy only
+exists to find out which files to create, edit or delete, and where it lives is
+irrelevant. The input always comes from upstream through `promptfiles`, so getting
+a real repo into a `Dir` is a static node's job:
 
 ```jinja
-{# map/api.prompt — input: a folder on disk #}
-{{ config(model_type="local_functional_agent", base_dir="../app") }}
+{# map/repo.prompt — a static node decides what the input tree is #}
+{{ config(model_type="execute_python", cache=False) }}
+output = Dir("../app")
+
+{# map/api.prompt #}
+{{ config(model_type="local_functional_agent", promptfiles=["repo"]) }}
 Add a /health endpoint to the API.
 
-{# map/tests.prompt — input: the previous agent's patched tree #}
+{# map/tests.prompt — takes the previous agent's patched tree #}
 {{ config(model_type="local_functional_agent", promptfiles=["api"]) }}
 Add tests for every endpoint.
 ```
 
 Output: `output` (the agent's answer), `result` (the patched `Dir`), `changes`
 (a `Dir` of only the files it created or modified), `deleted` and `cache`.
-`base_dir` snapshots with `git ls-files` in a git checkout.
+Build and cache folders the agent creates while testing (`node_modules`, `.venv`,
+`__pycache__`, …) are not counted as changes.
 
 Each model remembers its last input tree and change set (`.promptmap/state`).
 With the same prompt it reuses that change instead of running the agent:
@@ -67,5 +74,5 @@ With the same prompt it reuses that change instead of running the agent:
 Verification uses `classify_call` in client.py (or hosted Jev with
 `TYPESAFE_API_KEY`), else a YES/NO LLM call. On a miss the agent is told its
 previous change and answer, what changed upstream and why it is re-running.
-Extra config keys: `base_dir`, `jev_cache_threshold` (0.85), `merge_max_files` (5),
+Extra config keys: `jev_cache_threshold` (0.85), `merge_max_files` (5),
 `context_max_chars` (20000), `force_refresh`, `state_dir`.

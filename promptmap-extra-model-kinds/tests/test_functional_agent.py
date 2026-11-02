@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -109,7 +108,8 @@ def test_registered_and_declared():
     kind = get_model_kind(fa.NAME)
     assert kind is fa.KIND
     assert "agent_dir" not in kind.config_keys
-    assert {"base_dir", "jev_cache_threshold", "merge_max_files"} <= kind.config_keys
+    assert {"jev_cache_threshold", "merge_max_files"} <= kind.config_keys
+    assert "base_dir" not in kind.config_keys
     eps = {ep.name: ep.value for ep in entry_points(group="promptmap.model_kinds")}
     assert eps[fa.NAME] == "promptmap_extra_model_kinds.functional_agent_exec"
 
@@ -247,26 +247,27 @@ def test_chained_dir_input_from_another_functional_agent(tmp_path, agent, jev, l
     assert fa.resolve_base(call) is first["result"]
 
 
-def test_base_dir_snapshot_uses_git_ls_files(tmp_path):
-    repo = tmp_path / "repo"
-    (repo / "src").mkdir(parents=True)
-    (repo / "src" / "a.py").write_text("a\n")
-    (repo / "build.log").write_text("junk\n")
-    (repo / ".gitignore").write_text("*.log\n")
-    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+def test_scratch_snapshot_drops_agent_made_junk_but_keeps_input_files(tmp_path):
+    root = tmp_path / "scratch"
+    for rel in ("node_modules/x/i.js", "vendor/node_modules/y.js", ".git/HEAD", "main.py", ".venv/bin/py"):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text("")
 
-    snap = fa.snapshot_dir(repo)
+    snap = fa.snapshot_dir(root, keep={"vendor/node_modules/y.js"})
 
-    assert set(snap.entries) == {".gitignore", "src/a.py"}
+    assert set(snap.entries) == {"main.py", "vendor/node_modules/y.js"}
 
 
-def test_snapshot_without_git_skips_junk(tmp_path):
-    root = tmp_path / "plain"
-    (root / "node_modules" / "x").mkdir(parents=True)
-    (root / "node_modules" / "x" / "i.js").write_text("")
-    (root / "main.py").write_text("")
+def test_agent_test_artifacts_do_not_become_changes(tmp_path, agent, jev, llm):
+    def edit(root):
+        feature_edit(root)
+        (root / "__pycache__").mkdir()
+        (root / "__pycache__" / "util.cpython-313.pyc").write_bytes(b"\0")
 
-    assert set(fa.snapshot_dir(root).entries) == {"main.py"}
+    agent["edit"] = edit
+    out = run(tree(), tmp_path, llm)
+
+    assert files(out["result"]) == EXPECTED
 
 
 def test_needs_an_input_tree(tmp_path):
@@ -288,6 +289,7 @@ def test_chain_through_the_executor(tmp_path, monkeypatch, jev):
     app.mkdir()
     (app / "api.py").write_text("ROUTES = []\n")
     (app / "notes.md").write_text("v1\n")
+    (app / "build.log").write_text("ignored by the snapshot node\n")
 
     def exec_agent(task, call):
         ws = Path(call.spec.config["agent_dir"])
@@ -306,7 +308,11 @@ def test_chain_through_the_executor(tmp_path, monkeypatch, jev):
 
     state = tmp_path / "state"
     models = {
-        "api": f'{{{{ config(model_type="{fa.NAME}", base_dir="{app}", state_dir="{state}") }}}}add /health',
+        # A static node decides what the input tree is; the agents only see Dirs.
+        "repo": '{{ config(model_type="execute_python", cache=False) }}'
+                'from pathlib import Path\n'
+                f'output = Dir({{p.name: p.read_bytes() for p in Path("{app}").iterdir() if p.suffix != ".log"}}, name="app")',
+        "api": f'{{{{ config(model_type="{fa.NAME}", promptfiles=["repo"], state_dir="{state}") }}}}add /health',
         "tests": f'{{{{ config(model_type="{fa.NAME}", promptfiles=["api"], state_dir="{state}") }}}}test it',
         "apply": '{{ config(model_type="execute_python") }}'
                  f'ref("tests")["result"].save("{tmp_path / "out"}")',
@@ -329,6 +335,7 @@ def test_chain_through_the_executor(tmp_path, monkeypatch, jev):
     final = tmp_path / "out" / "app"
     assert (final / "api.py").read_text() == "ROUTES = ['/health']\n"
     assert (final / "test_api.py").exists()
+    assert not (final / "build.log").exists()
     assert (app / "api.py").read_text() == "ROUTES = []\n"  # source untouched
 
     # An upstream edit to a file neither agent owns: both replay, no agent runs.

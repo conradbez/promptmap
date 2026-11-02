@@ -214,6 +214,29 @@ def test_previous_ignores_failed_runs(storage) -> None:
     assert llm.prompts[1] == "Improve on: answer 1 (asked: First draft)"
 
 
+def test_a_model_kind_reads_its_previous_output(storage) -> None:
+    """call.previous lets a kind return its state and read it back next run."""
+    from promptmap.files import File
+    from promptmap.model_types import ModelKind, register_model_kind
+
+    seen = []
+
+    async def counter(rendered, call):
+        seen.append(call.previous)
+        count = call.previous.output["count"] + 1 if call.previous else 1
+        return {"count": count, "note": File(f"n={count}".encode(), name="n.txt")}
+
+    register_model_kind(ModelKind("counter_kind", counter))
+    models = {"c": '{{ config(model_type="counter_kind") }}count'}
+    for _ in range(3):
+        _run(models, storage, EchoLLM())
+
+    assert seen[0] is None
+    assert seen[1].prompt == "count"
+    assert seen[2].output["count"] == 2
+    assert seen[2].output["note"].read_bytes() == b"n=2"  # files come back decoded
+
+
 # -- cache_check --------------------------------------------------------------
 
 

@@ -64,6 +64,7 @@ from promptmap.secrets import Secrets
 if TYPE_CHECKING:
     from typing import Iterable, Mapping
 
+    from promptmap.executor.parser_model import PreviousRun
     from promptmap.model_spec import ModelSpec
 
 
@@ -97,6 +98,14 @@ class ModelCall:
     #: ``call.secrets["NAME"]``.  Kept out of the repr so a printed call or a
     #: traceback never shows them.
     secrets: Secrets = field(default_factory=Secrets, repr=False)
+
+    #: This model's last successful result from another run of the same
+    #: template — what templates see as ``{{ previous }}`` — or None.
+    #: ``previous.output`` is that run's final output (files decoded), so a
+    #: kind can return whatever it wants to see next time and read it back
+    #: here instead of keeping state of its own.  For an ``each=`` model it
+    #: is the whole model's previous output, not this item's.
+    previous: "PreviousRun | None" = None
 
 
 #: ``async def exec_fn(rendered: str, call: ModelCall) -> Any``

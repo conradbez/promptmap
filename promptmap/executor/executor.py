@@ -165,6 +165,7 @@ async def _produce_one(
         llm=partial(ctx.call_llm, spec=spec, state=state),
         compute=partial(ctx.cached, spec=spec, state=state),
         secrets=ctx.secrets,
+        previous=ctx.previous_for(spec),
     )
     return await kind.exec_fn(rendered, call)
 

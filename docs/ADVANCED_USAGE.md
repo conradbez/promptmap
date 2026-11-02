@@ -881,6 +881,20 @@ A kind can also send an upstream model's files to the LLM without any code:
 the model sets `{{ config(promptfiles=["logo"]) }}` and `call.llm()` attaches
 them.
 
+**Remember things between runs.** `call.previous` is the model's last
+successful result from another run of the same template (what templates see as
+`{{ previous }}`), or `None`: `call.previous.prompt` is the rendered prompt and
+`call.previous.output` the model's final output, files decoded. So a kind keeps
+no state of its own — it returns whatever it wants to see next time:
+
+```python
+async def counter(rendered, call):
+    count = call.previous.output["count"] + 1 if call.previous else 1
+    return {"count": count}
+```
+
+Editing the `.prompt` file resets it, as does a fresh run database.
+
 **Opt out of the global instruction.** If your rendered template is not a prompt
 for a model to answer — Python source, or a value passed straight through — set
 `accepts_global_instruction=False` so your

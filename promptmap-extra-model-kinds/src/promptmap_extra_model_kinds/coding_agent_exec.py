@@ -19,6 +19,7 @@ Output::
      "result":  Dir — the input tree with this model's changes applied,
      "changes": Dir — only the files this model created or modified,
      "deleted": [paths this model removed],
+     "sum_of_changes": {"ast_summary": [...], "unified_diff": "..."} — result vs input,
      "cache":   "hit" | "replay" | "merged" | "miss",
      ...the agent kind's "logs" and "time_run" on a miss}
 
@@ -30,17 +31,31 @@ Per model, ``<state_dir>/<model>.json`` keeps the prompt, the tree it last
 received (as file hashes) and its sparse change set; file bytes live in
 ``<state_dir>/blobs``.  With the same prompt:
 
-``hit``     the input tree is unchanged: re-apply the change set.  No LLM call.
-``replay``  upstream changed files this model did not touch: apply the change
-            set to the new tree, then verify (one call).
-``merged``  upstream also changed some of this model's files (at most
+``hit``     upstream changed nothing that means anything — the tree is the
+            same, or only comments/formatting changed in files this model
+            did not touch: re-apply the change set.  No LLM call.
+``replay``  upstream changed the meaning of files this model did not touch:
+            apply the change set to the new tree, then verify (one call).
+``merged``  upstream also edited some of this model's files (at most
             ``merge_max_files``): one LLM call merges those files three-way,
-            then verify (a second call).
+            then verify (a second call).  When upstream's edits there were
+            only comments/formatting and the merge means exactly what this
+            model's version meant, the verify call is skipped.
 ``miss``    anything else, or a failed merge or verification: run the agent
             on the new tree, telling it its previous change, its previous
             answer, what changed upstream and why the old change was not reused.
 
-Verification asks the classifier (``classify_call`` in client.py, else hosted
+"Meaning" is judged by :mod:`._ast_diff`: files are parsed with
+tree-sitter-language-pack and compared with comments (bar directives such as
+``# type: ignore``) and formatting stripped; changes are summarised per symbol
+(``ADDED_SYMBOL``, ``REMOVED_SYMBOL``, ``SIGNATURE_CHANGED``, ``BODY_CHANGED``).
+Files without a grammar, or that do not parse, are compared byte for byte.
+
+The verifier is shown three things: ``upstream_input_ast_diff`` (what changed
+in the input since last time, as that symbol summary plus a unified diff),
+``previous_run_sum_of_changes`` (everything this model changed on its last
+run, against the input it had then) and ``replayed_changes`` (what reuse would
+now apply to the new input).  Verification asks the classifier (``classify_call`` in client.py, else hosted
 Jev when ``TYPESAFE_API_KEY`` is set) and falls back to a YES/NO LLM call.
 It passes when the score reaches ``jev_cache_threshold``.
 
@@ -69,11 +84,13 @@ import re
 import shutil
 import tempfile
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from promptmap.executor import builtin_kinds
 from promptmap.files import Dir, File, select_path, split_model_path
 from promptmap.model_types import ModelCall, register_model_kind
+
+from . import _ast_diff
 
 log = logging.getLogger("promptmap")
 
@@ -93,8 +110,11 @@ OUTCOME_CONTRACT = (
 
 #: The Noul question put to the classifier when verifying a reuse.
 VERIFY_QUESTION = (
-    "Given upstream_diff, does node_change applied to the new workspace still "
-    "completely satisfy outcome_goal without requiring any further code or file changes?"
+    "On the previous run, this node achieved outcome_goal by applying "
+    "previous_run_sum_of_changes to its input folder. Since then, the input folder "
+    "has changed by upstream_input_ast_diff. Does re-applying the node's changes "
+    "(replayed_changes) on top of the new input still completely satisfy "
+    "outcome_goal, without the agent having to produce a new diff?"
 )
 
 #: Build and cache folders the agent may create while testing in its scratch copy.
@@ -164,6 +184,23 @@ def unified_diff(paths: list[str], old: Callable[[str], bytes | None], new: Call
         ))
         chunks += [line if line.endswith("\n") else line + "\n" for line in lines]
     return "".join(chunks)
+
+
+def sum_of_changes(
+    paths: "Iterable[str]", old: Callable[[str], bytes | None], new: Callable[[str], bytes | None]
+) -> dict:
+    """``{"ast_summary": [...], "unified_diff": "..."}`` for the files in *paths*."""
+    paths = sorted(p for p in paths if old(p) != new(p))
+    return {
+        "ast_summary": _ast_diff.summary(_ast_diff.diff_trees(paths, old, new)),
+        "unified_diff": unified_diff(paths, old, new),
+    }
+
+
+def _render_sum(changes: dict, limit: int) -> str:
+    summary = "\n".join(changes["ast_summary"]) or "(none)"
+    diff = changes["unified_diff"]
+    return f"{summary}\n\n```diff\n{_clip(diff, limit)}```" if diff else summary
 
 
 def _text(data: bytes | None) -> str | None:
@@ -318,14 +355,17 @@ def resolve_classifier(call: ModelCall) -> Callable[[str, str], float] | None:
     return None
 
 
-async def verify(call: ModelCall, goal: str, owned: list[str], upstream_diff: str, change_diff: str) -> float:
-    """P(the reused change still satisfies *goal*) — classifier, else LLM YES/NO."""
+async def verify(call: ModelCall, goal: str, upstream: dict, previous: dict, replayed: dict) -> float:
+    """P(the replayed change still satisfies *goal*) — classifier, else LLM YES/NO.
+
+    Each of *upstream*, *previous* and *replayed* is a :func:`sum_of_changes`.
+    """
     limit = _int(call.spec.config.get("context_max_chars"), DEFAULT_CONTEXT_MAX)
     state = (
         f"outcome_goal:\n{goal}\n\n"
-        f"node_owned_files:\n{json.dumps(sorted(owned))}\n\n"
-        f"upstream_diff:\n{_clip(upstream_diff, limit)}\n\n"
-        f"node_change:\n{_clip(change_diff, limit)}"
+        f"upstream_input_ast_diff:\n{_render_sum(upstream, limit)}\n\n"
+        f"previous_run_sum_of_changes:\n{_render_sum(previous, limit)}\n\n"
+        f"replayed_changes:\n{_render_sum(replayed, limit)}"
     )
     classify = resolve_classifier(call)
     if classify is not None:
@@ -424,7 +464,12 @@ async def run_coding_agent(rendered: str, call: ModelCall) -> dict:
 
 
 async def _try_reuse(rendered, call, store, state, base, base_hashes) -> dict | str:
-    """The reused result, or the reason it could not be reused."""
+    """The reused result, or the reason it could not be reused.
+
+    Upstream changes are judged semantically (:mod:`._ast_diff`): edits that
+    only touch comments or formatting never need a verdict.  But any upstream
+    edit to a file this model also changed is merged, never overwritten.
+    """
     prev = state.get("base") or {}
     changes: dict[str, str] = state.get("changes") or {}
     deleted: list[str] = state.get("deleted") or []
@@ -439,20 +484,29 @@ async def _try_reuse(rendered, call, store, state, base, base_hashes) -> dict | 
     if not upstream:
         return finish("hit", current, deleted)
 
+    def was(p):
+        return store.get(prev.get(p))
+
+    def now(p):
+        return store.get(base_hashes.get(p))
+
+    upstream_changes = _ast_diff.diff_trees(upstream, was, now)
+    semantic = {c.path for c in upstream_changes if c.semantic}
     owned = set(changes) | set(deleted)
     collisions = sorted(upstream & owned)
+    if not semantic and not collisions:
+        return finish("hit", current, deleted)  # comments/formatting elsewhere only
+
     new_changes = {p: b for p, b in current.items() if p not in collisions}
     new_deleted = [p for p in deleted if p not in collisions]
     verdict = "replay"
+    merge_kept_meaning = False
 
     if collisions:
         limit = _int(call.spec.config.get("merge_max_files"), DEFAULT_MERGE_MAX)
         if len(collisions) > limit:
             return f"upstream changed {len(collisions)} of the files it had changed (merge limit {limit})"
-        sides = {
-            p: (store.get(prev.get(p)), current.get(p), store.get(base_hashes.get(p)))
-            for p in collisions
-        }
+        sides = {p: (was(p), current.get(p), now(p)) for p in collisions}
         merged = await merge(call, rendered, sides)
         if merged is None:
             return f"its changes to {', '.join(collisions)} could not be merged with upstream's"
@@ -460,26 +514,54 @@ async def _try_reuse(rendered, call, store, state, base, base_hashes) -> dict | 
             if data is None:
                 if path in base_hashes:
                     new_deleted.append(path)
-            elif data != store.get(base_hashes.get(path)):
+            elif data != now(path):
                 new_changes[path] = data
         verdict = "merged"
+        # Upstream only reformatted or re-commented our files, and the merge
+        # means exactly what our version meant: nothing left to judge.
+        merge_kept_meaning = not (semantic & set(collisions)) and all(
+            _same_meaning(p, merged[p], current.get(p)) for p in collisions
+        )
 
-    upstream_diff = unified_diff(sorted(upstream), lambda p: store.get(prev.get(p)), lambda p: store.get(base_hashes.get(p)))
-    touched = sorted(set(new_changes) | set(new_deleted))
-    change_diff = unified_diff(
-        touched,
-        lambda p: store.get(base_hashes.get(p)),
-        lambda p: None if p in new_deleted else new_changes.get(p),
+    if not semantic and merge_kept_meaning:
+        return finish(verdict, new_changes, sorted(set(new_deleted)))
+
+    replayed = sum_of_changes(
+        set(new_changes) | set(new_deleted), now, lambda p: None if p in new_deleted else new_changes.get(p)
     )
     threshold = _threshold(call.spec.config.get("jev_cache_threshold"))
     try:
-        score = await verify(call, rendered, touched, upstream_diff, change_diff)
+        score = await verify(
+            call, rendered,
+            upstream={"ast_summary": _ast_diff.summary(upstream_changes),
+                      "unified_diff": unified_diff(sorted(semantic), was, now)},
+            previous=_previous_sum(store, state),
+            replayed=replayed,
+        )
     except Exception:
         log.warning("%s '%s': verification failed; running the agent", NAME, call.spec.name, exc_info=True)
         return "verifying the reused change failed"
     if score < threshold:
         return f"the reused change was judged not to hold after upstream's edits (score {score:.2f} < {threshold})"
     return finish(verdict, new_changes, sorted(set(new_deleted)))
+
+
+def _same_meaning(path: str, a: bytes | None, b: bytes | None) -> bool:
+    if a is None or b is None:
+        return a is b
+    return _ast_diff.analyse(path, a).fingerprint == _ast_diff.analyse(path, b).fingerprint
+
+
+def _previous_sum(store, state) -> dict:
+    """What this model changed on its last run, against the input it had then."""
+    prev = state.get("base") or {}
+    changes = state.get("changes") or {}
+    deleted = state.get("deleted") or []
+    return sum_of_changes(
+        set(changes) | set(deleted),
+        lambda p: store.get(prev.get(p)),
+        lambda p: None if p in deleted else store.get(changes.get(p)),
+    )
 
 
 def _finish(call, store, state, base, base_hashes, verdict, changes, deleted) -> dict:
@@ -491,10 +573,10 @@ def _finish(call, store, state, base, base_hashes, verdict, changes, deleted) ->
         "changes": {p: store.put(b) for p, b in changes.items()},
         "deleted": deleted,
     })
-    return _shape(call, state.get("output", ""), result, changes, deleted, verdict, base.name)
+    return _shape(call, state.get("output", ""), base, result, changes, deleted, verdict)
 
 
-def _shape(call, output, result: Dir, changes: dict[str, bytes], deleted, verdict, name) -> dict:
+def _shape(call, output, base: Dir, result: Dir, changes: dict[str, bytes], deleted, verdict) -> dict:
     if call.spec.output_format == "json" and isinstance(output, str):
         from promptmap.executor.run_context import parse_json_output
 
@@ -502,8 +584,13 @@ def _shape(call, output, result: Dir, changes: dict[str, bytes], deleted, verdic
     return {
         "output": output,
         "result": result,
-        "changes": Dir(dict(changes), name=f"{name}-changes"),
+        "changes": Dir(dict(changes), name=f"{base.name}-changes"),
         "deleted": list(deleted),
+        "sum_of_changes": sum_of_changes(
+            set(changes) | set(deleted),
+            lambda p: base.entries[p].read_bytes() if p in base.entries else None,
+            lambda p: None if p in deleted else changes.get(p),
+        ),
         "cache": verdict,
     }
 
@@ -539,7 +626,7 @@ async def _run_agent(rendered, call, store, state, base, base_hashes, phash, rea
         "deleted": deleted,
         "output": raw_output if isinstance(raw_output, str) else json.dumps(raw_output),
     })
-    shaped = _shape(call, raw_output, result, changes, deleted, "miss", base.name)
+    shaped = _shape(call, raw_output, base, result, changes, deleted, "miss")
     return {**{k: v for k, v in value.items() if k not in shaped}, **shaped}
 
 
@@ -549,15 +636,11 @@ def _previous_attempt(call, store, state, base_hashes, reason) -> str:
         return ""
     limit = _int(call.spec.config.get("context_max_chars"), DEFAULT_CONTEXT_MAX)
     prev = state.get("base") or {}
-    changes = state.get("changes") or {}
-    deleted = state.get("deleted") or []
-    own_diff = unified_diff(
-        sorted(set(changes) | set(deleted)),
+    upstream = sum_of_changes(
+        changed_paths(prev, base_hashes),
         lambda p: store.get(prev.get(p)),
-        lambda p: None if p in deleted else store.get(changes.get(p)),
+        lambda p: store.get(base_hashes.get(p)),
     )
-    upstream = sorted(changed_paths(prev, base_hashes))
-    upstream_diff = unified_diff(upstream, lambda p: store.get(prev.get(p)), lambda p: store.get(base_hashes.get(p)))
     parts = [
         "\n\n## Previous attempt",
         f"You worked on this before. It could not simply be reused because {reason or 'it was out of date'}.",
@@ -566,14 +649,15 @@ def _previous_attempt(call, store, state, base_hashes, reason) -> str:
     ]
     if state.get("output"):
         parts.append(f"\n### Your previous answer\n{_clip(str(state['output']), limit)}")
+    previous = _previous_sum(store, state)
     parts.append(
         "\n### Your previous change (against the workspace you had then)\n"
-        + (f"```diff\n{_clip(own_diff, limit)}```" if own_diff else "(no file changes)")
+        + (_render_sum(previous, limit) if previous["ast_summary"] else "(no file changes)")
     )
-    if upstream_diff:
+    if upstream["ast_summary"]:
         parts.append(
             "\n### What changed in the workspace since then (not by you)\n"
-            f"```diff\n{_clip(upstream_diff, limit)}```"
+            + _render_sum(upstream, limit)
         )
     return "\n".join(parts) + "\n"
 

@@ -57,20 +57,31 @@ Add tests for every endpoint.
 ```
 
 Output: `output` (the agent's answer), `result` (the patched `Dir`), `changes`
-(a `Dir` of only the files it created or modified), `deleted` and `cache`.
+(a `Dir` of only the files it created or modified), `deleted`, `sum_of_changes`
+(`ast_summary` lines plus a `unified_diff` of result vs input) and `cache`.
 Build and cache folders the agent creates while testing (`node_modules`, `.venv`,
 `__pycache__`, …) are not counted as changes.
 
 Each model remembers its last input tree and change set (`.promptmap/state`).
 With the same prompt it reuses that change instead of running the agent:
 
-| `cache`  | when                                               | LLM calls          |
-|----------|----------------------------------------------------|--------------------|
-| `hit`    | the input tree is unchanged                        | none               |
-| `replay` | upstream changed only files this model didn't      | verify             |
-| `merged` | upstream also changed some of this model's files   | 3-way merge + verify |
-| `miss`   | otherwise, or merge/verify fails                   | the agent          |
+| `cache`  | when                                                        | LLM calls          |
+|----------|-------------------------------------------------------------|--------------------|
+| `hit`    | input unchanged, or only comments/formatting changed in files this model didn't touch | none |
+| `replay` | upstream changed the meaning of files this model didn't touch | verify           |
+| `merged` | upstream also edited some of this model's files             | 3-way merge + verify (verify skipped if upstream's edit there was comments/formatting only and the merge keeps this model's meaning) |
+| `miss`   | otherwise, or merge/verify fails                            | the agent          |
 
+"Meaning" comes from [tree-sitter-language-pack](https://pypi.org/project/tree-sitter-language-pack/):
+files are compared with comments (except directives like `# type: ignore`) and
+formatting stripped, and changes are summarised per symbol — `ADDED_SYMBOL`,
+`REMOVED_SYMBOL`, `SIGNATURE_CHANGED`, `BODY_CHANGED`. Grammars download on first
+use (into `~/.cache/tree-sitter-language-pack`); files with no grammar, or that
+don't parse, are compared byte for byte.
+
+The verifier sees the upstream change (`upstream_input_ast_diff`), everything this
+model changed last run (`previous_run_sum_of_changes`) and what reuse would apply now
+(`replayed_changes`), each as symbol summary plus unified diff.
 Verification uses `classify_call` in client.py (or hosted Jev with
 `TYPESAFE_API_KEY`), else a YES/NO LLM call. On a miss the agent is told its
 previous change and answer, what changed upstream and why it is re-running.

@@ -384,3 +384,85 @@ def test_text_llm_does_not_attach_the_input_tree(tmp_path, monkeypatch):
         (app / "a.py").write_text("a = 2\n")
 
     assert seen == [None]  # one verify call, sent without files
+
+
+# ---------------------------------------------------------------------------
+# Semantic (AST) gating
+# ---------------------------------------------------------------------------
+
+needs_grammar = pytest.mark.skipif(
+    fa._ast_diff.language_for("x.py") is None, reason="tree-sitter-language-pack not installed"
+)
+
+
+@needs_grammar
+def test_comment_only_upstream_change_elsewhere_is_a_hit(tmp_path, agent, jev, llm):
+    run(tree(), tmp_path, llm)
+    out = run(tree(shared__py=b"x = 1  # the answer\n"), tmp_path, llm)
+
+    assert out["cache"] == "hit"
+    assert jev["asked"] == [] and llm["prompts"] == [] and len(agent["tasks"]) == 1
+    assert files(out["result"])["shared.py"] == b"x = 1  # the answer\n"  # upstream's edit kept
+
+
+@needs_grammar
+def test_comment_only_collision_merges_without_a_verdict(tmp_path, agent, jev, llm):
+    run(tree(), tmp_path, llm)
+    commented = b"def u():\n    # upstream note\n    return 0\n"
+    llm["replies"] = ["<<<FILE util.py>>>\ndef u():\n    # upstream note\n    return 1\n<<<END>>>\n"]
+    out = run(tree(util__py=commented), tmp_path, llm)
+
+    assert out["cache"] == "merged"
+    assert jev["asked"] == []                          # the merge kept our meaning exactly
+    assert files(out["result"])["util.py"] == b"def u():\n    # upstream note\n    return 1\n"
+
+
+@needs_grammar
+def test_comment_only_collision_whose_merge_changes_meaning_is_verified(tmp_path, agent, jev, llm):
+    run(tree(), tmp_path, llm)
+    llm["replies"] = ["<<<FILE util.py>>>\ndef u():\n    # upstream note\n    return 2\n<<<END>>>\n"]
+    out = run(tree(util__py=b"def u():\n    # upstream note\n    return 0\n"), tmp_path, llm)
+
+    assert out["cache"] == "merged"
+    assert len(jev["asked"]) == 1
+
+
+@needs_grammar
+def test_jev_gets_ast_diff_and_previous_sum_of_changes(tmp_path, agent, jev, llm):
+    run(tree(), tmp_path, llm)
+    run(tree(shared__py=b"x = 1\ndef helper(a, b):\n    return a\n"), tmp_path, llm)
+
+    (asked,) = jev["asked"]
+    upstream = asked.split("upstream_input_ast_diff:")[1].split("previous_run_sum_of_changes:")[0]
+    previous = asked.split("previous_run_sum_of_changes:")[1].split("replayed_changes:")[0]
+    assert "shared.py: ADDED_SYMBOL Function helper: def helper(a, b):" in upstream
+    assert "+def helper(a, b):" in upstream
+    assert "feature.py: ADDED_FILE" in previous
+    assert "util.py: BODY_CHANGED Function u" in previous
+    assert "old.txt: DELETED_FILE" in previous
+    assert "+FEATURE = True" in previous
+
+
+@needs_grammar
+def test_output_reports_sum_of_changes(tmp_path, agent, jev, llm):
+    out = run(tree(), tmp_path, llm)
+
+    assert out["sum_of_changes"]["ast_summary"] == [
+        "feature.py: ADDED_FILE",
+        "old.txt: DELETED_FILE",
+        "util.py: MODIFIED_FILE",
+        "util.py: BODY_CHANGED Function u",
+    ]
+    assert "+FEATURE = True" in out["sum_of_changes"]["unified_diff"]
+    assert run(tree(), tmp_path, llm)["sum_of_changes"] == out["sum_of_changes"]  # a hit reports it too
+
+
+@needs_grammar
+def test_rerun_context_carries_ast_summaries(tmp_path, agent, jev, llm):
+    run(tree(), tmp_path, llm)
+    jev["score"] = 0.0
+    run(tree(shared__py=b"def x(): pass\n"), tmp_path, llm)
+
+    task = agent["tasks"][1]
+    assert "util.py: BODY_CHANGED Function u" in task
+    assert "shared.py: ADDED_SYMBOL Function x" in task

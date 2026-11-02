@@ -17,15 +17,22 @@ Output::
 
     {"output":  <the agent's final answer>,
      "result":  Dir — the input tree with this model's changes applied,
-     "changes": Dir — only the files this model created or modified,
+     "changes": {path: text} — only the files this model created or modified,
      "deleted": [paths this model removed],
-     "base":    Dir — the input tree it worked from,
+     "base":    {"name", "hashes": {path: sha256}, "originals": {path: text}}
+                — the input tree it worked from, as hashes plus the original
+                text of only the files this model changed or deleted,
      "sum_of_changes": {"ast_summary": [...], "unified_diff": "..."} — result vs input,
      "cache":   "hit" | "replay" | "merged" | "miss",
      "merged_by": {path: "git" | "llm"} — when files were merged,
      ...the agent kind's "logs" and "time_run" on a miss}
 
 so the next coding_agent takes ``promptfiles="this_model"``.
+
+``result`` is the only file output, so the run's ``outputs/<model>/`` folder
+holds exactly the complete patched tree.  Everything else is plain data (text
+files as strings, binary ones as ``{"base64": ...}``); the next run rebuilds
+its old input from the previous ``result`` plus ``base["originals"]``.
 
 Reuse
 -----
@@ -78,6 +85,7 @@ agent always works in a scratch copy):
 from __future__ import annotations
 
 import asyncio
+import base64
 import dataclasses
 from dataclasses import dataclass
 import difflib
@@ -233,41 +241,67 @@ class Last:
 
     prompt: str
     answer: Any
-    #: The input tree it worked from, and what it changed in it.
-    base: Dir
-    changes: Dir
+    #: The tree it produced last time.
+    result: Dir
+    #: The input it worked from: every path's hash, and the original bytes of
+    #: the files it changed or deleted (the rest are as in ``result``).
+    base_hashes: dict[str, str]
+    originals: dict[str, bytes]
+    changes: dict[str, bytes]
     deleted: tuple[str, ...]
     sum_of_changes: dict | None = None
 
     def was(self, path: str) -> bytes | None:
         """*path* as this model received it last time."""
-        return _read(self.base, path)
+        if path in self.originals:
+            return self.originals[path]
+        if path in self.owned or path not in self.base_hashes:
+            return None
+        return _read(self.result, path)
 
     def ours(self, path: str) -> bytes | None:
         """*path* as this model left it last time."""
         if path in self.deleted:
             return None
-        if path in self.changes.entries:
-            return self.changes.entries[path].read_bytes()
+        if path in self.changes:
+            return self.changes[path]
         return self.was(path)
 
     @property
     def owned(self) -> set[str]:
-        return set(self.changes.entries) | set(self.deleted)
+        return set(self.changes) | set(self.deleted)
+
+
+def encode_bytes(data: bytes) -> str | dict:
+    """File content as JSON data: text as a string, anything else as base64."""
+    text = _text(data)
+    return text if text is not None else {"base64": base64.b64encode(data).decode("ascii")}
+
+
+def decode_bytes(value: str | dict) -> bytes:
+    if isinstance(value, dict):
+        return base64.b64decode(value["base64"])
+    return value.encode("utf-8")
 
 
 def last_run(call: ModelCall) -> Last | None:
     """The previous result, if it is one this kind produced (and can reuse)."""
     previous = getattr(call, "previous", None)  # promptmap >= 0.5.17
     out = getattr(previous, "output", None)
-    if not (isinstance(out, dict) and isinstance(out.get("base"), Dir) and isinstance(out.get("changes"), Dir)):
+    if not isinstance(out, dict):
+        return None
+    base, changes = out.get("base"), out.get("changes")
+    if not (isinstance(out.get("result"), Dir) and isinstance(changes, dict)
+            and isinstance(base, dict) and isinstance(base.get("hashes"), dict)):
         return None
     summary = out.get("sum_of_changes")
     return Last(
         prompt=previous.prompt,
         answer=out.get("output", ""),
-        base=out["base"],
-        changes=out["changes"],
+        result=out["result"],
+        base_hashes=dict(base["hashes"]),
+        originals={p: decode_bytes(v) for p, v in (base.get("originals") or {}).items()},
+        changes={p: decode_bytes(v) for p, v in changes.items()},
         deleted=tuple(out.get("deleted") or ()),
         sum_of_changes=summary if isinstance(summary, dict) and "ast_summary" in summary else None,
     )
@@ -513,8 +547,8 @@ async def _try_reuse(rendered: str, call: ModelCall, last: Last, base: Dir) -> d
     edit to a file this model also changed is merged, never overwritten.
     """
     base_hashes = hashes(base)
-    upstream = changed_paths(hashes(last.base), base_hashes)
-    current = {p: f.read_bytes() for p, f in last.changes.entries.items()}
+    upstream = changed_paths(last.base_hashes, base_hashes)
+    current = dict(last.changes)
     deleted = list(last.deleted)
 
     def finish(verdict: str, new_changes: dict[str, bytes], new_deleted: list[str], **extra) -> dict:
@@ -608,12 +642,17 @@ def _shape(call, output, base: Dir, result: Dir, changes: dict[str, bytes], dele
         from promptmap.executor.run_context import parse_json_output
 
         output = parse_json_output(output)
+    owned = set(changes) | set(deleted)
     return {
         "output": output,
         "result": result,
-        "changes": Dir(dict(changes), name=f"{base.name}-changes"),
+        "changes": {p: encode_bytes(b) for p, b in sorted(changes.items())},
         "deleted": list(deleted),
-        "base": base,
+        "base": {
+            "name": base.name,
+            "hashes": hashes(base),
+            "originals": {p: encode_bytes(f.read_bytes()) for p, f in base.entries.items() if p in owned},
+        },
         "sum_of_changes": sum_of_changes(
             set(changes) | set(deleted),
             lambda p: _read(base, p),
@@ -657,7 +696,7 @@ def _previous_attempt(call: ModelCall, last: Last | None, base: Dir, reason: str
         return ""
     limit = _int(call.spec.config.get("context_max_chars"), DEFAULT_CONTEXT_MAX)
     upstream = sum_of_changes(
-        changed_paths(hashes(last.base), hashes(base)), last.was, lambda p: _read(base, p)
+        changed_paths(last.base_hashes, hashes(base)), last.was, lambda p: _read(base, p)
     )
     parts = [
         "\n\n## Previous attempt",

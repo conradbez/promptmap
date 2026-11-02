@@ -129,7 +129,7 @@ def test_first_run_returns_patched_tree_and_sparse_changes(tmp_path, agent, jev,
     assert out["cache"] == "miss"
     assert out["output"] == "done 1"
     assert files(out["result"]) == EXPECTED
-    assert files(out["changes"]) == {k: EXPECTED[k] for k in ("feature.py", "util.py")}
+    assert out["changes"] == {k: EXPECTED[k].decode() for k in ("feature.py", "util.py")}
     assert out["deleted"] == ["old.txt"]
     assert files(base) == BASE  # the input is never modified
     assert fa.OUTCOME_CONTRACT.strip() in agent["tasks"][0]
@@ -534,7 +534,8 @@ def test_output_carries_what_the_next_run_needs(tmp_path, agent, jev, llm):
     base = tree()
     out = run(base, tmp_path, llm)
 
-    assert out["base"] is base
+    assert out["base"]["hashes"] == {p: f.sha256 for p, f in base.entries.items()}
+    assert set(out["base"]["originals"]) == {"util.py", "old.txt"}  # only what it touched
     last = fa.last_run(ModelCall(
         spec=None, outputs={}, llm=None, compute=None, previous=PreviousRun(prompt="p", output=out),
     ))
@@ -587,3 +588,18 @@ def test_executor_keeps_no_state_and_a_template_edit_starts_afresh(tmp_path, mon
     edited = first + "\nKeep it short."
     assert run_once(edited)["cache"] == "miss"     # an edited template has no previous
     assert "Previous attempt" not in tasks[1]
+
+
+def test_result_is_the_only_file_output(tmp_path, agent, jev, llm):
+    from promptmap.files import encode_output, iter_files
+
+    out = run(tree(), tmp_path, llm)
+    labels = {label for label, _ in iter_files(out)}
+    assert labels == {f"result/{p}" for p in EXPECTED}
+    json.loads(encode_output({k: v for k, v in out.items() if k != "result"}))  # plain data
+
+
+def test_binary_changes_survive_as_base64():
+    data = bytes(range(256))
+    assert fa.decode_bytes(fa.encode_bytes(data)) == data
+    assert fa.encode_bytes(b"text") == "text"

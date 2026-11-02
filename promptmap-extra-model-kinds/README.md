@@ -57,13 +57,17 @@ Add tests for every endpoint.
 ```
 
 Output: `output` (the agent's answer), `result` (the patched `Dir`), `changes`
-(a `Dir` of only the files it created or modified), `deleted`, `sum_of_changes`
+(`{path: text}` of only the files it created or modified), `deleted`, `sum_of_changes`
 (`ast_summary` lines plus a `unified_diff` of result vs input) and `cache`.
+`result` is the only file output, so `promptmap run` writes the complete patched
+tree to `outputs/<model>/result/` and nothing else; the rest is plain data
+(binary file content as `{"base64": ...}`).
 Build and cache folders the agent creates while testing (`node_modules`, `.venv`,
 `__pycache__`, …) are not counted as changes.
 
 The node keeps no state of its own: its output also carries `base` (the input
-tree it worked from), and promptmap hands the whole output back next run as the
+tree it worked from, as `{path: sha256}` hashes plus the original text of only the
+files it changed — the rest is rebuilt from the previous `result`), and promptmap hands the whole output back next run as the
 model's previous result (`call.previous`, promptmap ≥ 0.5.17) — the same row
 templates see as `{{ previous }}`. Editing the `.prompt` file, or deleting the
 run database, starts it afresh.

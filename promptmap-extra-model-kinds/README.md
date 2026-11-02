@@ -62,14 +62,19 @@ Output: `output` (the agent's answer), `result` (the patched `Dir`), `changes`
 Build and cache folders the agent creates while testing (`node_modules`, `.venv`,
 `__pycache__`, …) are not counted as changes.
 
-Each model remembers its last input tree and change set (`.promptmap/state`).
+The node keeps no state of its own: its output also carries `base` (the input
+tree it worked from), and promptmap hands the whole output back next run as the
+model's previous result (`call.previous`, promptmap ≥ 0.5.17) — the same row
+templates see as `{{ previous }}`. Editing the `.prompt` file, or deleting the
+run database, starts it afresh.
+
 With the same prompt it reuses that change instead of running the agent:
 
 | `cache`  | when                                                        | LLM calls          |
 |----------|-------------------------------------------------------------|--------------------|
 | `hit`    | input unchanged, or only comments/formatting changed in files this model didn't touch | none |
 | `replay` | upstream changed the meaning of files this model didn't touch | verify           |
-| `merged` | upstream also edited some of this model's files             | 3-way merge + verify (verify skipped if upstream's edit there was comments/formatting only and the merge keeps this model's meaning) |
+| `merged` | upstream also edited some of this model's files             | `git merge-file` per file, one LLM merge call for any that conflict, then verify (skipped if upstream's edit there was comments/formatting only and the merge keeps this model's meaning) |
 | `miss`   | otherwise, or merge/verify fails                            | the agent          |
 
 "Meaning" comes from [tree-sitter-language-pack](https://pypi.org/project/tree-sitter-language-pack/):
@@ -86,4 +91,4 @@ Verification uses `classify_call` in client.py (or hosted Jev with
 `TYPESAFE_API_KEY`), else a YES/NO LLM call. On a miss the agent is told its
 previous change and answer, what changed upstream and why it is re-running.
 Extra config keys: `jev_cache_threshold` (0.85), `merge_max_files` (5),
-`context_max_chars` (20000), `force_refresh`, `state_dir`.
+`context_max_chars` (20000), `force_refresh`.

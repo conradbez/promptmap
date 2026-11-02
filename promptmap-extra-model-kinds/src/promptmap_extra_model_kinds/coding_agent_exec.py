@@ -19,17 +19,23 @@ Output::
      "result":  Dir — the input tree with this model's changes applied,
      "changes": Dir — only the files this model created or modified,
      "deleted": [paths this model removed],
+     "base":    Dir — the input tree it worked from,
      "sum_of_changes": {"ast_summary": [...], "unified_diff": "..."} — result vs input,
      "cache":   "hit" | "replay" | "merged" | "miss",
+     "merged_by": {path: "git" | "llm"} — when files were merged,
      ...the agent kind's "logs" and "time_run" on a miss}
 
 so the next coding_agent takes ``promptfiles="this_model"``.
 
 Reuse
 -----
-Per model, ``<state_dir>/<model>.json`` keeps the prompt, the tree it last
-received (as file hashes) and its sparse change set; file bytes live in
-``<state_dir>/blobs``.  With the same prompt:
+This kind keeps no state of its own.  Its output carries what the next run
+needs — the input tree it worked from (``base``), its sparse change set
+(``changes``, ``deleted``) and their ``sum_of_changes`` — and promptmap hands
+that back as ``call.previous``: the model's last successful result from a run
+of the same template (promptmap >= 0.5.17).  Editing the ``.prompt`` file
+therefore starts afresh; deleting the run database does too.  With the same
+rendered prompt:
 
 ``hit``     upstream changed nothing that means anything — the tree is the
             same, or only comments/formatting changed in files this model
@@ -37,8 +43,9 @@ received (as file hashes) and its sparse change set; file bytes live in
 ``replay``  upstream changed the meaning of files this model did not touch:
             apply the change set to the new tree, then verify (one call).
 ``merged``  upstream also edited some of this model's files (at most
-            ``merge_max_files``): one LLM call merges those files three-way,
-            then verify (a second call).  When upstream's edits there were
+            ``merge_max_files``): each is merged three-way with ``git merge-file``,
+            and whatever conflicts goes to one LLM merge call,
+            then verify.  When upstream's edits there were
             only comments/formatting and the merge means exactly what this
             model's version meant, the verify call is skipped.
 ``miss``    anything else, or a failed merge or verification: run the agent
@@ -66,28 +73,27 @@ agent always works in a scratch copy):
 ``merge_max_files``      most colliding files to merge rather than re-run (5)
 ``context_max_chars``    cap on each diff put into a prompt (20000)
 ``force_refresh``        always run the agent (false)
-``state_dir``            default ``.promptmap/state``, relative to the
-                         project root (the folder holding client.py)
 """
 
 from __future__ import annotations
 
 import asyncio
 import dataclasses
+from dataclasses import dataclass
 import difflib
-import hashlib
 import inspect
 import json
 import logging
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable
 
 from promptmap.executor import builtin_kinds
-from promptmap.files import Dir, File, select_path, split_model_path
+from promptmap.files import Dir, File, FileOutputError, select_path, split_model_path
 from promptmap.model_types import ModelCall, register_model_kind
 
 from . import _ast_diff
@@ -98,7 +104,6 @@ NAME = "coding_agent"
 DEFAULT_THRESHOLD = 0.85
 DEFAULT_MERGE_MAX = 5
 DEFAULT_CONTEXT_MAX = 20_000
-DEFAULT_STATE_DIR = ".promptmap/state"
 
 #: Appended to every agent task, so the change set stays sparse.
 OUTCOME_CONTRACT = (
@@ -219,70 +224,58 @@ def _clip(text: str, limit: int) -> str:
 
 
 # ---------------------------------------------------------------------------
-# State: a JSON record per model plus a content-addressed blob folder
+# The last run — read back from promptmap (``call.previous``), not stored here
 # ---------------------------------------------------------------------------
 
-class StateStore:
-    def __init__(self, path: Path):
-        self.path = path
-        self.blobs = path.parent / "blobs"
+@dataclass(frozen=True)
+class Last:
+    """What this model returned on its last successful run of this template."""
 
-    def load(self) -> dict | None:
-        try:
-            return json.loads(self.path.read_text())
-        except (FileNotFoundError, json.JSONDecodeError):
+    prompt: str
+    answer: Any
+    #: The input tree it worked from, and what it changed in it.
+    base: Dir
+    changes: Dir
+    deleted: tuple[str, ...]
+    sum_of_changes: dict | None = None
+
+    def was(self, path: str) -> bytes | None:
+        """*path* as this model received it last time."""
+        return _read(self.base, path)
+
+    def ours(self, path: str) -> bytes | None:
+        """*path* as this model left it last time."""
+        if path in self.deleted:
             return None
+        if path in self.changes.entries:
+            return self.changes.entries[path].read_bytes()
+        return self.was(path)
 
-    def save(self, state: dict) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(state, indent=1, sort_keys=True))
-        os.replace(tmp, self.path)
-
-    def put(self, data: bytes) -> str:
-        sha = hashlib.sha256(data).hexdigest()
-        target = self.blobs / sha
-        if not target.exists():
-            self.blobs.mkdir(parents=True, exist_ok=True)
-            tmp = target.with_suffix(f".tmp{os.getpid()}")
-            tmp.write_bytes(data)
-            os.replace(tmp, target)
-        return sha
-
-    def put_tree(self, tree: Dir) -> None:
-        for f in tree.entries.values():
-            if not (self.blobs / f.sha256).exists():
-                self.put(f.read_bytes())
-
-    def get(self, sha: str | None) -> bytes | None:
-        if sha is None:
-            return None
-        try:
-            return (self.blobs / sha).read_bytes()
-        except FileNotFoundError:
-            return None
+    @property
+    def owned(self) -> set[str]:
+        return set(self.changes.entries) | set(self.deleted)
 
 
-def state_path(call: ModelCall) -> Path:
-    configured = Path(str(call.spec.config.get("state_dir") or DEFAULT_STATE_DIR)).expanduser()
-    if not configured.is_absolute():
-        configured = (_project_root(call) or Path.cwd()) / configured
-    return configured / f"{call.spec.name}.json"
-
-
-def _project_root(call: ModelCall) -> Path | None:
-    path = call.spec.path
-    if not path.is_file():
+def last_run(call: ModelCall) -> Last | None:
+    """The previous result, if it is one this kind produced (and can reuse)."""
+    previous = getattr(call, "previous", None)  # promptmap >= 0.5.17
+    out = getattr(previous, "output", None)
+    if not (isinstance(out, dict) and isinstance(out.get("base"), Dir) and isinstance(out.get("changes"), Dir)):
         return None
-    for parent in path.resolve().parents:
-        if (parent / "client.py").is_file():
-            return parent
-    return path.resolve().parent
+    summary = out.get("sum_of_changes")
+    return Last(
+        prompt=previous.prompt,
+        answer=out.get("output", ""),
+        base=out["base"],
+        changes=out["changes"],
+        deleted=tuple(out.get("deleted") or ()),
+        sum_of_changes=summary if isinstance(summary, dict) and "ast_summary" in summary else None,
+    )
 
 
-def prompt_hash(rendered: str, config: dict) -> str:
-    salt = json.dumps({k: str(config.get(k, "")) for k in ("agent_backend", "agent_model")}, sort_keys=True)
-    return hashlib.sha256((rendered + "\x00" + salt).encode()).hexdigest()
+def _read(tree: Dir, path: str) -> bytes | None:
+    file = tree.entries.get(path)
+    return None if file is None else file.read_bytes()
 
 
 # ---------------------------------------------------------------------------
@@ -414,7 +407,54 @@ def _merge_section(path: str, original: bytes | None, yours: bytes | None, upstr
     )
 
 
-async def merge(call: ModelCall, goal: str, sides: dict[str, tuple]) -> dict[str, bytes | None] | None:
+def git_merge(original: bytes | None, yours: bytes | None, upstream: bytes | None) -> bytes | None:
+    """A clean textual three-way merge by ``git merge-file``, else None.
+
+    None on a conflict, when either side deleted the file, for binary
+    content, or when git is not installed — the LLM merge takes those.
+    """
+    git = shutil.which("git")
+    if git is None or yours is None or upstream is None:
+        return None
+    with tempfile.TemporaryDirectory(prefix="promptmap-merge-") as tmp:
+        paths = []
+        for name, data in (("yours", yours), ("original", original or b""), ("upstream", upstream)):
+            path = Path(tmp) / name
+            path.write_bytes(data)
+            paths.append(str(path))
+        try:
+            proc = subprocess.run([git, "merge-file", "-p", *paths], capture_output=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            return None
+    return proc.stdout if proc.returncode == 0 else None
+
+
+async def merge(
+    call: ModelCall, goal: str, sides: dict[str, tuple]
+) -> tuple[dict[str, bytes | None], dict[str, str]] | None:
+    """Three-way merge *sides* (path → original, yours, upstream).
+
+    Each file is tried with ``git merge-file`` first; whatever does not merge
+    cleanly goes to the LLM in one call.  Returns (path → merged bytes, None
+    meaning delete; path → "git" or "llm"), or None if the LLM merge failed.
+    """
+    merged: dict[str, bytes | None] = {}
+    for path, (original, yours, upstream) in sides.items():
+        clean = git_merge(original, yours, upstream)
+        if clean is not None:
+            merged[path] = clean
+    by = {path: "git" for path in merged}
+    rest = {path: trio for path, trio in sides.items() if path not in merged}
+    if rest:
+        llm_merged = await llm_merge(call, goal, rest)
+        if llm_merged is None:
+            return None
+        merged.update(llm_merged)
+        by.update({path: "llm" for path in rest})
+    return merged, by
+
+
+async def llm_merge(call: ModelCall, goal: str, sides: dict[str, tuple]) -> dict[str, bytes | None] | None:
     """Three-way merge *sides* (path → original, yours, upstream) with one LLM call.
 
     Returns path → merged bytes (None = delete), or None if any side is
@@ -440,76 +480,72 @@ async def merge(call: ModelCall, goal: str, sides: dict[str, tuple]) -> dict[str
 # ---------------------------------------------------------------------------
 
 async def run_coding_agent(rendered: str, call: ModelCall) -> dict:
-    config = call.spec.config
     base = resolve_base(call)
-    store = StateStore(state_path(call))
-    store.put_tree(base)
-    state = store.load()
-    phash = prompt_hash(rendered, config)
-    base_hashes = hashes(base)
+    last = last_run(call)
 
-    if _truthy(config.get("force_refresh")):
+    if _truthy(call.spec.config.get("force_refresh")):
         reason = "a refresh was forced"
-    elif state is None:
+    elif last is None:
         reason = None  # first run: nothing to reuse, nothing to explain
-    elif state.get("prompt_hash") != phash:
+    elif last.prompt != rendered:
         reason = "the task itself changed"
     else:
-        reused = await _try_reuse(rendered, call, store, state, base, base_hashes)
+        try:
+            reused = await _try_reuse(rendered, call, last, base)
+        except FileOutputError:
+            reused = "the files of its previous result are no longer in the blob store"
         if isinstance(reused, dict):
             return reused
         reason = reused
 
-    return await _run_agent(rendered, call, store, state, base, base_hashes, phash, reason)
+    try:
+        return await _run_agent(rendered, call, last, base, reason)
+    except FileOutputError:
+        # The previous result's files are gone: run without that context.
+        return await _run_agent(rendered, call, None, base, reason)
 
 
-async def _try_reuse(rendered, call, store, state, base, base_hashes) -> dict | str:
+async def _try_reuse(rendered: str, call: ModelCall, last: Last, base: Dir) -> dict | str:
     """The reused result, or the reason it could not be reused.
 
     Upstream changes are judged semantically (:mod:`._ast_diff`): edits that
     only touch comments or formatting never need a verdict.  But any upstream
     edit to a file this model also changed is merged, never overwritten.
     """
-    prev = state.get("base") or {}
-    changes: dict[str, str] = state.get("changes") or {}
-    deleted: list[str] = state.get("deleted") or []
-    upstream = changed_paths(prev, base_hashes)
+    base_hashes = hashes(base)
+    upstream = changed_paths(hashes(last.base), base_hashes)
+    current = {p: f.read_bytes() for p, f in last.changes.entries.items()}
+    deleted = list(last.deleted)
 
-    def finish(verdict: str, new_changes: dict[str, bytes], new_deleted: list[str]) -> dict:
-        return _finish(call, store, state, base, base_hashes, verdict, new_changes, new_deleted)
+    def finish(verdict: str, new_changes: dict[str, bytes], new_deleted: list[str], **extra) -> dict:
+        return _finish(call, last, base, verdict, new_changes, new_deleted, **extra)
 
-    current = {p: store.get(s) for p, s in changes.items()}
-    if any(v is None for v in current.values()):
-        return "its saved change set is incomplete"
     if not upstream:
         return finish("hit", current, deleted)
 
-    def was(p):
-        return store.get(prev.get(p))
-
     def now(p):
-        return store.get(base_hashes.get(p))
+        return _read(base, p)
 
-    upstream_changes = _ast_diff.diff_trees(upstream, was, now)
+    upstream_changes = _ast_diff.diff_trees(upstream, last.was, now)
     semantic = {c.path for c in upstream_changes if c.semantic}
-    owned = set(changes) | set(deleted)
-    collisions = sorted(upstream & owned)
+    collisions = sorted(upstream & last.owned)
     if not semantic and not collisions:
         return finish("hit", current, deleted)  # comments/formatting elsewhere only
 
     new_changes = {p: b for p, b in current.items() if p not in collisions}
     new_deleted = [p for p in deleted if p not in collisions]
-    verdict = "replay"
+    verdict, merged_by = "replay", {}
     merge_kept_meaning = False
 
     if collisions:
         limit = _int(call.spec.config.get("merge_max_files"), DEFAULT_MERGE_MAX)
         if len(collisions) > limit:
             return f"upstream changed {len(collisions)} of the files it had changed (merge limit {limit})"
-        sides = {p: (was(p), current.get(p), now(p)) for p in collisions}
-        merged = await merge(call, rendered, sides)
-        if merged is None:
+        sides = {p: (last.was(p), last.ours(p), now(p)) for p in collisions}
+        result = await merge(call, rendered, sides)
+        if result is None:
             return f"its changes to {', '.join(collisions)} could not be merged with upstream's"
+        merged, merged_by = result
         for path, data in merged.items():
             if data is None:
                 if path in base_hashes:
@@ -520,11 +556,12 @@ async def _try_reuse(rendered, call, store, state, base, base_hashes) -> dict | 
         # Upstream only reformatted or re-commented our files, and the merge
         # means exactly what our version meant: nothing left to judge.
         merge_kept_meaning = not (semantic & set(collisions)) and all(
-            _same_meaning(p, merged[p], current.get(p)) for p in collisions
+            _same_meaning(p, merged[p], last.ours(p)) for p in collisions
         )
 
+    extra = {"merged_by": merged_by} if merged_by else {}
     if not semantic and merge_kept_meaning:
-        return finish(verdict, new_changes, sorted(set(new_deleted)))
+        return finish(verdict, new_changes, sorted(set(new_deleted)), **extra)
 
     replayed = sum_of_changes(
         set(new_changes) | set(new_deleted), now, lambda p: None if p in new_deleted else new_changes.get(p)
@@ -534,8 +571,8 @@ async def _try_reuse(rendered, call, store, state, base, base_hashes) -> dict | 
         score = await verify(
             call, rendered,
             upstream={"ast_summary": _ast_diff.summary(upstream_changes),
-                      "unified_diff": unified_diff(sorted(semantic), was, now)},
-            previous=_previous_sum(store, state),
+                      "unified_diff": unified_diff(sorted(semantic), last.was, now)},
+            previous=_previous_sum(last),
             replayed=replayed,
         )
     except Exception:
@@ -543,7 +580,7 @@ async def _try_reuse(rendered, call, store, state, base, base_hashes) -> dict | 
         return "verifying the reused change failed"
     if score < threshold:
         return f"the reused change was judged not to hold after upstream's edits (score {score:.2f} < {threshold})"
-    return finish(verdict, new_changes, sorted(set(new_deleted)))
+    return finish(verdict, new_changes, sorted(set(new_deleted)), **extra)
 
 
 def _same_meaning(path: str, a: bytes | None, b: bytes | None) -> bool:
@@ -552,31 +589,21 @@ def _same_meaning(path: str, a: bytes | None, b: bytes | None) -> bool:
     return _ast_diff.analyse(path, a).fingerprint == _ast_diff.analyse(path, b).fingerprint
 
 
-def _previous_sum(store, state) -> dict:
+def _previous_sum(last: Last) -> dict:
     """What this model changed on its last run, against the input it had then."""
-    prev = state.get("base") or {}
-    changes = state.get("changes") or {}
-    deleted = state.get("deleted") or []
-    return sum_of_changes(
-        set(changes) | set(deleted),
-        lambda p: store.get(prev.get(p)),
-        lambda p: None if p in deleted else store.get(changes.get(p)),
-    )
+    if last.sum_of_changes is not None:
+        return last.sum_of_changes
+    return sum_of_changes(last.owned, last.was, last.ours)
 
 
-def _finish(call, store, state, base, base_hashes, verdict, changes, deleted) -> dict:
-    deleted = sorted(p for p in deleted if p in base_hashes)
+def _finish(call, last: Last, base: Dir, verdict: str, changes, deleted, **extra) -> dict:
+    deleted = sorted(p for p in deleted if p in base.entries)
     result = apply_changes(base, changes, deleted)
-    store.save({
-        **state,
-        "base": base_hashes,
-        "changes": {p: store.put(b) for p, b in changes.items()},
-        "deleted": deleted,
-    })
-    return _shape(call, state.get("output", ""), base, result, changes, deleted, verdict)
+    return {**_shape(call, last.answer, base, result, changes, deleted, verdict), **extra}
 
 
 def _shape(call, output, base: Dir, result: Dir, changes: dict[str, bytes], deleted, verdict) -> dict:
+    """The output — and, read back as ``call.previous`` next run, the state."""
     if call.spec.output_format == "json" and isinstance(output, str):
         from promptmap.executor.run_context import parse_json_output
 
@@ -586,17 +613,18 @@ def _shape(call, output, base: Dir, result: Dir, changes: dict[str, bytes], dele
         "result": result,
         "changes": Dir(dict(changes), name=f"{base.name}-changes"),
         "deleted": list(deleted),
+        "base": base,
         "sum_of_changes": sum_of_changes(
             set(changes) | set(deleted),
-            lambda p: base.entries[p].read_bytes() if p in base.entries else None,
+            lambda p: _read(base, p),
             lambda p: None if p in deleted else changes.get(p),
         ),
         "cache": verdict,
     }
 
 
-async def _run_agent(rendered, call, store, state, base, base_hashes, phash, reason) -> dict:
-    task = rendered + OUTCOME_CONTRACT + _previous_attempt(call, store, state, base_hashes, reason)
+async def _run_agent(rendered: str, call: ModelCall, last: Last | None, base: Dir, reason: str | None) -> dict:
+    task = rendered + OUTCOME_CONTRACT + _previous_attempt(call, last, base, reason)
 
     def work() -> dict:
         scratch = Path(tempfile.mkdtemp(prefix="promptmap-coding-agent-"))
@@ -615,31 +643,21 @@ async def _run_agent(rendered, call, store, state, base, base_hashes, phash, rea
     value = await call.compute(f"{task}\x00base:{base.sha256}", compute=lambda: asyncio.to_thread(work))
     value = json.loads(value) if isinstance(value, str) else dict(value)
     result: Dir = value["result"]
+    base_hashes = hashes(base)
     after = hashes(result)
     changes = {p: result.entries[p].read_bytes() for p, s in after.items() if base_hashes.get(p) != s}
     deleted = sorted(p for p in base_hashes if p not in after)
-    raw_output = value.get("output", "")
-    store.save({
-        "prompt_hash": phash,
-        "base": base_hashes,
-        "changes": {p: store.put(b) for p, b in changes.items()},
-        "deleted": deleted,
-        "output": raw_output if isinstance(raw_output, str) else json.dumps(raw_output),
-    })
-    shaped = _shape(call, raw_output, base, result, changes, deleted, "miss")
+    shaped = _shape(call, value.get("output", ""), base, result, changes, deleted, "miss")
     return {**{k: v for k, v in value.items() if k not in shaped}, **shaped}
 
 
-def _previous_attempt(call, store, state, base_hashes, reason) -> str:
+def _previous_attempt(call: ModelCall, last: Last | None, base: Dir, reason: str | None) -> str:
     """What the agent should know about its last run, for an informed re-run."""
-    if not state:
+    if last is None:
         return ""
     limit = _int(call.spec.config.get("context_max_chars"), DEFAULT_CONTEXT_MAX)
-    prev = state.get("base") or {}
     upstream = sum_of_changes(
-        changed_paths(prev, base_hashes),
-        lambda p: store.get(prev.get(p)),
-        lambda p: store.get(base_hashes.get(p)),
+        changed_paths(hashes(last.base), hashes(base)), last.was, lambda p: _read(base, p)
     )
     parts = [
         "\n\n## Previous attempt",
@@ -647,9 +665,10 @@ def _previous_attempt(call, store, state, base_hashes, reason) -> str:
         "Start from your previous change: re-apply what still holds, adapt it to the "
         "current workspace, and fix only what no longer works.",
     ]
-    if state.get("output"):
-        parts.append(f"\n### Your previous answer\n{_clip(str(state['output']), limit)}")
-    previous = _previous_sum(store, state)
+    if last.answer:
+        answer = last.answer if isinstance(last.answer, str) else json.dumps(last.answer)
+        parts.append(f"\n### Your previous answer\n{_clip(answer, limit)}")
+    previous = _previous_sum(last)
     parts.append(
         "\n### Your previous change (against the workspace you had then)\n"
         + (_render_sum(previous, limit) if previous["ast_summary"] else "(no file changes)")
@@ -688,6 +707,6 @@ KIND = register_model_kind(dataclasses.replace(
     exec_fn=run_coding_agent,
     config_keys=(builtin_kinds.AGENT.config_keys - {"agent_dir"}) | {
         "jev_cache_threshold", "merge_max_files", "context_max_chars",
-        "force_refresh", "state_dir",
+        "force_refresh",
     },
 ))

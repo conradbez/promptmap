@@ -11,6 +11,7 @@ import pytest
 from promptmap.executor import builtin_kinds
 from promptmap.files import Dir
 from promptmap.model_spec import ModelSpec
+from promptmap.executor.parser_model import PreviousRun
 from promptmap.model_types import ModelCall, get_model_kind
 
 from promptmap_extra_model_kinds import coding_agent_exec as fa
@@ -69,11 +70,13 @@ def llm():
     return {"replies": [], "prompts": []}
 
 
+#: Each test's last result, handed back as ``call.previous`` the way promptmap does.
+_HISTORY: dict[str, PreviousRun] = {}
+
+
 def run(base: Dir, tmp_path, llm, prompt="add the feature", **config) -> dict:
     spec = ModelSpec(
-        name="node", source="", model_type=fa.NAME,
-        config={"state_dir": str(tmp_path / "state"), **config},
-        promptfiles_used=["up"],
+        name="node", source="", model_type=fa.NAME, config=config, promptfiles_used=["up"],
     )
 
     async def compute(key, compute):
@@ -84,8 +87,13 @@ def run(base: Dir, tmp_path, llm, prompt="add the feature", **config) -> dict:
         llm["prompts"].append(prompt)
         return llm["replies"].pop(0)
 
-    call = ModelCall(spec=spec, outputs={"up": base}, llm=call_llm, compute=compute)
-    return asyncio.run(fa.run_coding_agent(prompt, call))
+    key = str(tmp_path)
+    call = ModelCall(
+        spec=spec, outputs={"up": base}, llm=call_llm, compute=compute, previous=_HISTORY.get(key),
+    )
+    out = asyncio.run(fa.run_coding_agent(prompt, call))
+    _HISTORY[key] = PreviousRun(prompt=prompt, output=out)
+    return out
 
 
 def files(d: Dir) -> dict[str, bytes]:
@@ -241,7 +249,7 @@ def test_chained_dir_input_from_another_coding_agent(tmp_path, agent, jev, llm):
     first = run(tree(), tmp_path, llm)
     spec = ModelSpec(
         name="second", source="", model_type=fa.NAME,
-        config={"state_dir": str(tmp_path / "state")}, promptfiles_used=["first"],
+        config={}, promptfiles_used=["first"],
     )
     call = ModelCall(spec=spec, outputs={"first": first}, llm=None, compute=None)
     assert fa.resolve_base(call) is first["result"]
@@ -306,14 +314,13 @@ def test_chain_through_the_executor(tmp_path, monkeypatch, jev):
         llm_seen.append(files)
         return "YES"
 
-    state = tmp_path / "state"
     models = {
         # A static node decides what the input tree is; the agents only see Dirs.
         "repo": '{{ config(model_type="execute_python", cache=False) }}'
                 'from pathlib import Path\n'
                 f'output = Dir({{p.name: p.read_bytes() for p in Path("{app}").iterdir() if p.suffix != ".log"}}, name="app")',
-        "api": f'{{{{ config(model_type="{fa.NAME}", promptfiles="repo", state_dir="{state}") }}}}add /health',
-        "tests": f'{{{{ config(model_type="{fa.NAME}", promptfiles="api", state_dir="{state}") }}}}test it',
+        "api": f'{{{{ config(model_type="{fa.NAME}", promptfiles="repo") }}}}add /health',
+        "tests": f'{{{{ config(model_type="{fa.NAME}", promptfiles="api") }}}}test it',
         "apply": '{{ config(model_type="execute_python") }}'
                  f'ref("tests")["result"].save("{tmp_path / "out"}")',
     }
@@ -367,10 +374,9 @@ def test_text_llm_does_not_attach_the_input_tree(tmp_path, monkeypatch):
         seen.append(files)
         return "YES"
 
-    state = tmp_path / "state"
     models = {
         "src": f'{{{{ config(model_type="execute_python", cache=False) }}}}output = Dir("{app}")',
-        "b": f'{{{{ config(model_type="{fa.NAME}", promptfiles=["src"], state_dir="{state}") }}}}write b',
+        "b": f'{{{{ config(model_type="{fa.NAME}", promptfiles=["src"]) }}}}write b',
     }
     storage = MemoryStorageBackend()
     storage.init_db()
@@ -466,3 +472,118 @@ def test_rerun_context_carries_ast_summaries(tmp_path, agent, jev, llm):
     task = agent["tasks"][1]
     assert "util.py: BODY_CHANGED Function u" in task
     assert "shared.py: ADDED_SYMBOL Function x" in task
+
+
+# ---------------------------------------------------------------------------
+# git merge-file before the LLM; state comes back through call.previous
+# ---------------------------------------------------------------------------
+
+LONG_UTIL = b"def a():\n    return 'a'\n\n\ndef b():\n    return 'b'\n\n\ndef u():\n    return 0\n"
+
+
+def test_git_merge_file():
+    original = b"one\ntwo\nthree\nfour\nfive\n"
+    yours = b"one\ntwo\nthree\nfour\nFIVE\n"
+    upstream = b"ONE\ntwo\nthree\nfour\nfive\n"
+    assert fa.git_merge(original, yours, upstream) == b"ONE\ntwo\nthree\nfour\nFIVE\n"
+    assert fa.git_merge(original, yours, b"one\ntwo\nthree\nfour\nfive!\n") is None  # conflict
+    assert fa.git_merge(original, None, upstream) is None                            # we deleted it
+    assert fa.git_merge(None, b"a\n", b"a\n") == b"a\n"                              # both created alike
+
+
+def test_git_merge_without_git(monkeypatch):
+    monkeypatch.setattr(fa.shutil, "which", lambda name: None)
+    assert fa.git_merge(b"a\n", b"b\n", b"a\n") is None
+
+
+def test_clean_git_merge_needs_no_llm_merge(tmp_path, agent, jev, llm):
+    agent["edit"] = lambda root: (root / "util.py").write_text(LONG_UTIL.decode().replace("return 0", "return 1"))
+    run(tree(util__py=LONG_UTIL), tmp_path, llm)
+    upstream = LONG_UTIL.replace(b"return 'a'", b"return 'A'")
+    out = run(tree(util__py=upstream), tmp_path, llm)
+
+    assert out["cache"] == "merged"
+    assert out["merged_by"] == {"util.py": "git"}
+    assert llm["prompts"] == []                    # no LLM merge call
+    assert len(jev["asked"]) == 1                  # upstream changed meaning: still verified
+    merged = files(out["result"])["util.py"]
+    assert b"return 'A'" in merged and b"return 1" in merged
+
+
+@needs_grammar
+def test_comment_only_collision_merged_by_git_costs_nothing(tmp_path, agent, jev, llm):
+    agent["edit"] = lambda root: (root / "util.py").write_text(LONG_UTIL.decode().replace("return 0", "return 1"))
+    run(tree(util__py=LONG_UTIL), tmp_path, llm)
+    out = run(tree(util__py=b"# utilities\n" + LONG_UTIL), tmp_path, llm)
+
+    assert out["cache"] == "merged"
+    assert out["merged_by"] == {"util.py": "git"}
+    assert llm["prompts"] == [] and jev["asked"] == [] and len(agent["tasks"]) == 1
+    assert files(out["result"])["util.py"].startswith(b"# utilities\n")
+
+
+def test_conflicting_merge_falls_back_to_llm(tmp_path, agent, jev, llm):
+    run(tree(), tmp_path, llm)
+    llm["replies"] = ["<<<FILE util.py>>>\ndef u():\n    log()\n    return 1\n<<<END>>>\n"]
+    out = run(tree(util__py=b"def u():\n    log()\n    return 0\n"), tmp_path, llm)
+
+    assert out["merged_by"] == {"util.py": "llm"}
+
+
+def test_output_carries_what_the_next_run_needs(tmp_path, agent, jev, llm):
+    base = tree()
+    out = run(base, tmp_path, llm)
+
+    assert out["base"] is base
+    last = fa.last_run(ModelCall(
+        spec=None, outputs={}, llm=None, compute=None, previous=PreviousRun(prompt="p", output=out),
+    ))
+    assert last.ours("util.py") == EXPECTED["util.py"]
+    assert last.ours("old.txt") is None
+    assert last.was("old.txt") == BASE["old.txt"]
+    assert last.owned == {"feature.py", "util.py", "old.txt"}
+
+
+def test_previous_output_of_another_shape_is_ignored(tmp_path, agent, jev, llm):
+    _HISTORY[str(tmp_path)] = PreviousRun(prompt="add the feature", output="a plain answer")
+    out = run(tree(), tmp_path, llm)
+
+    assert out["cache"] == "miss"
+    assert "Previous attempt" not in agent["tasks"][0]
+
+
+def test_executor_keeps_no_state_and_a_template_edit_starts_afresh(tmp_path, monkeypatch, jev):
+    from promptmap.executor import build_models_from_dict, execute_run
+    from promptmap.storage.sqlite import SQLiteStorageBackend
+
+    tasks = []
+
+    def exec_agent(task, call):
+        tasks.append(task)
+        (Path(call.spec.config["agent_dir"]) / "out.py").write_text("x = 1\n")
+        return json.dumps({"output": "ok", "logs": [], "time_run": 0.0})
+
+    monkeypatch.setattr(builtin_kinds, "_exec_agent", exec_agent)
+    monkeypatch.chdir(tmp_path)
+    storage = SQLiteStorageBackend(tmp_path / "db" / "promptmap.db")
+    storage.init_db()
+    src = '{{ config(model_type="execute_python") }}output = Dir({"a.py": b"a = 1\\n"}, name="app")'
+
+    def run_once(agent_source):
+        specs = list(build_models_from_dict({"src": src, "agent": agent_source}).values())
+        run_id = storage.create_run(model_count=len(specs))
+        results = {r.model_name: r for r in asyncio.run(execute_run(
+            run_id=run_id, ordered_models=specs, storage_backend=storage, llm_call=lambda p: "YES",
+        ))}
+        assert not results["agent"].error, results["agent"].error
+        return results["agent"].value
+
+    first = f'{{{{ config(model_type="{fa.NAME}", promptfiles="src") }}}}write out.py'
+    assert run_once(first)["cache"] == "miss"
+    assert run_once(first)["cache"] == "hit"       # read back from the SQLite run database
+    assert len(tasks) == 1
+    assert not (tmp_path / ".promptmap").exists()  # nothing kept outside the database
+
+    edited = first + "\nKeep it short."
+    assert run_once(edited)["cache"] == "miss"     # an edited template has no previous
+    assert "Previous attempt" not in tasks[1]

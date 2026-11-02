@@ -6,7 +6,9 @@ throwaway copy of it (where it may build, run tests, install packages), and
 returns the tree with its changes already applied.  The real repository is
 never touched; a later node decides what to do with the result.
 
-Input: ``promptfiles="fix"`` — an upstream model's :class:`~promptmap.files.Dir`.
+Input (optional): ``promptfiles="fix"`` — an upstream model's :class:`~promptmap.files.Dir`.
+Without one the agent starts from an empty folder named after the model, so
+it creates the tree rather than editing one.
 If that model is another coding_agent, its ``result`` is used;
 ``"fix.result"`` names it outright.  Where the tree comes from is the upstream
 model's business (an ``execute_python`` node returning ``Dir("../app")``, an
@@ -339,7 +341,7 @@ def _read(tree: Dir, path: str) -> bytes | None:
 # ---------------------------------------------------------------------------
 
 def resolve_base(call: ModelCall) -> Dir:
-    """The input tree: the first promptfile holding a Dir."""
+    """The input tree: the first promptfile holding a Dir, else an empty one."""
     for name in call.spec.promptfiles_used:
         found = split_model_path(name, call.outputs)
         if found is None:
@@ -350,11 +352,8 @@ def resolve_base(call: ModelCall) -> Dir:
             value = value["result"]
         if isinstance(value, Dir):
             return value
-    raise ValueError(
-        f"Model '{call.spec.name}': model_type=\"{NAME}\" needs an input tree — "
-        "config(promptfiles=\"<upstream model>\") naming a model whose output is a Dir "
-        "(e.g. an execute_python model ending in output = Dir(\"path\"))."
-    )
+    # No input tree: the agent starts from an empty folder and creates one.
+    return Dir({}, name=call.spec.name)
 
 
 # ---------------------------------------------------------------------------

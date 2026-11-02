@@ -278,11 +278,26 @@ def test_agent_test_artifacts_do_not_become_changes(tmp_path, agent, jev, llm):
     assert files(out["result"]) == EXPECTED
 
 
-def test_needs_an_input_tree(tmp_path):
+def test_no_input_tree_starts_from_an_empty_folder(tmp_path):
     spec = ModelSpec(name="n", source="", model_type=fa.NAME, config={})
     call = ModelCall(spec=spec, outputs={}, llm=None, compute=None)
-    with pytest.raises(ValueError, match="needs an input tree"):
-        fa.resolve_base(call)
+    base = fa.resolve_base(call)
+    assert base.entries == {} and base.name == "n"
+
+
+def test_without_an_input_tree_the_agent_creates_one(tmp_path, agent, jev, llm):
+    agent["edit"] = lambda root: (root / "app.py").write_text("print('hi')\n")
+    spec = ModelSpec(name="maker", source="", model_type=fa.NAME, config={})
+
+    async def passthrough(key, compute):
+        value = compute()
+        return await value if hasattr(value, "__await__") else value
+
+    call = ModelCall(spec=spec, outputs={}, llm=None, compute=passthrough)
+    out = asyncio.run(fa.run_coding_agent("make an app", call))
+
+    assert files(out["result"]) == {"app.py": b"print('hi')\n"}
+    assert out["changes"] == {"app.py": "print('hi')\n"} and out["deleted"] == []
 
 
 # ---------------------------------------------------------------------------

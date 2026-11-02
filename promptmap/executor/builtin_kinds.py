@@ -235,6 +235,8 @@ To pass files on to the next step (images, notes, data), write them into
 # ---------------------------------------------------------------------------
 
 def _exec_mini_swe_agent(task: str, call: ModelCall, workdir: Path) -> tuple[str, list]:
+    # Its import banner (version, v2 migration link) is noise in a promptmap run.
+    os.environ.setdefault("MSWEA_SILENT_STARTUP", "1")
     try:
         import yaml
         from minisweagent import package_dir

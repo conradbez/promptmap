@@ -7,6 +7,7 @@ Extra model kinds for [promptmap](https://pypi.org/project/promptmap/):
 | `python_modal` | `modal_exec`    | the bullet's upstream Python in a Modal sandbox        |
 | `agent_modal`  | `agent_exec`    | an OpenCode agent (plus optional MCP server) on Modal  |
 | `agent37`      | `agent37_exec`  | a Hermes agent on an Agent37 workspace (`agent37.md`)  |
+| `cached_local_agent` | `cached_agent_exec` | the local `agent` kind, replaying its last file changes when a diff + Jev check says they still hold |
 
 And RAG kinds, called from any template:
 
@@ -32,3 +33,25 @@ Installing the package is enough: promptmap finds the kinds through the
 groups and loads them on first use. Nothing has to import it.
 
 Configuration is read from the environment — see each module's docstring.
+
+## `cached_local_agent`
+
+The built-in `agent` kind (same `agent_*` config keys, same output), for chains of
+agents sharing one `agent_dir`. Each model keeps `.promptmap/state/<model>.json`:
+the files it last received and only the files it created, modified or deleted.
+On the next run with the same prompt:
+
+- workspace unchanged since last time → replay, no agent call;
+- upstream changed a file this model also wrote or deleted → re-run the agent;
+- otherwise a classifier (`classify_call` in client.py, else hosted Jev when
+  `TYPESAFE_API_KEY` is set) is asked whether the old changes still satisfy the
+  prompt given the upstream diff; P(yes) ≥ `jev_cache_threshold` replays.
+
+Replay writes only this model's own files over the current workspace, so upstream
+edits to other files survive. Extra config keys: `jev_cache_threshold` (0.85),
+`force_refresh` (false), `state_dir` (`.promptmap/state`, relative to the project root).
+
+```jinja
+{{ config(model_type="cached_local_agent", agent_dir="../app", jev_cache_threshold=0.9) }}
+Add a /health endpoint to the API.
+```

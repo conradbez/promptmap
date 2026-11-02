@@ -30,9 +30,12 @@ Output::
 so the next coding_agent takes ``promptfiles="this_model"``.
 
 ``result`` is the only file output, so the run's ``outputs/<model>/`` folder
-holds exactly the complete patched tree.  Everything else is plain data (text
-files as strings, binary ones as ``{"base64": ...}``); the next run rebuilds
-its old input from the previous ``result`` plus ``base["originals"]``.
+holds exactly the complete patched tree.  Everything else is plain data: text
+files as strings, binary files (images, video, PDFs, …) only as
+``{"sha256": ...}``.  The next run reads a changed binary's bytes from the
+previous ``result``; an *original* binary is known only by its hash, which is
+enough to tell whether upstream changed it — a binary file both sides changed
+is never merged, so the agent re-runs.
 
 Reuse
 -----
@@ -85,10 +88,10 @@ agent always works in a scratch copy):
 from __future__ import annotations
 
 import asyncio
-import base64
 import dataclasses
 from dataclasses import dataclass
 import difflib
+import hashlib
 import inspect
 import json
 import logging
@@ -273,15 +276,34 @@ class Last:
 
 
 def encode_bytes(data: bytes) -> str | dict:
-    """File content as JSON data: text as a string, anything else as base64."""
+    """File content as JSON data: text as a string, anything else as its hash."""
     text = _text(data)
-    return text if text is not None else {"base64": base64.b64encode(data).decode("ascii")}
+    return text if text is not None else {"sha256": hashlib.sha256(data).hexdigest()}
 
 
-def decode_bytes(value: str | dict) -> bytes:
-    if isinstance(value, dict):
-        return base64.b64decode(value["base64"])
-    return value.encode("utf-8")
+#: Stands in for a binary file whose bytes were not kept.  Not valid UTF-8,
+#: so it is treated as binary everywhere (never merged, diffed as "Binary
+#: file changed"); equal only to a stand-in for the same content.
+_OPAQUE_PREFIX = b"\xff\xfepromptmap-binary sha256:"
+
+
+def opaque(sha256: str) -> bytes:
+    return _OPAQUE_PREFIX + sha256.encode("ascii")
+
+
+def decode_bytes(value: str | dict, source: Dir | None = None, path: str | None = None) -> bytes:
+    """Bytes back from :func:`encode_bytes`.
+
+    A binary is read from *source* at *path* when it holds that content,
+    else stands in as :func:`opaque`.
+    """
+    if not isinstance(value, dict):
+        return value.encode("utf-8")
+    sha = value["sha256"]
+    file = source.entries.get(path) if source is not None and path is not None else None
+    if file is not None and file.sha256 == sha:
+        return file.read_bytes()
+    return opaque(sha)
 
 
 def last_run(call: ModelCall) -> Last | None:
@@ -301,7 +323,7 @@ def last_run(call: ModelCall) -> Last | None:
         result=out["result"],
         base_hashes=dict(base["hashes"]),
         originals={p: decode_bytes(v) for p, v in (base.get("originals") or {}).items()},
-        changes={p: decode_bytes(v) for p, v in changes.items()},
+        changes={p: decode_bytes(v, out["result"], p) for p, v in changes.items()},
         deleted=tuple(out.get("deleted") or ()),
         sum_of_changes=summary if isinstance(summary, dict) and "ast_summary" in summary else None,
     )
@@ -449,6 +471,8 @@ def git_merge(original: bytes | None, yours: bytes | None, upstream: bytes | Non
     """
     git = shutil.which("git")
     if git is None or yours is None or upstream is None:
+        return None
+    if any(d is not None and _text(d) is None for d in (original, yours, upstream)):
         return None
     with tempfile.TemporaryDirectory(prefix="promptmap-merge-") as tmp:
         paths = []

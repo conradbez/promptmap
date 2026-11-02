@@ -599,7 +599,39 @@ def test_result_is_the_only_file_output(tmp_path, agent, jev, llm):
     json.loads(encode_output({k: v for k, v in out.items() if k != "result"}))  # plain data
 
 
-def test_binary_changes_survive_as_base64():
-    data = bytes(range(256))
-    assert fa.decode_bytes(fa.encode_bytes(data)) == data
+PNG = b"\x89PNG\r\n\x1a\n" + bytes(range(256)) * 64
+
+
+def test_binaries_are_kept_as_hashes_only():
+    import hashlib
+
     assert fa.encode_bytes(b"text") == "text"
+    stored = fa.encode_bytes(PNG)
+    assert stored == {"sha256": hashlib.sha256(PNG).hexdigest()}
+    # Bytes come back from a tree holding that content, else a stand-in.
+    assert fa.decode_bytes(stored, Dir({"a.png": PNG}), "a.png") == PNG
+    stand_in = fa.decode_bytes(stored)
+    assert stand_in != PNG and fa._text(stand_in) is None
+    assert stand_in == fa.decode_bytes(stored, Dir({"a.png": b"other"}), "a.png")
+    assert fa.git_merge(stand_in, PNG, PNG + b"x") is None  # binaries are never merged
+
+
+def test_binary_files_round_trip_through_reuse(tmp_path, agent, jev, llm, monkeypatch):
+    base = tree(**{"logo.png": PNG})
+
+    def edit(root: Path) -> None:
+        feature_edit(root)
+        (root / "logo.png").write_bytes(PNG[::-1])   # agent rewrites a binary
+        (root / "new.pdf").write_bytes(b"%PDF\xff" * 1000)
+
+    agent["edit"] = edit
+    out = run(base, tmp_path, llm)
+    for blob in (out["base"]["originals"]["logo.png"], out["changes"]["logo.png"], out["changes"]["new.pdf"]):
+        assert set(blob) == {"sha256"}                # no bytes in the stored state
+
+    assert run(base, tmp_path, llm)["cache"] == "hit"
+    again = run(tree(**{"logo.png": PNG, "shared.py": b"x = 2\n"}), tmp_path, llm)
+    assert again["cache"] == "replay"
+    assert again["result"]["logo.png"].read_bytes() == PNG[::-1]
+    assert again["result"]["new.pdf"].read_bytes() == b"%PDF\xff" * 1000
+    assert len(agent["tasks"]) == 1                   # never re-ran the agent

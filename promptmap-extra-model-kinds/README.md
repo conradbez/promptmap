@@ -60,8 +60,10 @@ Output: `output` (the agent's answer), `result` (the patched `Dir`), `changes`
 (`{path: text}` of only the files it created or modified), `deleted`, `sum_of_changes`
 (`ast_summary` lines plus a `unified_diff` of result vs input) and `cache`.
 `result` is the only file output, so `promptmap run` writes the complete patched
-tree to `outputs/<model>/result/` and nothing else; the rest is plain data
-(binary file content as `{"base64": ...}`).
+tree to `outputs/<model>/result/` and nothing else; the rest is plain data.
+Binary files (images, video, PDFs, …) are kept only as `{"sha256": ...}`: a
+changed binary's bytes are read back from the previous `result`, and a binary
+both this model and upstream changed is never merged — the agent re-runs.
 Build and cache folders the agent creates while testing (`node_modules`, `.venv`,
 `__pycache__`, …) are not counted as changes.
 

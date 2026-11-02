@@ -1,7 +1,7 @@
 [project]
 name = "promptmap-extra-model-kinds"
 version = "0.3.0"
-description = "Extra promptmap model kinds (python_modal, agent_modal, agent37, cached_local_agent) and RAG kinds (brave_search, gemini_search, openai_search, anthropic_search)."
+description = "Extra promptmap model kinds (python_modal, agent_modal, agent37, local_functional_agent) and RAG kinds (brave_search, gemini_search, openai_search, anthropic_search)."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -20,7 +20,7 @@ Repository = "https://github.com/conradbez/promptmap"
 python_modal = "promptmap_extra_model_kinds.modal_exec"
 agent_modal = "promptmap_extra_model_kinds.agent_exec"
 agent37 = "promptmap_extra_model_kinds.agent37_exec"
-cached_local_agent = "promptmap_extra_model_kinds.cached_agent_exec"
+local_functional_agent = "promptmap_extra_model_kinds.functional_agent_exec"
 
 [project.entry-points."promptmap.rag_kinds"]
 brave_search = "promptmap_extra_model_kinds.brave_search"

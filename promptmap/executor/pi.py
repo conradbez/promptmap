@@ -48,7 +48,11 @@ def run_pi(task: str, call: ModelCall, workdir: Path) -> dict:
     started = time.monotonic()
     proc = subprocess.Popen(
         cmd, cwd=str(workdir), text=True,
-        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        # Merged into stdout: a separate stderr pipe is never drained while we
+        # read stdout, so pi blocks once it writes >16 KB there (deadlock).
+        # Non-JSON lines land in the log as {"type": "raw"} events.
+        stderr=subprocess.STDOUT,
     )
     events: list = []
     output, error = "", None
@@ -89,8 +93,8 @@ def run_pi(task: str, call: ModelCall, workdir: Path) -> dict:
             if stopped:
                 proc.terminate()
                 break
-    stderr = proc.stderr.read() if proc.stderr else ""
     proc.wait()
+    stderr = "\n".join(e["text"] for e in events if e.get("type") == "raw")[-2000:]
 
     if stopped:
         events.append({"type": "exit", "reason": stopped})

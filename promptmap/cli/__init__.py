@@ -66,7 +66,7 @@ from promptmap.cli.type_hints import register_command as _register_type_hints, g
 from promptmap.cli.init_files import register_command as _register_init
 from promptmap.cli.test import register_command as _register_test
 from promptmap.cli import pretty_print
-from promptmap.cli.pretty_print import console, err_console
+from promptmap.cli.pretty_print import console, err_console, format_duration
 
 
 # ---------------------------------------------------------------------------
@@ -577,7 +577,7 @@ def show_result(model_name: str, run_id: str | None, show: str, map_dir: str, sa
 
     console.rule(f"[bold]{model_name}[/bold] — run [dim]{row['run_id']}[/dim]")
     console.print(f"Status      : {row['status']}")
-    console.print(f"Execution   : {row['execution_ms']} ms")
+    console.print(f"Execution   : {format_duration(row['execution_ms'])}")
 
     if show in ("prompt", "all"):
         console.rule("[dim]Rendered prompt[/dim]")

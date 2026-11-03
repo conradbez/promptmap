@@ -22,6 +22,21 @@ from rich import box
 from promptmap.executor.executor import ModelRunResult
 from promptmap.tester import TestResult
 
+
+def format_duration(ms: float | int | None) -> str:
+    """A duration in one unit, rounded to a whole number: ``850 ms``, ``12 s``, ``3 min``."""
+    ms = max(float(ms or 0), 0.0)
+
+    def whole(x: float) -> int:  # half up: 2.5 -> 3 (round() would give 2)
+        return int(x + 0.5)
+
+    if whole(ms) < 1000:
+        return f"{whole(ms)} ms"
+    seconds = whole(ms / 1000)
+    if seconds < 60:
+        return f"{seconds} s"
+    return f"{whole(ms / 60_000)} min"
+
 # ---------------------------------------------------------------------------
 # Shared consoles
 # ---------------------------------------------------------------------------
@@ -108,7 +123,7 @@ def make_run_callbacks(
             c.print(f"{line['bar']} ", end="")
         line["bar"] = ""
         if result.status == "success":
-            c.print(f"[green]OK[/green] [dim]({result.execution_ms} ms)[/dim]")
+            c.print(f"[green]OK[/green] [dim]({format_duration(result.execution_ms)})[/dim]")
         elif result.status == "skipped":
             c.print("[yellow]SKIPPED[/yellow]")
         else:
@@ -211,9 +226,9 @@ def make_test_callbacks(
         test_results.append(result)
         score = f"P(yes)={result.score:.2f}, " if result.score is not None else ""
         if result.status == "pass":
-            c.print(f"[green]PASS[/green] [dim]({score}{result.execution_ms} ms)[/dim]")
+            c.print(f"[green]PASS[/green] [dim]({score}{format_duration(result.execution_ms)})[/dim]")
         elif result.status == "fail" and result.score is not None:
-            c.print(f"[red]FAIL[/red] [dim]({score}{result.execution_ms} ms)[/dim]")
+            c.print(f"[red]FAIL[/red] [dim]({score}{format_duration(result.execution_ms)})[/dim]")
         elif result.status == "fail":
             c.print("[red]FAIL[/red]")
             if result.judge == "assertion":

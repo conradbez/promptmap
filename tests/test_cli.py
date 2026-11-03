@@ -102,3 +102,14 @@ def test_simple_promptmap_test_passes(simple_proj: Path) -> None:
     run_promptmap("run", cwd=simple_proj)
     result = run_promptmap("test", cwd=simple_proj, check=False)
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("ms, shown", [
+    (0, "0 ms"), (850, "850 ms"), (999.4, "999 ms"), (999.6, "1 s"),
+    (1499, "1 s"), (12_400, "12 s"), (59_400, "59 s"), (59_600, "1 min"),
+    (150_000, "3 min"), (None, "0 ms"),
+])
+def test_format_duration_uses_one_whole_unit(ms, shown):
+    from promptmap.cli.pretty_print import format_duration
+
+    assert format_duration(ms) == shown

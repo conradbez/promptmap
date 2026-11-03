@@ -29,6 +29,12 @@ promptmap docs    # Generate HTML report of the run and run history
 promptmap serve   # Launch the interactive local UI / HTTP server
 ```
 
+**Claude Code skill** (teaches Claude the promptmap workflow, prompt style and testing approach):
+
+```bash
+mkdir -p ~/.claude/skills/promptmap && curl -fsSL https://raw.githubusercontent.com/conradbez/promptmap/main/skills/promptmap/SKILL.md -o ~/.claude/skills/promptmap/SKILL.md
+```
+
 ---
 
 ## Core concepts

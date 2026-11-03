@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from promptmap_extra_model_kinds import _ast_diff as ast
+from promptmap.executor import _ast_diff as ast
 
 
 @pytest.fixture(autouse=True)

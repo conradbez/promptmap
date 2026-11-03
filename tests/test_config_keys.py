@@ -83,7 +83,7 @@ def test_missing_extras_kind_says_what_to_install():
         build_models_from_dict({"a": '{{ config(model_type="agent37") }}\nHi'})
 
 
-@pytest.mark.parametrize("model_type", ["template", "execute_python"])
+@pytest.mark.parametrize("model_type", ["template", "agent"])
 def test_known_model_types_do_not_warn(model_type, recwarn):
     build_models_from_dict({
         "src": '{{ config(output_format="json") }}\nList things.',

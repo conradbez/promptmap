@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 pytest.importorskip("minisweagent")
 load_dotenv()
 
-from tests.test_model_types import run_models
+from conftest import run_models
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("GEMINI_API_KEY"), reason="GEMINI_API_KEY not set"
@@ -37,7 +37,7 @@ def test_agent_writes_working_code_with_gemini(tmp_path):
     workdir = tmp_path / "work"
     _, _, results = run_models({
         "write_fizzbuzz": (
-            f'{{{{ config(model_type="agent", agent_dir="{workdir}", '
+            f'{{{{ config(model_type="agent_multi_harness", agent_dir="{workdir}", '
             f'agent_model="{MODEL}", agent_step_limit="15", agent_cost_limit="0") }}}}\n'
             + TASK
         ),

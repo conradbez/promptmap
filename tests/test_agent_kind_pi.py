@@ -1,4 +1,4 @@
-"""``coding_agent``: Dir in, patched Dir out, with diff/verify/merge reuse."""
+"""``agent`` (pi harness): Dir in, patched Dir out, with diff/verify/merge reuse."""
 
 from __future__ import annotations
 
@@ -8,13 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from promptmap.executor import builtin_kinds
 from promptmap.files import Dir
 from promptmap.model_spec import ModelSpec
 from promptmap.executor.parser_model import PreviousRun
 from promptmap.model_types import ModelCall, get_model_kind
 
-from promptmap_extra_model_kinds import coding_agent_exec as fa
+from promptmap.executor import agent as fa
 
 BASE = {
     "shared.py": b"x = 1\n",
@@ -49,8 +48,24 @@ def agent(monkeypatch):
         fake["edit"](Path(call.spec.config["agent_dir"]))
         return json.dumps({"output": f"done {len(fake['tasks'])}", "logs": [], "time_run": 0.1})
 
-    monkeypatch.setattr(builtin_kinds, "_exec_agent", exec_agent)
+    monkeypatch.setattr(fa, "_exec_agent", exec_agent)
     return fake
+
+
+@pytest.fixture
+def dir_source(monkeypatch):
+    """A Python-running kind for tests that need a node producing a Dir.
+
+    ``execute_python`` lives in promptmap[extras]; this stands in for it.
+    """
+    from promptmap.model_types import _REGISTRY, ModelKind
+
+    async def run(rendered, call):
+        ns = {"ref": lambda name: call.outputs.get(name), "Dir": Dir}
+        exec(rendered, ns)  # noqa: S102
+        return ns.get("output", "")
+
+    monkeypatch.setitem(_REGISTRY, "dir_source", ModelKind(name="dir_source", exec_fn=run))
 
 
 @pytest.fixture
@@ -91,7 +106,7 @@ def run(base: Dir, tmp_path, llm, prompt="add the feature", **config) -> dict:
     call = ModelCall(
         spec=spec, outputs={"up": base}, llm=call_llm, compute=compute, previous=_HISTORY.get(key),
     )
-    out = asyncio.run(fa.run_coding_agent(prompt, call))
+    out = asyncio.run(fa.run_agent(prompt, call))
     _HISTORY[key] = PreviousRun(prompt=prompt, output=out)
     return out
 
@@ -111,15 +126,11 @@ EXPECTED = {
 
 
 def test_registered_and_declared():
-    from importlib.metadata import entry_points
-
     kind = get_model_kind(fa.NAME)
     assert kind is fa.KIND
     assert "agent_dir" not in kind.config_keys
     assert {"jev_cache_threshold", "merge_max_files"} <= kind.config_keys
     assert "base_dir" not in kind.config_keys
-    eps = {ep.name: ep.value for ep in entry_points(group="promptmap.model_kinds")}
-    assert eps[fa.NAME] == "promptmap_extra_model_kinds.coding_agent_exec"
 
 
 def test_first_run_returns_patched_tree_and_sparse_changes(tmp_path, agent, jev, llm):
@@ -245,7 +256,7 @@ def test_force_refresh(tmp_path, agent, jev, llm):
     assert run(tree(), tmp_path, llm, force_refresh="true")["cache"] == "miss"
 
 
-def test_chained_dir_input_from_another_coding_agent(tmp_path, agent, jev, llm):
+def test_chained_dir_input_from_another_agent(tmp_path, agent, jev, llm):
     first = run(tree(), tmp_path, llm)
     spec = ModelSpec(
         name="second", source="", model_type=fa.NAME,
@@ -294,7 +305,7 @@ def test_without_an_input_tree_the_agent_creates_one(tmp_path, agent, jev, llm):
         return await value if hasattr(value, "__await__") else value
 
     call = ModelCall(spec=spec, outputs={}, llm=None, compute=passthrough)
-    out = asyncio.run(fa.run_coding_agent("make an app", call))
+    out = asyncio.run(fa.run_agent("make an app", call))
 
     assert files(out["result"]) == {"app.py": b"print('hi')\n"}
     assert out["changes"] == {"app.py": "print('hi')\n"} and out["deleted"] == []
@@ -304,7 +315,7 @@ def test_without_an_input_tree_the_agent_creates_one(tmp_path, agent, jev, llm):
 # Through promptmap's executor
 # ---------------------------------------------------------------------------
 
-def test_chain_through_the_executor(tmp_path, monkeypatch, jev):
+def test_chain_through_the_executor(tmp_path, monkeypatch, jev, dir_source):
     from promptmap.executor import build_models_from_dict, execute_run
     from promptmap.storage.memory import MemoryStorageBackend
 
@@ -322,7 +333,7 @@ def test_chain_through_the_executor(tmp_path, monkeypatch, jev):
             (ws / "test_api.py").write_text("from api import ROUTES\nassert ROUTES\n")
         return json.dumps({"output": call.spec.name, "logs": [], "time_run": 0.0})
 
-    monkeypatch.setattr(builtin_kinds, "_exec_agent", exec_agent)
+    monkeypatch.setattr(fa, "_exec_agent", exec_agent)
     llm_seen = []
 
     def llm_call(prompt, files=None):
@@ -331,12 +342,12 @@ def test_chain_through_the_executor(tmp_path, monkeypatch, jev):
 
     models = {
         # A static node decides what the input tree is; the agents only see Dirs.
-        "repo": '{{ config(model_type="execute_python", cache=False) }}'
+        "repo": '{{ config(model_type="dir_source", cache=False) }}'
                 'from pathlib import Path\n'
                 f'output = Dir({{p.name: p.read_bytes() for p in Path("{app}").iterdir() if p.suffix != ".log"}}, name="app")',
         "api": f'{{{{ config(model_type="{fa.NAME}", promptfiles="repo") }}}}add /health',
         "tests": f'{{{{ config(model_type="{fa.NAME}", promptfiles="api") }}}}test it',
-        "apply": '{{ config(model_type="execute_python") }}'
+        "apply": '{{ config(model_type="dir_source") }}'
                  f'ref("tests")["result"].save("{tmp_path / "out"}")',
     }
     storage = MemoryStorageBackend()
@@ -362,14 +373,14 @@ def test_chain_through_the_executor(tmp_path, monkeypatch, jev):
 
     # An upstream edit to a file neither agent owns: both replay, no agent runs.
     (app / "notes.md").write_text("v2\n")
-    monkeypatch.setattr(builtin_kinds, "_exec_agent", lambda *a: pytest.fail("agent re-ran"))
+    monkeypatch.setattr(fa, "_exec_agent", lambda *a: pytest.fail("agent re-ran"))
     second = run_once()
     assert second["api"].value["cache"] == "replay"
     assert second["tests"].value["cache"] == "replay"
     assert (final / "notes.md").read_text() == "v2\n"
 
 
-def test_text_llm_does_not_attach_the_input_tree(tmp_path, monkeypatch):
+def test_text_llm_does_not_attach_the_input_tree(tmp_path, monkeypatch, dir_source):
     """Merge/verify calls bypass call.llm, which would attach every promptfile."""
     from promptmap.executor import build_models_from_dict, execute_run
     from promptmap.storage.memory import MemoryStorageBackend
@@ -379,7 +390,7 @@ def test_text_llm_does_not_attach_the_input_tree(tmp_path, monkeypatch):
     app.mkdir()
     (app / "a.py").write_text("a = 0\n")
     edits = iter(["a = 1\n"])
-    monkeypatch.setattr(builtin_kinds, "_exec_agent", lambda task, call: (
+    monkeypatch.setattr(fa, "_exec_agent", lambda task, call: (
         (Path(call.spec.config["agent_dir"]) / "b.py").write_text(next(edits)),
         json.dumps({"output": "ok", "logs": [], "time_run": 0.0}),
     )[1])
@@ -390,7 +401,7 @@ def test_text_llm_does_not_attach_the_input_tree(tmp_path, monkeypatch):
         return "YES"
 
     models = {
-        "src": f'{{{{ config(model_type="execute_python", cache=False) }}}}output = Dir("{app}")',
+        "src": f'{{{{ config(model_type="dir_source", cache=False) }}}}output = Dir("{app}")',
         "b": f'{{{{ config(model_type="{fa.NAME}", promptfiles=["src"]) }}}}write b',
     }
     storage = MemoryStorageBackend()
@@ -568,7 +579,7 @@ def test_previous_output_of_another_shape_is_ignored(tmp_path, agent, jev, llm):
     assert "Previous attempt" not in agent["tasks"][0]
 
 
-def test_executor_keeps_no_state_and_a_template_edit_starts_afresh(tmp_path, monkeypatch, jev):
+def test_executor_keeps_no_state_and_a_template_edit_starts_afresh(tmp_path, monkeypatch, jev, dir_source):
     from promptmap.executor import build_models_from_dict, execute_run
     from promptmap.storage.sqlite import SQLiteStorageBackend
 
@@ -579,11 +590,11 @@ def test_executor_keeps_no_state_and_a_template_edit_starts_afresh(tmp_path, mon
         (Path(call.spec.config["agent_dir"]) / "out.py").write_text("x = 1\n")
         return json.dumps({"output": "ok", "logs": [], "time_run": 0.0})
 
-    monkeypatch.setattr(builtin_kinds, "_exec_agent", exec_agent)
+    monkeypatch.setattr(fa, "_exec_agent", exec_agent)
     monkeypatch.chdir(tmp_path)
     storage = SQLiteStorageBackend(tmp_path / "db" / "promptmap.db")
     storage.init_db()
-    src = '{{ config(model_type="execute_python") }}output = Dir({"a.py": b"a = 1\\n"}, name="app")'
+    src = '{{ config(model_type="dir_source") }}output = Dir({"a.py": b"a = 1\\n"}, name="app")'
 
     def run_once(agent_source):
         specs = list(build_models_from_dict({"src": src, "agent": agent_source}).values())

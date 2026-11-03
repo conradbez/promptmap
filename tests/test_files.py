@@ -392,36 +392,6 @@ def test_validator_sees_and_can_replace_files():
 
 
 # ---------------------------------------------------------------------------
-# execute_python
-# ---------------------------------------------------------------------------
-
-def test_python_out_dir_becomes_output_files():
-    source = (
-        '{{ config(model_type="execute_python") }}\n'
-        "(out_dir / 'report.csv').write_text('a,b')\n"
-        "(out_dir / 'site').mkdir()\n"
-        "(out_dir / 'site' / 'index.html').write_text('<p>')\n"
-        "print('made a report')\n"
-    )
-    _, _, results = run_models({"py": source}, llm_call=image_llm)
-    value = results["py"].value
-    assert isinstance(value, Output)
-    assert value.text == "made a report"
-    assert value.files["report.csv"].read_bytes() == b"a,b"
-    assert value.files["site"]["index.html"].read_bytes() == b"<p>"
-
-
-def test_python_reads_upstream_file_and_returns_one():
-    source = (
-        '{{ config(model_type="execute_python") }}\n'
-        "src = ref('logo')\n"
-        "output = File(src.read_bytes()[::-1], name='flipped.bin')\n"
-    )
-    _, _, results = run_models({"logo": "draw", "py": source}, llm_call=image_llm)
-    assert results["py"].value.read_bytes() == PNG[::-1]
-
-
-# ---------------------------------------------------------------------------
 # Storage, public API, export, docs, server
 # ---------------------------------------------------------------------------
 

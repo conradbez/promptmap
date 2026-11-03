@@ -1,5 +1,5 @@
 """
-Semantic file diffs for ``coding_agent``, via tree-sitter-language-pack.
+Semantic file diffs for ``agent``, via tree-sitter-language-pack.
 
 For each changed file this answers two questions:
 
@@ -102,7 +102,7 @@ def _analyse(lang: str, data: bytes) -> Semantics | None:
         parser = pack.get_parser(lang)
     except Exception as exc:
         _unloadable.add(lang)
-        log.info("coding_agent: no %s grammar (%s); comparing those files as text", lang, exc)
+        log.info("agent: no %s grammar (%s); comparing those files as text", lang, exc)
         return None
     tree = parser.parse(data)
     if tree.root_node.has_error:
@@ -113,7 +113,7 @@ def _analyse(lang: str, data: bytes) -> Semantics | None:
         result = pack.process(text, pack.ProcessConfig(lang, structure=True))
         _collect(result.structure, "", tree.root_node, data, symbols)
     except Exception:
-        log.debug("coding_agent: no structure for %s", lang, exc_info=True)
+        log.debug("agent: no structure for %s", lang, exc_info=True)
     return Semantics(fingerprint=_fingerprint(tree.root_node, data), symbols=symbols)
 
 

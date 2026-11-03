@@ -249,7 +249,7 @@ async def execute_model(spec: ModelSpec, ctx: RunContext) -> ModelRunResult:
     if cached_value is None:
         cached_value = output
     # Store under the key the call was looked up with.  A kind may widen it
-    # beyond the rendered prompt (execute_python adds its upstream outputs).
+    # beyond the rendered prompt (e.g. extras' execute_python adds its upstream outputs).
     looked_up = state.cache_key if state is not None and state.calls == 1 else None
     ctx.storage.mark_model_success(
         ctx.run_id,

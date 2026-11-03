@@ -43,7 +43,7 @@ def run_models(models: dict[str, str], *, storage=None, llm_call=stub_llm, **kwa
 # ---------------------------------------------------------------------------
 
 def test_builtin_kinds_are_registered():
-    assert known_model_kinds() == {"template", "execute_python", "agent"}
+    assert known_model_kinds() == {"template", "agent"}
     # The unnamed default is the plain LLM call.
     assert get_model_kind("") is not None
 
@@ -121,23 +121,10 @@ def test_template_kind_renders_without_calling_the_llm():
 # The shared lifecycle — behaviour every kind gets for free
 # ---------------------------------------------------------------------------
 
-def test_execute_python_cache_hit_is_still_recorded_as_success():
-    """A cached model must complete its run row, or `promptmap test` cannot see it."""
-    models = {"py": '{{ config(model_type="execute_python") }}\noutput = "hello"'}
-    storage, _, _ = run_models(models)
-
-    # Same storage, so the second run hits the prompt cache.
-    _, run_id, results = run_models(models, storage=storage)
-
-    assert results["py"].cached is True
-    assert storage.get_run_results(run_id)[0]["status"] == "success"
-    assert storage.get_model_outputs_from_run(run_id, ["py"]) == {"py": "hello"}
-
-
-def test_execute_python_propagates_skip_this_and_downstream():
+def test_template_propagates_skip_this_and_downstream():
     _, _, results = run_models({
         "py": (
-            '{{ config(model_type="execute_python") }}\n'
+            '{{ config(model_type="template") }}'
             '{{ skip_this_and_downstream("stop") }}'
         ),
         "after": 'Uses {{ ref("py") }}',

@@ -64,8 +64,8 @@ PIPELINE = {
     "chapters": '{{ config(output_format="json") }}\nCHAPTERS',
     # map, on a non-LLM kind, over a list nested under a key
     "check": (
-        '{{ config(model_type="execute_python", each="parts.parts[*]") }}\n'
-        "print('ok:' + {{ ref('parts').id | tojson }})"
+        '{{ config(model_type="template", each="parts.parts[*]") }}'
+        "ok:{{ ref('parts').id }}"
     ),
     # map whose items are themselves lists
     "sections": '{{ config(each="chapters", output_format="json") }}\nSPLIT {{ ref("chapters") }}',

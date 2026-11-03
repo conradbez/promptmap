@@ -1,6 +1,6 @@
 from promptmap.executor.executor import execute_model, execute_run, ModelRunResult
 from promptmap.executor.run_context import RunContext, parse_json_output
-from promptmap.executor.builtin_kinds import LLM, PYTHON, TEMPLATE
+from promptmap.executor.builtin_kinds import AGENT, LLM, TEMPLATE
 from promptmap.executor.graph import (
     CyclicDependencyError,
     UnknownModelError,
@@ -31,7 +31,7 @@ __all__ = [
     "ModelCall",
     "LLM",
     "TEMPLATE",
-    "PYTHON",
+    "AGENT",
     "CyclicDependencyError",
     "UnknownModelError",
     "load_models",

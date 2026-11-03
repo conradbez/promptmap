@@ -53,16 +53,15 @@ Based on this topic, create a detailed outline:
 
 ### 2. Model types (`config(model_type=...)`)
 
-Not every node in your pipeline needs to be a standard LLM call. Override `model_type` at the top of a `.prompt` file for deterministic steps, formatting, or coding agents:
+Not every node in your pipeline needs to be a standard LLM call. Override `model_type` at the top of a `.prompt` file for deterministic reshaping or coding agents:
 
 | Model Type | What it does | Declaration |
 | --- | --- | --- |
 | **LLM** *(default)* | Sends the rendered Jinja prompt to your configured LLM. | Standard `.prompt` file |
 | **`template`** | Renders Jinja directly with no LLM call (for reshaping upstream outputs). | `{{ config(model_type="template") }}` |
-| **`execute_python`** | Runs rendered template as Python; captures `stdout` or `output` variable. | `{{ config(model_type="execute_python") }}` |
-| **`agent`** | Hands the rendered prompt as a task to a coding agent (`mini-swe-agent`). | `{{ config(model_type="agent", agent_dir="./repo") }}` |
+| **`agent`** | A coding agent ([pi](https://pi.dev)) as a pure function: takes an upstream folder (or starts empty), works on a scratch copy, and returns the patched folder plus a diff. Unchanged inputs are reused without re-running the agent. Needs `npm i -g @mariozechner/pi-coding-agent`. | `{{ config(model_type="agent", promptfiles="repo") }}` |
 
-*(Optional extra model kinds like `python_modal`, `agent_modal`, and `agent37` are available via `pip install "promptmap[extras]"`).*
+*(More model kinds, such as `execute_python`, `agent_multi_harness` (mini-swe-agent / opencode), `python_modal`, `agent_modal` and `agent37`, come with `pip install "promptmap[extras]"`.)*
 
 ### 3. Tests (`map/*.testprompt`)
 

@@ -10,10 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from promptmap.executor import builtin_kinds
+from promptmap_extra_model_kinds import agent_multi_harness_exec as builtin_kinds
 from promptmap.model_spec import ModelSpec
 from promptmap.model_types import ModelCall
-from tests.test_model_types import run_models
+from conftest import run_models
 
 
 def _event(type_, **part):
@@ -61,7 +61,7 @@ def test_opencode_runs_in_dir_and_returns_last_message(tmp_path, fake_opencode):
     fake_opencode(DONE_EVENTS)
     workdir = tmp_path / "work"
     _, _, results = run_models({
-        "fix": f'{{{{ config(model_type="agent", agent_backend="opencode", '
+        "fix": f'{{{{ config(model_type="agent_multi_harness", agent_backend="opencode", '
                f'agent_dir="{workdir}", agent_model="openai/gpt-4o-mini") }}}}\n'
                "write hi to note.txt",
         "after": '{{ config(model_type="template") }}got: {{ ref("fix")["output"] }}',
@@ -88,7 +88,7 @@ def test_opencode_runs_in_dir_and_returns_last_message(tmp_path, fake_opencode):
 
 def _run_opencode(workdir: Path, **config) -> dict:
     spec = ModelSpec(
-        name="a", source="", model_type="agent",
+        name="a", source="", model_type="agent_multi_harness",
         config={"agent_dir": str(workdir), "agent_backend": "opencode", **config},
     )
 
@@ -114,7 +114,7 @@ def test_opencode_mcp_from_jinja_dict_literal(tmp_path, fake_opencode, monkeypat
     monkeypatch.delenv("OPENCODE_CONFIG_CONTENT", raising=False)
     workdir = tmp_path / "work"
     _, _, results = run_models({
-        "a": '{{ config(model_type="agent", agent_backend="opencode", agent_dir="%s", '
+        "a": '{{ config(model_type="agent_multi_harness", agent_backend="opencode", agent_dir="%s", '
              'agent_mcp={"docs": {"type": "remote", "url": "https://mcp.example.com"}}) }}task' % workdir,
     })
     assert results["a"].status == "success", results["a"].error

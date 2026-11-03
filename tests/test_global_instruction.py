@@ -137,14 +137,13 @@ async def test_model_opts_out_via_config() -> None:
     assert sorted(llm.prompts) == ["\nOpted out.", "GLOBAL.\n\nPlain body."]
 
 
-async def test_execute_python_never_receives_it() -> None:
+async def test_template_never_receives_it() -> None:
     models = {
         "topic": "Name one topic.",
-        "transform": '{{ config(model_type="execute_python") }}\noutput = ref("topic").upper()',
+        "transform": '{{ config(model_type="template") }}{{ ref("topic") | upper }}',
     }
     llm = RecordingLLM()
     outputs = await _run(models, llm, global_instruction="Always answer in French.")
-    # Prose prepended to Python source would be a SyntaxError.
     assert outputs["transform"] == "MOCK RESPONSE"
 
 

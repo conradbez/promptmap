@@ -67,7 +67,7 @@ async def test_select_model(model_name: str) -> None:
 # Per-type behaviour assertions
 # ---------------------------------------------------------------------------
 
-async def test_execute_python_uppercases_topic() -> None:
+async def test_template_uppercases_topic() -> None:
     outputs = await _run(select=["transform"])
     assert outputs["transform"] == "MOCK RESPONSE"
 

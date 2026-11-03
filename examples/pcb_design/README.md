@@ -28,7 +28,7 @@ the PDF are the model's output files. They show in `promptmap docs`, land in
 capacitors skip without an agent run.
 
 `board` is a [mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent)
-working in `build/board/`. It follows the atopile flow: it writes the circuit
+(`model_type="agent_multi_harness"`, from `promptmap[extras]`) working in `build/board/`. It follows the atopile flow: it writes the circuit
 as `.ato` with assertions, pins every LCSC id, and runs `ato build`. It then
 places the parts with a KiCad-Python script: it predicts every layout rule's
 measurement, measures the placed board, and runs `kicad-cli pcb drc`. If a rule
@@ -72,7 +72,7 @@ map/
 ## Run
 
 Needs [atopile](https://atopile.io) 0.15 (`ato`), KiCad 10 (`kicad-cli` and its
-bundled Python), `uv` for `easyeda2kicad`, and `pip install mini-swe-agent`.
+bundled Python), `uv` for `easyeda2kicad`, and `pip install "promptmap[extras]"` (brings mini-swe-agent).
 Keep KiCad closed while it runs.
 
 ```bash

@@ -40,7 +40,7 @@ from promptmap.executor.executor import ModelRunResult
 from promptmap.executor.parser_model import PreviousRun
 from promptmap.types import PromptFile, PromptModelsDict
 
-# Registers the built-in kinds ("", template, execute_python, agent).  Imported here,
+# Registers the built-in kinds ("", template, agent).  Imported here,
 # after the registry exists, so that every entry point into promptmap has them without
 # the registry needing a lazy-import hook.
 import promptmap.executor.builtin_kinds  # noqa: E402,F401

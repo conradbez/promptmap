@@ -1,6 +1,6 @@
 {# atopile + KiCad, built by an agent that iterates on placement. Predict each rule's measurement before placing. #}
 {{ config(
-    model_type="agent",
+    model_type="agent_multi_harness",
     output_format="json",
     agent_dir="build/board",
     agent_step_limit="150",

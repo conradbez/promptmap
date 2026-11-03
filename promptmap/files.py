@@ -2,7 +2,7 @@
 Files as model outputs — :class:`File`, :class:`Dir` and :class:`Output`.
 
 A model may produce files instead of, or alongside, text.  ``llm_call`` (or an
-``execute_python`` model, or a custom kind) returns one of these, or any
+``execute_python`` model from promptmap[extras], or a custom kind) returns one of these, or any
 dict/list with them inside::
 
     return promptmap.File(png_bytes, name="logo.png")

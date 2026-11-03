@@ -15,7 +15,7 @@ promptmap run --promptdata topic="deep sea mining"
 |---|---|---|
 | `map/article.prompt` | *(none)* | An ordinary model — the rendered prompt goes to the LLM |
 | `map/headline.prompt` | `shout` | Custom: calls the LLM, then uppercases the answer and appends `suffix` |
-| `map/length.prompt` | `execute_python` | Built-in: runs the template as Python instead of calling the LLM |
+| `map/length.prompt` | `execute_python` | From `promptmap[extras]`: runs the template as Python instead of calling the LLM |
 | `map/report.prompt` | `template` | Built-in: renders Jinja and returns it, no LLM call |
 | `client.py` | — | Registers the `shout` type, and defines `llm_call` |
 
@@ -73,7 +73,7 @@ models and what lands in `outputs/`.
 ## Before writing a type, check the built-in ones
 
 `length` counts the words in the article, and needs no custom type at all —
-`execute_python` runs the template as Python:
+`execute_python` (`pip install "promptmap[extras]"`) runs the template as Python:
 
 ```jinja
 {{ config(model_type="execute_python") }}

@@ -47,10 +47,10 @@ MODELS: dict[str, str] = {
         'Return a JSON array of exactly 2 strings.'
     ),
 
-    # execute_python — no LLM call; reads upstream ref()
+    # template with a filter — no LLM call; reads upstream ref()
     "transform": (
-        '{{ config(model_type="execute_python") }}\n'
-        'output = ref("topic").upper()'
+        '{{ config(model_type="template") }}'
+        '{{ ref("topic") | upper }}'
     ),
 
     # template — no LLM call; the rendered text is the output

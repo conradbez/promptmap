@@ -76,7 +76,7 @@ Background research:
 Return only JSON: {"headings": ["..."], "key_claim": "..."}
 ```
 
-## Model types: `prompt`, `template`, `coding_agent`
+## Model types: `prompt`, `template`, `agent`
 
 Set with `{{ config(model_type="...") }}` at the top of the file.
 
@@ -84,7 +84,7 @@ Set with `{{ config(model_type="...") }}` at the top of the file.
 |-----|------|-------------|
 | **prompt** (default LLM call) | the step needs judgement or generation | plain `.prompt` file |
 | **`template`** | reshaping, joining or selecting upstream outputs; no LLM needed | `{{ config(model_type="template") }}` |
-| **`coding_agent`** | the step produces or patches a file tree (code, a board, a repo) | `{{ config(model_type="coding_agent", promptfiles="repo") }}` |
+| **`agent`** | the step produces or patches a file tree (code, a board, a repo) | `{{ config(model_type="agent", promptfiles="repo") }}` |
 
 Prefer the cheapest type that works: `template` before prompt, prompt before
 agent. Deterministic steps should never cost an LLM call.
@@ -98,32 +98,29 @@ Headings:
 {% endfor %}
 ```
 
-**`coding_agent`** (from `promptmap-extra-model-kinds`, installed with
-`promptmap[extras]`) is a pure function: a `Dir` in, the patched `Dir` out.
+**`agent`** runs the [pi](https://pi.dev) coding agent (`npm i -g
+@mariozechner/pi-coding-agent`) as a pure function: a `Dir` in, the patched `Dir` out.
 The input tree comes from upstream via `promptfiles`; leave it out and the
 agent creates the tree from scratch. Chain agents by passing one's output to
 the next. It caches its change and only re-runs the agent when upstream
 changed the meaning of the code.
 
 ```jinja
-{# map/repo.prompt — a static node decides what the input tree is #}
-{{ config(model_type="execute_python", cache=False) }}
-output = Dir("../app")
-
-{# map/api.prompt #}
-{{ config(model_type="coding_agent", promptfiles="repo") }}
+{# map/api.prompt — repo is an upstream model whose output is a Dir #}
+{{ config(model_type="agent", promptfiles="repo") }}
 Add a /health endpoint to the API.
 
 {# map/api_tests.prompt — works on api's patched tree #}
-{{ config(model_type="coding_agent", promptfiles="api") }}
+{{ config(model_type="agent", promptfiles="api") }}
 Add tests for every endpoint.
 ```
 
 Output keys: `output` (answer), `result` (patched `Dir`), `changes`,
 `deleted`, `sum_of_changes`, `cache`. Downstream: `{{ ref('api').changes }}`.
 
-Also available: `execute_python` (run rendered Python, capture `output`) and
-`agent` (mini-swe-agent / opencode in an `agent_dir`). See
+With `promptmap[extras]`: `execute_python` (run rendered Python, capture
+`output`) and `agent_multi_harness` (mini-swe-agent / opencode in place in an
+`agent_dir`). See
 `docs/ADVANCED_USAGE.md#agent-models-model_typeagent`.
 
 ## Writing tests: test the process, not the product
@@ -201,7 +198,7 @@ Advanced — `docs/ADVANCED_USAGE.md`:
 | Refine last run's answer | `{{ previous }}`, `cache_check` | `#run-ids-and-iterating-on-the-last-answer-previous` |
 | Shared instructions for every model | `global.prompt` | `#global-instructions-globalprompt` |
 | JSON output, caching and other config keys | `config()` | `#output-format-config-config` |
-| Shell coding agent / MCP tools | `model_type="agent"`, `agent_mcp` | `#agent-models-model_typeagent` |
+| Coding agent / MCP tools | `model_type="agent"`; `agent_multi_harness` + `agent_mcp` | `#agent-models-model_typeagent` |
 | Your own model type | custom model kinds | `#writing-your-own-model-kind-model_type` |
 | Call from Python / live progress | `promptmap.run()` | `#python-api` |
 | Token counts | `LLMResult` | `#token-usage-promptmapllmresult` |

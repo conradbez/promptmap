@@ -1,18 +1,19 @@
 """
-``coding_agent`` — a coding agent as a pure function: Dir in, Dir out.
+``agent`` — a coding agent as a pure function: Dir in, Dir out.
 
-The model receives a directory tree, lets the local ``agent`` kind work on a
-throwaway copy of it (where it may build, run tests, install packages), and
+The harness is pi (https://pi.dev, ``npm i -g @mariozechner/pi-coding-agent``),
+run headless (``pi --print --mode json``).  The model receives a directory
+tree, lets pi work on a throwaway copy of it (where it may build, run tests, install packages), and
 returns the tree with its changes already applied.  The real repository is
 never touched; a later node decides what to do with the result.
 
 Input (optional): ``promptfiles="fix"`` — an upstream model's :class:`~promptmap.files.Dir`.
 Without one the agent starts from an empty folder named after the model, so
 it creates the tree rather than editing one.
-If that model is another coding_agent, its ``result`` is used;
+If that model is another ``agent``, its ``result`` is used;
 ``"fix.result"`` names it outright.  Where the tree comes from is the upstream
-model's business (an ``execute_python`` node returning ``Dir("../app")``, an
-earlier coding_agent, …).  Where the agent works is nobody's: a scratch
+model's business (a custom kind returning ``Dir("../app")``, an earlier
+``agent``, …).  Where the agent works is nobody's: a scratch
 copy that exists only to find out which files to create, edit or delete.
 
 Output::
@@ -29,7 +30,7 @@ Output::
      "merged_by": {path: "git" | "llm"} — when files were merged,
      ...the agent kind's "logs" and "time_run" on a miss}
 
-so the next coding_agent takes ``promptfiles="this_model"``.
+so the next ``agent`` takes ``promptfiles="this_model"``.
 
 ``result`` is the only file output, so the run's ``outputs/<model>/`` folder
 holds exactly the complete patched tree.  Everything else is plain data: text
@@ -78,8 +79,12 @@ now apply to the new input).  Verification asks the classifier (``classify_call`
 Jev when ``TYPESAFE_API_KEY`` is set) and falls back to a YES/NO LLM call.
 It passes when the score reaches ``jev_cache_threshold``.
 
-Config keys, beyond the ``agent`` kind's (``agent_dir`` is not used — the
-agent always works in a scratch copy):
+Config keys (the agent always works in a scratch copy, never in place):
+
+``agent_model``          pi model, e.g. ``anthropic/claude-sonnet-4-5``; defaults
+                         to client.py's ``agent_model``, then pi's own default
+``agent_step_limit``     max agent turns, 0 for none (default 0)
+``agent_cost_limit``     max spend in dollars, 0 for none (default 3)
 
 ``jev_cache_threshold``  score needed to reuse over a changed input (0.85)
 ``merge_max_files``      most colliding files to merge rather than re-run (5)
@@ -105,15 +110,16 @@ import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable
 
-from promptmap.executor import builtin_kinds
+import time
+
 from promptmap.files import Dir, File, FileOutputError, select_path, split_model_path
-from promptmap.model_types import ModelCall, register_model_kind
+from promptmap.model_types import ModelCall, ModelKind, register_model_kind
 
 from . import _ast_diff
 
 log = logging.getLogger("promptmap")
 
-NAME = "coding_agent"
+NAME = "agent"
 DEFAULT_THRESHOLD = 0.85
 DEFAULT_MERGE_MAX = 5
 DEFAULT_CONTEXT_MAX = 20_000
@@ -536,7 +542,7 @@ async def llm_merge(call: ModelCall, goal: str, sides: dict[str, tuple]) -> dict
 # exec_fn
 # ---------------------------------------------------------------------------
 
-async def run_coding_agent(rendered: str, call: ModelCall) -> dict:
+async def run_agent(rendered: str, call: ModelCall) -> dict:
     base = resolve_base(call)
     last = last_run(call)
 
@@ -689,11 +695,11 @@ async def _run_agent(rendered: str, call: ModelCall, last: Last | None, base: Di
     task = rendered + OUTCOME_CONTRACT + _previous_attempt(call, last, base, reason)
 
     def work() -> dict:
-        scratch = Path(tempfile.mkdtemp(prefix="promptmap-coding-agent-"))
+        scratch = Path(tempfile.mkdtemp(prefix="promptmap-agent-"))
         try:
             root = base.save(scratch)
             spec = call.spec.derive(config={**call.spec.config, "agent_dir": str(root)})
-            raw = builtin_kinds._exec_agent(task, dataclasses.replace(call, spec=spec))
+            raw = _exec_agent(task, dataclasses.replace(call, spec=spec))
             result = json.loads(raw) if isinstance(raw, str) else raw
             result["result"] = snapshot_dir(root, keep=set(base.entries), name=base.name)
             return result
@@ -762,13 +768,130 @@ def _threshold(value: Any) -> float:
     return threshold
 
 
-#: The ``agent`` kind's record, renamed, with this exec_fn and its own keys.
-KIND = register_model_kind(dataclasses.replace(
-    builtin_kinds.AGENT,
+# ---------------------------------------------------------------------------
+# The harness: pi, headless
+# ---------------------------------------------------------------------------
+
+def _exec_agent(task: str, call: ModelCall) -> dict:
+    """Run pi in ``config["agent_dir"]`` with *task*; ``{"output", "logs", "time_run"}``.
+
+    pi's final assistant text is the output; its JSON events (bar the
+    streaming deltas) are the log.  Step and cost limits are enforced by
+    watching ``turn_end`` / ``message_end`` events and stopping the process.
+    """
+    binary = _pi_bin()
+    if not binary:
+        raise FileNotFoundError(
+            'model_type="agent" needs the pi coding agent: '
+            "npm i -g @mariozechner/pi-coding-agent (or set PROMPTMAP_PI_BIN)"
+        )
+    config = call.spec.config
+    workdir = Path(config["agent_dir"])
+    cmd = [binary, "--print", "--mode", "json", "--no-session"]
+    model = _agent_model_name(call.spec)
+    if model:
+        cmd += ["--model", model]
+    cmd.append(task)
+
+    step_limit = call.spec.config_int("agent_step_limit", 0)
+    cost_limit = float(config.get("agent_cost_limit", 3.0))
+
+    started = time.monotonic()
+    proc = subprocess.Popen(
+        cmd, cwd=str(workdir), text=True,
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    events: list = []
+    output, error = "", None
+    steps, cost, stopped = 0, 0.0, None
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            events.append({"type": "raw", "text": line})
+            continue
+        kind = event.get("type")
+        if kind in _NOISY_EVENTS:
+            continue
+        if kind == "agent_end":
+            events.append({"type": "agent_end"})  # its messages repeat the log
+            continue
+        events.append(event)
+        message = event.get("message") or {}
+        if kind == "message_end" and message.get("role") == "assistant":
+            cost += float(((message.get("usage") or {}).get("cost") or {}).get("total") or 0)
+            text = _assistant_text(message)
+            if text:
+                output = text
+            if message.get("stopReason") == "error":
+                error = message.get("errorMessage") or "pi reported an error"
+        elif kind == "turn_end":
+            steps += 1
+        if kind in ("turn_end", "message_end"):
+            if step_limit and steps >= step_limit:
+                stopped = f"step limit ({step_limit}) reached"
+            elif cost_limit and cost >= cost_limit:
+                stopped = f"cost limit (${cost_limit}) reached"
+            if stopped:
+                proc.terminate()
+                break
+    stderr = proc.stderr.read() if proc.stderr else ""
+    proc.wait()
+
+    if stopped:
+        events.append({"type": "exit", "reason": stopped})
+    elif error:
+        raise RuntimeError(f"pi: {error}")
+    elif proc.returncode != 0:
+        raise RuntimeError(f"pi exited with {proc.returncode}: {stderr.strip() or 'no error reported'}")
+    return {
+        "output": output,
+        "logs": json.loads(json.dumps(events, default=str)),
+        "time_run": round(time.monotonic() - started, 3),
+    }
+
+
+#: Streaming events: every delta of every message.  ``message_end`` and
+#: ``tool_execution_end`` carry the finished versions.
+_NOISY_EVENTS = frozenset({"message_update", "tool_execution_update"})
+
+
+def _assistant_text(message: dict) -> str:
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    return "".join(
+        part.get("text", "") for part in content or ()
+        if isinstance(part, dict) and part.get("type") == "text"
+    )
+
+
+def _pi_bin() -> str | None:
+    """Path to the pi binary — a seam for tests."""
+    return os.getenv("PROMPTMAP_PI_BIN") or shutil.which("pi")
+
+
+def _agent_model_name(spec) -> str | None:
+    """config(agent_model=...), else client.py's ``agent_model``, else pi's default."""
+    if spec.config.get("agent_model"):
+        return str(spec.config["agent_model"])
+    from promptmap.llm import client_module_for
+
+    module = client_module_for(spec.path)
+    name = getattr(module, "agent_model", None) if module is not None else None
+    return str(name) if name else None
+
+
+#: A coding agent: Dir in, patched Dir out.
+KIND = register_model_kind(ModelKind(
     name=NAME,
-    exec_fn=run_coding_agent,
-    config_keys=(builtin_kinds.AGENT.config_keys - {"agent_dir"}) | {
-        "jev_cache_threshold", "merge_max_files", "context_max_chars",
-        "force_refresh",
-    },
+    exec_fn=run_agent,
+    config_keys=frozenset({
+        "agent_model", "agent_step_limit", "agent_cost_limit",
+        "jev_cache_threshold", "merge_max_files", "context_max_chars", "force_refresh",
+    }),
 ))

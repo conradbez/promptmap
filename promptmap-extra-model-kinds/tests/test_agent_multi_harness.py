@@ -8,8 +8,8 @@ pytest.importorskip("minisweagent")
 
 from minisweagent.models.test_models import DeterministicModel, make_output
 
-from promptmap.executor import builtin_kinds
-from tests.test_model_types import run_models
+from promptmap_extra_model_kinds import agent_multi_harness_exec as builtin_kinds
+from conftest import run_models
 
 
 @pytest.fixture
@@ -31,7 +31,7 @@ def scripted_agent(monkeypatch):
 def test_agent_runs_in_dir_and_returns_output_logs_time(tmp_path, scripted_agent):
     workdir = tmp_path / "work"
     _, _, results = run_models({
-        "fix": f'{{{{ config(model_type="agent", agent_dir="{workdir}", agent_model="m1") }}}}\n'
+        "fix": f'{{{{ config(model_type="agent_multi_harness", agent_dir="{workdir}", agent_model="m1") }}}}\n'
                "write hi to note.txt",
         "after": '{{ config(model_type="template") }}got: {{ ref("fix")["output"] }}',
     })
@@ -48,7 +48,7 @@ def test_agent_output_shape(tmp_path, scripted_agent):
     from promptmap.model_types import ModelCall
     import asyncio
 
-    spec = ModelSpec(name="a", source="", model_type="agent", config={"agent_dir": str(tmp_path)})
+    spec = ModelSpec(name="a", source="", model_type="agent_multi_harness", config={"agent_dir": str(tmp_path)})
 
     async def compute(rendered, compute):
         return await compute()
@@ -63,7 +63,7 @@ def test_agent_output_shape(tmp_path, scripted_agent):
 
 
 def test_agent_requires_agent_dir(scripted_agent):
-    _, _, results = run_models({"a": '{{ config(model_type="agent") }}do it'})
+    _, _, results = run_models({"a": '{{ config(model_type="agent_multi_harness") }}do it'})
     assert "agent_dir" in (results["a"].error or "")
 
 
@@ -75,7 +75,7 @@ def test_agent_json_output_is_parsed(tmp_path, monkeypatch):
 
     monkeypatch.setattr(builtin_kinds, "_agent_model", fake_model)
     _, _, results = run_models({
-        "board": f'{{{{ config(model_type="agent", agent_dir="{tmp_path}", output_format="json") }}}}\n'
+        "board": f'{{{{ config(model_type="agent_multi_harness", agent_dir="{tmp_path}", output_format="json") }}}}\n'
                  "build it",
         "after": '{{ config(model_type="template") }}errors: {{ ref("board").output.drc_errors }}',
     })
@@ -101,7 +101,7 @@ def test_agent_files_become_the_models_files(tmp_path, monkeypatch):
 
     storage = MemoryStorageBackend()
     models = {
-        "research": f'{{{{ config(model_type="agent", agent_dir="{tmp_path}") }}}}\nresearch SS34',
+        "research": f'{{{{ config(model_type="agent_multi_harness", agent_dir="{tmp_path}") }}}}\nresearch SS34',
         "names": (
             '{{ config(model_type="template") }}'
             "{% for f in ref('research').files %}{{ f.name }} {% endfor %}"
@@ -133,7 +133,7 @@ def _agent_project(root, client_py: str | None, config: str = ""):
     if client_py is not None:
         (root / "client.py").write_text(client_py)
     (root / "map" / "sub" / "fix.prompt").write_text(
-        f'{{{{ config(model_type="agent", agent_dir="{root / "work"}"{config}) }}}}\ndo it'
+        f'{{{{ config(model_type="agent_multi_harness", agent_dir="{root / "work"}"{config}) }}}}\ndo it'
     )
     return list(load_models(str(root / "map")).values())
 

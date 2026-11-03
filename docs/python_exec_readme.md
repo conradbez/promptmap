@@ -1,5 +1,7 @@
 # execute_python Model Type
 
+> Ships with `promptmap[extras]` (`pip install "promptmap[extras]"`) since promptmap 0.6.
+
 Instead of sending a prompt to an LLM, it renders the `.prompt` file as a Jinja2 template, then runs the result as Python code via `exec()`.
 
 ## Execution Flow

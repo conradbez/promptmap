@@ -16,8 +16,8 @@ import os
 import pytest
 from dotenv import load_dotenv
 
-from promptmap.executor.builtin_kinds import _opencode_bin
-from tests.test_model_types import run_models
+from promptmap_extra_model_kinds.agent_multi_harness_exec import _opencode_bin
+from conftest import run_models
 
 load_dotenv()
 
@@ -47,7 +47,7 @@ def test_opencode_writes_working_code(tmp_path):
     workdir = tmp_path / "work"
     _, _, results = run_models({
         "write_fizzbuzz": (
-            f'{{{{ config(model_type="agent", agent_backend="opencode", agent_dir="{workdir}", '
+            f'{{{{ config(model_type="agent_multi_harness", agent_backend="opencode", agent_dir="{workdir}", '
             f'agent_model="{MODEL}", agent_step_limit="15", agent_cost_limit="0.5") }}}}\n'
             + TASK
         ),

@@ -267,7 +267,7 @@ When `output_format: json` is set, promptmap validates the LLM output as JSON (s
 | `output_format` | `"json"` parses and validates the output as JSON; defaults to `"text"` |
 | `output_extension` | File extension for `outputs/<model>.<ext>`; defaults to `"md"` |
 | `promptfiles` | Names of files this model receives at runtime — see [Passing files to models](../README.md#passing-files-to-models-promptfiles) |
-| `model_type` | `"template"`, `"execute_python"`, `"agent"`, or a type you register; defaults to a plain LLM call |
+| `model_type` | `"template"`, `"agent"`, an extras kind (`"execute_python"`, …), or a type you register; defaults to a plain LLM call |
 | `each` | Path to an upstream list; run this model once per item, any `model_type` — see [Map and reduce](#map-and-reduce-each) |
 | `global_instruction` | `False` opts this model out of the run's [global instruction](#global-instructions-globalprompt) |
 | `cache` | `False` skips reading the prompt cache, so the model always re-runs; the fresh result still overwrites the cached entry |
@@ -363,8 +363,8 @@ Return the raw JSON only, with no preamble.
 
 Two exclusions are automatic:
 
-- **`execute_python` models** never receive it — their template renders to
-  Python source, and prepending prose to it would be a `SyntaxError`.
+- **`template` and `execute_python` models** never receive it — their template is the
+  output itself (or Python source, where prose would be a `SyntaxError`).
 - **Test prompts** (`*.testprompt`) never receive it. The models under test render
   exactly as they do in a real run, but a judge told how to write is a biased
   judge.
@@ -550,7 +550,7 @@ other name is still a run-level `--promptfile`. Attached files are binary file
 objects with `.name`, so the same `llm_call` code handles both kinds.
 
 ```python
-# 3. In Python models: the objects themselves
+# 3. In Python models (execute_python, promptmap[extras]): the objects themselves
 {{ config(model_type="execute_python") }}
 logo = ref('logo')
 data = logo.read_bytes()          # also: logo.text, logo.open(), logo.path (a read-only copy on disk)
@@ -615,12 +615,70 @@ contain a path.
 
 ## Agent models (`model_type="agent"`)
 
-An `agent` model hands its rendered template to a coding agent as a task. The
-agent runs shell commands in `agent_dir` until it submits. Two backends:
+An `agent` model is a coding agent as a pure function: **folder in, patched
+folder out**. The harness is [pi](https://pi.dev), run headless. The agent works
+on a throwaway copy of its input (where it may build, run tests and install
+packages), so your real files are never touched; a later node decides what to
+do with the result.
+
+```bash
+npm i -g @mariozechner/pi-coding-agent   # the pi CLI (or set PROMPTMAP_PI_BIN)
+```
+
+```jinja
+{# map/add_health.prompt #}
+{{ config(model_type="agent", promptfiles="repo", agent_model="anthropic/claude-sonnet-4-5") }}
+Add a /health endpoint and a test for it.
+```
+
+- **Input:** `promptfiles="repo"` names an upstream model whose output is a
+  `Dir`. If that model is another `agent`, its `result` is used. With no
+  input the agent starts from an empty folder and creates the tree.
+- **Output:** a dict. `result` is the patched `Dir` (the only file output, so
+  `outputs/<model>/` holds exactly the patched tree). `output` is the agent's
+  final reply. `changes` / `deleted` hold just what this model changed, and
+  `sum_of_changes` has a per-symbol summary plus a unified diff.
+- **Chaining:** the next agent takes `promptfiles="add_health"`.
+
+**Reuse instead of re-running.** With the same prompt, a changed input does not
+always mean a new agent run. The `cache` key in the output says what happened:
+
+| `cache`  | when | cost |
+|----------|------|------|
+| `hit`    | the input is unchanged, or only comments/formatting changed in files this model did not touch | none |
+| `replay` | upstream changed files this model did not touch; its change set is re-applied and verified | one classifier/LLM call |
+| `merged` | upstream also edited this model's files; merged with `git merge-file`, conflicts by one LLM call, then verified | one or two calls |
+| `miss`   | anything else; the agent re-runs, told its previous change and why it was not reused | a full agent run |
+
+"Changed" means changed in meaning: files are compared by syntax tree
+(tree-sitter), with comments and formatting ignored. Editing the `.prompt` file
+always starts afresh.
+
+| config key            | meaning |
+|-----------------------|---------|
+| `agent_model`         | pi model, `provider/id` (e.g. `openai/gpt-4o-mini`); default `agent_model` in `client.py`, then pi's own default |
+| `agent_step_limit`    | max agent turns, `0` = no limit (default `0`) |
+| `agent_cost_limit`    | max spend in dollars, `0` = no limit (default `3`) |
+| `jev_cache_threshold` | verifier score needed to reuse over a changed input (default `0.85`) |
+| `merge_max_files`     | most colliding files to merge rather than re-run (default `5`) |
+| `context_max_chars`   | cap on each diff put into a prompt (default `20000`) |
+| `force_refresh`       | always run the agent (default `false`) |
+
+pi reads provider keys from the usual env vars (`ANTHROPIC_API_KEY`,
+`OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, …). It runs commands
+on your machine with no sandbox, inside the scratch copy.
+
+### Multi-harness agent (`model_type="agent_multi_harness"`, extras)
+
+`pip install "promptmap[extras]"`. This is the agent kind promptmap shipped
+before `agent` moved to pi. It works **in place** in `agent_dir`, with the
+rendered template as its task, on one of two harnesses.
+
+The agent runs shell commands in `agent_dir` until it submits. Two backends:
 
 | `agent_backend`  | what it is | install |
 |------------------|------------|---------|
-| `mini-swe-agent` (default) | [mini-swe-agent](https://mini-swe-agent.com): a minimal bash-only agent | included with promptmap |
+| `mini-swe-agent` (default) | [mini-swe-agent](https://mini-swe-agent.com): a minimal bash-only agent | included with `promptmap[extras]` |
 | `opencode`       | [opencode](https://opencode.ai): a full coding agent with file tools and **MCP servers** | `npm i -g opencode-ai` (or `curl -fsSL https://opencode.ai/install \| bash`) |
 
 ```bash
@@ -635,7 +693,7 @@ Each is a [litellm](https://docs.litellm.ai/docs/providers) model name such as
 
 ```jinja
 {# map/fix_tests.prompt #}
-{{ config(model_type="agent", agent_dir="./repo", agent_step_limit="30") }}
+{{ config(model_type="agent_multi_harness", agent_dir="./repo", agent_step_limit="30") }}
 Make the failing test in tests/test_math.py pass. Explain the fix in your final output.
 
 {{ ref('bug_report') }}
@@ -673,7 +731,7 @@ Results are cached on the rendered prompt, so an unchanged task does not
 re-run. Either agent runs commands on your machine with no sandbox (opencode
 is started with `--auto`, so it approves its own tool calls).
 
-### opencode with MCP servers (`agent_mcp`)
+#### opencode with MCP servers (`agent_mcp`)
 
 `agent_mcp` is opencode's [`mcp` config block](https://opencode.ai/docs/mcp-servers/):
 a dict of server name to server config, either inline or as the path of an
@@ -684,7 +742,7 @@ global config, so an `opencode.json` already in `agent_dir` still applies.
 ```jinja
 {# map/research.prompt #}
 {{ config(
-    model_type="agent",
+    model_type="agent_multi_harness",
     agent_backend="opencode",
     agent_dir="./scratch",
     agent_model="anthropic/claude-sonnet-4-5",
@@ -711,8 +769,8 @@ exceeded, the process is stopped and the last log entry is
 ## Writing your own model kind (`model_type=`)
 
 Every `.prompt` file is run by a *model kind*. Leave `model_type` unset and promptmap
-sends the rendered prompt to your LLM; set it to `template`,
-`execute_python` or `agent` and promptmap runs it differently. If none of those do
+sends the rendered prompt to your LLM; set it to `template` or `agent` (or
+an extras kind such as `execute_python`) and promptmap runs it differently. If none of those do
 what you need, you can add your own.
 
 A kind is a function and a registration, both in `client.py`:
@@ -815,7 +873,7 @@ the models it references — reading `call.outputs` directly does not create tha
 edge.
 
 For a *one-off* calculation, you do not need a kind at all:
-[`execute_python`](../README.md#python-and-agent-models) already runs a
+`execute_python` (in `promptmap[extras]`) already runs a
 model's template as Python. Write a kind when the behaviour is worth reusing
 across models and configuring per model, the way `truncate` takes `max_words`.
 

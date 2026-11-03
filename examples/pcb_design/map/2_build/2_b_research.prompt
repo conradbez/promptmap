@@ -1,7 +1,7 @@
 {# Datasheet research, once per part whose orientation, pinout or drive level can't be read off the part. Notes and crops are passed on as files. #}
 {{ config(
     each="parts.parts[*]",
-    model_type="agent",
+    model_type="agent_multi_harness",
     output_format="json",
     agent_dir="build/research",
     agent_step_limit="60",

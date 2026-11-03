@@ -9,8 +9,10 @@ including the ones you register yourself.
 
 ``""`` (plain LLM)   send the rendered prompt to the backend
 ``template``         the rendered text *is* the output (``exec_fn=None``)
-``agent``            a coding agent (the pi harness) as a pure function:
-                     Dir in, patched Dir out — see :mod:`promptmap.executor.agent`
+``agent``            the pi agent, text in, text out (files in/out via
+                     promptfiles / outputs/) — :mod:`promptmap.executor.agent`
+``coding_agent``     the pi agent as a pure function: Dir in, patched Dir
+                     out, with diff-aware reuse — :mod:`promptmap.executor.coding_agent`
 
 ``execute_python`` and the multi-harness agent (mini-swe-agent / opencode)
 live in ``promptmap[extras]``.
@@ -47,3 +49,4 @@ for _kind in (LLM, TEMPLATE):
     register_model_kind(_kind)
 
 from promptmap.executor.agent import KIND as AGENT  # noqa: E402  (registers "agent")
+from promptmap.executor.coding_agent import KIND as CODING_AGENT  # noqa: E402,F401

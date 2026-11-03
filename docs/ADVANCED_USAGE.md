@@ -615,30 +615,51 @@ contain a path.
 
 ## Agent models (`model_type="agent"`)
 
-An `agent` model is a coding agent as a pure function: **folder in, patched
-folder out**. The harness is [pi](https://pi.dev), run headless. The agent works
-on a throwaway copy of its input (where it may build, run tests and install
-packages), so your real files are never touched; a later node decides what to
-do with the result.
+Both agent kinds run [pi](https://pi.dev) headless and share these config keys:
+`agent_model`, `agent_step_limit` and `agent_cost_limit` (see the table below).
 
 ```bash
 npm i -g @mariozechner/pi-coding-agent   # the pi CLI (or set PROMPTMAP_PI_BIN)
 ```
 
+An `agent` model is **text in, text out**: the rendered template is the task,
+pi works in a fresh scratch folder (it may run commands, write scripts, fetch
+things), and its final reply is the output. `output_format="json"` parses it.
+
+```jinja
+{# map/count.prompt #}
+{{ config(model_type="agent", promptfiles="data") }}
+Sum the counts in the CSV. Write the total to total.txt in your outputs folder. Reply with just the number.
+```
+
+- **Files in:** upstream files named in `promptfiles` are copied into
+  `inputs/<model>/` in the workspace, and the task lists them.
+- **Files out:** anything pi writes to `outputs/` becomes the model's files
+  (an `Output`: the reply plus those files).
+- Cached on the task plus the input files' hashes.
+
+### Coding agent (`model_type="coding_agent"`)
+
+A `coding_agent` model is a coding agent as a pure function: **folder in, patched
+folder out**. The agent works
+on a throwaway copy of its input (where it may build, run tests and install
+packages), so your real files are never touched; a later node decides what to
+do with the result.
+
 ```jinja
 {# map/add_health.prompt #}
-{{ config(model_type="agent", promptfiles="repo", agent_model="anthropic/claude-sonnet-4-5") }}
+{{ config(model_type="coding_agent", promptfiles="repo", agent_model="anthropic/claude-sonnet-4-5") }}
 Add a /health endpoint and a test for it.
 ```
 
 - **Input:** `promptfiles="repo"` names an upstream model whose output is a
-  `Dir`. If that model is another `agent`, its `result` is used. With no
+  `Dir`. If that model is another `coding_agent`, its `result` is used. With no
   input the agent starts from an empty folder and creates the tree.
 - **Output:** a dict. `result` is the patched `Dir` (the only file output, so
   `outputs/<model>/` holds exactly the patched tree). `output` is the agent's
   final reply. `changes` / `deleted` hold just what this model changed, and
   `sum_of_changes` has a per-symbol summary plus a unified diff.
-- **Chaining:** the next agent takes `promptfiles="add_health"`.
+- **Chaining:** the next `coding_agent` takes `promptfiles="add_health"`.
 
 **Reuse instead of re-running.** With the same prompt, a changed input does not
 always mean a new agent run. The `cache` key in the output says what happened:
@@ -671,7 +692,7 @@ on your machine with no sandbox, inside the scratch copy.
 ### Multi-harness agent (`model_type="agent_multi_harness"`, extras)
 
 `pip install "promptmap[extras]"`. This is the agent kind promptmap shipped
-before `agent` moved to pi. It works **in place** in `agent_dir`, with the
+before the agents moved to pi. It works **in place** in `agent_dir`, with the
 rendered template as its task, on one of two harnesses.
 
 The agent runs shell commands in `agent_dir` until it submits. Two backends:
@@ -769,7 +790,7 @@ exceeded, the process is stopped and the last log entry is
 ## Writing your own model kind (`model_type=`)
 
 Every `.prompt` file is run by a *model kind*. Leave `model_type` unset and promptmap
-sends the rendered prompt to your LLM; set it to `template` or `agent` (or
+sends the rendered prompt to your LLM; set it to `template`, `agent` or `coding_agent` (or
 an extras kind such as `execute_python`) and promptmap runs it differently. If none of those do
 what you need, you can add your own.
 

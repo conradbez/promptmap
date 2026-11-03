@@ -1,4 +1,4 @@
-"""``agent`` (pi harness): Dir in, patched Dir out, with diff/verify/merge reuse."""
+"""``coding_agent`` (pi harness): Dir in, patched Dir out, with diff/verify/merge reuse."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from promptmap.model_spec import ModelSpec
 from promptmap.executor.parser_model import PreviousRun
 from promptmap.model_types import ModelCall, get_model_kind
 
-from promptmap.executor import agent as fa
+from promptmap.executor import coding_agent as fa
 
 BASE = {
     "shared.py": b"x = 1\n",
@@ -106,7 +106,7 @@ def run(base: Dir, tmp_path, llm, prompt="add the feature", **config) -> dict:
     call = ModelCall(
         spec=spec, outputs={"up": base}, llm=call_llm, compute=compute, previous=_HISTORY.get(key),
     )
-    out = asyncio.run(fa.run_agent(prompt, call))
+    out = asyncio.run(fa.run_coding_agent(prompt, call))
     _HISTORY[key] = PreviousRun(prompt=prompt, output=out)
     return out
 
@@ -305,7 +305,7 @@ def test_without_an_input_tree_the_agent_creates_one(tmp_path, agent, jev, llm):
         return await value if hasattr(value, "__await__") else value
 
     call = ModelCall(spec=spec, outputs={}, llm=None, compute=passthrough)
-    out = asyncio.run(fa.run_agent("make an app", call))
+    out = asyncio.run(fa.run_coding_agent("make an app", call))
 
     assert files(out["result"]) == {"app.py": b"print('hi')\n"}
     assert out["changes"] == {"app.py": "print('hi')\n"} and out["deleted"] == []

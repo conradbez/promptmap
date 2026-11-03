@@ -59,7 +59,8 @@ Not every node in your pipeline needs to be a standard LLM call. Override `model
 | --- | --- | --- |
 | **LLM** *(default)* | Sends the rendered Jinja prompt to your configured LLM. | Standard `.prompt` file |
 | **`template`** | Renders Jinja directly with no LLM call (for reshaping upstream outputs). | `{{ config(model_type="template") }}` |
-| **`agent`** | A coding agent ([pi](https://pi.dev)) as a pure function: takes an upstream folder (or starts empty), works on a scratch copy, and returns the patched folder plus a diff. Unchanged inputs are reused without re-running the agent. Needs `npm i -g @mariozechner/pi-coding-agent`. | `{{ config(model_type="agent", promptfiles="repo") }}` |
+| **`agent`** | Hands the prompt to the [pi](https://pi.dev) agent, which can run tools in a scratch folder before replying. Text in, text out. Upstream `promptfiles` are copied in, and files it writes become the model's files. Needs `npm i -g @mariozechner/pi-coding-agent`. | `{{ config(model_type="agent") }}` |
+| **`coding_agent`** | pi as a pure function: an upstream folder in (or empty), the patched folder plus a diff out. Unchanged inputs are reused without re-running the agent. | `{{ config(model_type="coding_agent", promptfiles="repo") }}` |
 
 *(More model kinds, such as `execute_python`, `agent_multi_harness` (mini-swe-agent / opencode), `python_modal`, `agent_modal` and `agent37`, come with `pip install "promptmap[extras]"`.)*
 

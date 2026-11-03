@@ -42,7 +42,6 @@ Configuration is read from the environment — see each module's docstring.
   working in `agent_dir`). Rename `model_type="agent"` to
   `model_type="agent_multi_harness"`; config keys are unchanged.
 
-The old `coding_agent` kind moved the other way: it is now core's `agent`
-kind, on the [pi](https://pi.dev) harness. Rename `model_type="coding_agent"` to
-`model_type="agent"`. See promptmap's
+`coding_agent` moved the other way: it is now in promptmap core, on the
+[pi](https://pi.dev) harness, under the same name. See promptmap's
 [agent docs](https://github.com/conradbez/promptmap/blob/main/docs/ADVANCED_USAGE.md#agent-models-model_typeagent).

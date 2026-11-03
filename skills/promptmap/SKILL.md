@@ -107,12 +107,12 @@ Headings:
 {% endfor %}
 ```
 
-**`agent`** runs the [pi](https://pi.dev) agent (`npm i -g
-@mariozechner/pi-coding-agent`) in a scratch folder: text in, text out.
+**`agent`** runs [mini-swe-agent](https://mini-swe-agent.com) (pure Python,
+LLM from `agent_model` / `MSWEA_MODEL_NAME`) in a scratch folder: text in, text out.
 Upstream `promptfiles` are copied to `inputs/`; files it writes to `outputs/`
 become the model's files.
 
-**`coding_agent`** runs pi as a pure function: a `Dir` in, the patched `Dir` out.
+**`coding_agent`** runs mini-swe-agent as a pure function: a `Dir` in, the patched `Dir` out.
 The input tree comes from upstream via `promptfiles`; leave it out and the
 agent creates the tree from scratch. Chain agents by passing one's output to
 the next. It caches its change and only re-runs the agent when upstream
@@ -132,7 +132,7 @@ Output keys: `output` (answer), `result` (patched `Dir`), `changes`,
 `deleted`, `sum_of_changes`, `cache`. Downstream: `{{ ref('api').changes }}`.
 
 With `promptmap[extras]`: `execute_python` (run rendered Python, capture
-`output`) and `agent_multi_harness` (mini-swe-agent / opencode in place in an
+`output`) and `agent_multi_harness` (mini-swe-agent / opencode / pi in place in an
 `agent_dir`). See
 `docs/ADVANCED_USAGE.md#agent-models-model_typeagent`.
 

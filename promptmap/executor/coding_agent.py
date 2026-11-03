@@ -1,9 +1,9 @@
 """
 ``coding_agent`` — a coding agent as a pure function: Dir in, Dir out.
 
-The harness is pi (https://pi.dev, ``npm i -g @mariozechner/pi-coding-agent``),
-run headless (``pi --print --mode json``).  The model receives a directory
-tree, lets pi work on a throwaway copy of it (where it may build, run tests, install packages), and
+The harness is mini-swe-agent (https://mini-swe-agent.com, pure Python, run
+in-process).  The model receives a directory
+tree, lets the agent work on a throwaway copy of it (where it may build, run tests, install packages), and
 returns the tree with its changes already applied.  The real repository is
 never touched; a later node decides what to do with the result.
 
@@ -81,8 +81,8 @@ It passes when the score reaches ``jev_cache_threshold``.
 
 Config keys (the agent always works in a scratch copy, never in place):
 
-``agent_model``          pi model, e.g. ``anthropic/claude-sonnet-4-5``; defaults
-                         to client.py's ``agent_model``, then pi's own default
+``agent_model``          litellm model name, e.g. ``anthropic/claude-sonnet-4-5``;
+                         defaults to client.py's ``agent_model``, then ``MSWEA_MODEL_NAME``
 ``agent_step_limit``     max agent turns, 0 for none (default 0)
 ``agent_cost_limit``     max spend in dollars, 0 for none (default 3)
 
@@ -115,7 +115,7 @@ import time
 from promptmap.files import Dir, File, FileOutputError, select_path, split_model_path
 from promptmap.model_types import ModelCall, ModelKind, register_model_kind
 
-from . import pi
+from . import mini_swe
 
 from . import _ast_diff
 
@@ -775,15 +775,15 @@ def _threshold(value: Any) -> float:
 # ---------------------------------------------------------------------------
 
 def _exec_agent(task: str, call: ModelCall) -> dict:
-    """Run pi in the scratch copy (``config["agent_dir"]``) — a seam for tests."""
-    return pi.run_pi(task, call, Path(call.spec.config["agent_dir"]))
+    """Run mini-swe-agent in the scratch copy (``config["agent_dir"]``) — a seam for tests."""
+    return mini_swe.run_mini_swe(task, call, Path(call.spec.config["agent_dir"]))
 
 
 #: A coding agent: Dir in, patched Dir out.
 KIND = register_model_kind(ModelKind(
     name=NAME,
     exec_fn=run_coding_agent,
-    config_keys=pi.CONFIG_KEYS | {
+    config_keys=mini_swe.CONFIG_KEYS | {
         "jev_cache_threshold", "merge_max_files", "context_max_chars", "force_refresh",
     },
 ))

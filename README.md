@@ -59,10 +59,10 @@ Not every node in your pipeline needs to be a standard LLM call. Override `model
 | --- | --- | --- |
 | **LLM** *(default)* | Sends the rendered Jinja prompt to your configured LLM. | Standard `.prompt` file |
 | **`template`** | Renders Jinja directly with no LLM call (for reshaping upstream outputs). | `{{ config(model_type="template") }}` |
-| **`agent`** | Hands the prompt to the [pi](https://pi.dev) agent, which can run tools in a scratch folder before replying. Text in, text out. Upstream `promptfiles` are copied in, and files it writes become the model's files. Needs `npm i -g @mariozechner/pi-coding-agent`. | `{{ config(model_type="agent") }}` |
-| **`coding_agent`** | pi as a pure function: an upstream folder in (or empty), the patched folder plus a diff out. Unchanged inputs are reused without re-running the agent. | `{{ config(model_type="coding_agent", promptfiles="repo") }}` |
+| **`agent`** | Hands the prompt to [mini-swe-agent](https://mini-swe-agent.com), which can run shell commands in a scratch folder before replying. Text in, text out. Upstream `promptfiles` are copied in, and files it writes become the model's files. Pure Python, no Node needed. | `{{ config(model_type="agent") }}` |
+| **`coding_agent`** | mini-swe-agent as a pure function: an upstream folder in (or empty), the patched folder plus a diff out. Unchanged inputs are reused without re-running the agent. | `{{ config(model_type="coding_agent", promptfiles="repo") }}` |
 
-*(More model kinds, such as `execute_python`, `agent_multi_harness` (mini-swe-agent / opencode), `python_modal`, `agent_modal` and `agent37`, come with `pip install "promptmap[extras]"`.)*
+*(More model kinds, such as `execute_python`, `agent_multi_harness` (mini-swe-agent / opencode / pi), `python_modal`, `agent_modal` and `agent37`, come with `pip install "promptmap[extras]"`.)*
 
 ### 3. Tests (`map/*.testprompt`)
 

@@ -1,10 +1,10 @@
 """
 ``agent_multi_harness`` — a coding agent working in ``agent_dir``, with the
 rendered text as its task, on one of several harnesses: mini-swe-agent
-(default) or opencode (which brings MCP servers).
+(default), opencode (which brings MCP servers) or pi.
 
-This was promptmap core's ``agent`` kind before ``agent`` became the pi-based
-Dir-in/Dir-out agent.  Importing this module registers the kind.
+Unlike core's ``agent`` / ``coding_agent`` (scratch copies), it works in place
+in ``agent_dir``.  Importing this module registers the kind.
 """
 
 from __future__ import annotations
@@ -20,7 +20,10 @@ from pathlib import Path
 from typing import Any
 
 from promptmap.files import Dir, File, FileOutputError
+from promptmap.executor import mini_swe
 from promptmap.model_types import ModelCall, ModelKind, register_model_kind
+
+from . import pi_harness
 
 NAME = "agent_multi_harness"
 
@@ -58,10 +61,10 @@ async def run_agent(rendered: str, call: ModelCall) -> dict:
     Config keys:
 
     ``agent_dir``         working directory (required)
-    ``agent_backend``     ``mini-swe-agent`` (default) or ``opencode``
+    ``agent_backend``     ``mini-swe-agent`` (default), ``opencode`` or ``pi``
     ``agent_model``       model name; for mini-swe-agent defaults to
                           client.py's ``agent_model``, then ``MSWEA_MODEL_NAME``;
-                          opencode's own config otherwise
+                          opencode's / pi's own config otherwise
     ``agent_step_limit``  max LLM calls, 0 for none (default 0)
     ``agent_cost_limit``  max spend in dollars, 0 for none (default 3)
     ``agent_mcp``         opencode only: MCP servers the agent may use, as a
@@ -70,7 +73,8 @@ async def run_agent(rendered: str, call: ModelCall) -> dict:
 
     mini-swe-agent needs ``pip install mini-swe-agent``; opencode needs the
     ``opencode`` binary on PATH (``npm i -g opencode-ai``) or
-    ``PROMPTMAP_OPENCODE_BIN``.  Results are cached on the rendered prompt like any
+    ``PROMPTMAP_OPENCODE_BIN``; pi needs the ``pi`` binary
+    (``npm i -g @mariozechner/pi-coding-agent``) or ``PROMPTMAP_PI_BIN``.  Results are cached on the rendered prompt like any
     other kind, so an unchanged task does not re-run.
     """
     raw = await call.compute(
@@ -84,7 +88,7 @@ async def run_agent(rendered: str, call: ModelCall) -> dict:
     return result
 
 
-_AGENT_BACKENDS = ("mini-swe-agent", "opencode")
+_AGENT_BACKENDS = ("mini-swe-agent", "opencode", "pi")
 
 
 def _exec_agent(task: str, call: ModelCall) -> str:
@@ -114,6 +118,8 @@ def _exec_agent(task: str, call: ModelCall) -> str:
     try:
         if backend == "opencode":
             output, logs = _exec_opencode(task, call, workdir)
+        elif backend == "pi":
+            output, logs = _exec_pi(task, call, workdir)
         else:
             output, logs = _exec_mini_swe_agent(task, call, workdir)
         files = _collect_out_dir(out_dir)  # File reads its bytes now
@@ -144,44 +150,17 @@ To pass files on to the next step (images, notes, data), write them into
 # ---------------------------------------------------------------------------
 
 def _exec_mini_swe_agent(task: str, call: ModelCall, workdir: Path) -> tuple[str, list]:
-    # Its import banner (version, v2 migration link) is noise in a promptmap run.
-    os.environ.setdefault("MSWEA_SILENT_STARTUP", "1")
-    try:
-        import yaml
-        from minisweagent import package_dir
-        from minisweagent.agents.default import DefaultAgent
-        from minisweagent.environments.local import LocalEnvironment
-    except ImportError as exc:
-        raise ImportError(
-            "model_type=\"agent_multi_harness\" needs mini-swe-agent: pip install mini-swe-agent"
-        ) from exc
-
-    config = call.spec.config
-    defaults = yaml.safe_load((package_dir / "config" / "default.yaml").read_text())
-    agent_cfg = defaults["agent"] | {
-        "step_limit": call.spec.config_int("agent_step_limit", 0),
-        "cost_limit": float(config.get("agent_cost_limit", 3.0)),
-    }
-    agent = DefaultAgent(
-        _agent_model(_agent_model_name(call.spec), defaults["model"]),
-        LocalEnvironment(cwd=str(workdir), **defaults["environment"]),
-        **agent_cfg,
-    )
-    result = agent.run(task + _SUBMIT_INSTRUCTION)
-    return result.get("submission", ""), agent.messages
+    result = mini_swe.run_mini_swe(task, call, workdir)
+    return result["output"], result["logs"]
 
 
-#: mini-swe-agent's own prompt says to submit with a bare
-#: ``echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT``, which submits nothing.  promptmap
-#: wants a final output, which is whatever the agent prints after that marker.
-_SUBMIT_INSTRUCTION = """
+# ---------------------------------------------------------------------------
+# Backend: pi (https://pi.dev) — needs Node
+# ---------------------------------------------------------------------------
 
-When you are done, submit your final output (the answer to pass on to the next
-step) by printing COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT on the first line and
-the output after it, e.g.:
-
-    printf 'COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT\\n%s\\n' "your final output"
-"""
+def _exec_pi(task: str, call: ModelCall, workdir: Path) -> tuple[str, list]:
+    result = pi_harness.run_pi(task, call, workdir)
+    return result["output"], result["logs"]
 
 
 # ---------------------------------------------------------------------------
@@ -326,25 +305,6 @@ def _last_error(events: list) -> str:
         if event.get("type") == "error":
             return str(event.get("error") or (event.get("part") or {}).get("error"))
     return "no error reported"
-
-
-def _agent_model_name(spec) -> str | None:
-    """config(agent_model=...), else client.py's ``agent_model``, else MSWEA_MODEL_NAME."""
-    if spec.config.get("agent_model"):
-        return str(spec.config["agent_model"])
-    from promptmap.llm import client_module_for
-
-    module = client_module_for(spec.path)
-    name = getattr(module, "agent_model", None) if module is not None else None
-    return str(name) if name else os.getenv("MSWEA_MODEL_NAME")
-
-
-def _agent_model(name: str | None, model_cfg: dict):
-    """The mini-swe-agent model to drive the agent — a seam for tests."""
-    from minisweagent.models import get_model
-
-    return get_model(name, model_cfg)
-
 
 
 #: A coding agent working in a directory, with the rendered text as its task.

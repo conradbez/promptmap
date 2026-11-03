@@ -9,12 +9,12 @@ including the ones you register yourself.
 
 ``""`` (plain LLM)   send the rendered prompt to the backend
 ``template``         the rendered text *is* the output (``exec_fn=None``)
-``agent``            the pi agent, text in, text out (files in/out via
+``agent``            mini-swe-agent, text in, text out (files in/out via
                      promptfiles / outputs/) — :mod:`promptmap.executor.agent`
-``coding_agent``     the pi agent as a pure function: Dir in, patched Dir
+``coding_agent``     mini-swe-agent as a pure function: Dir in, patched Dir
                      out, with diff-aware reuse — :mod:`promptmap.executor.coding_agent`
 
-``execute_python`` and the multi-harness agent (mini-swe-agent / opencode)
+``execute_python`` and the multi-harness agent (mini-swe-agent / opencode / pi)
 live in ``promptmap[extras]``.
 
 Importing this module registers them; :mod:`promptmap` does that on import.

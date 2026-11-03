@@ -1,17 +1,16 @@
 [project]
 name = "promptmap-extra-model-kinds"
-version = "0.6.2"
-description = "Extra promptmap model kinds (execute_python, agent_multi_harness, python_modal, agent_modal, agent37) and RAG kinds (brave_search, gemini_search, openai_search, anthropic_search)."
+version = "0.7.0"
+description = "Extra promptmap model kinds (execute_python, agent_multi_harness (mini-swe-agent / opencode / pi), python_modal, agent_modal, agent37) and RAG kinds (brave_search, gemini_search, openai_search, anthropic_search)."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "promptmap>=0.6.0",
+    "promptmap>=0.7.0",
     "modal>=1.0",
     "httpx>=0.27",
     "python-dotenv>=1.0",
     "openai>=2.26",
     "anthropic>=1.15",
-    "mini-swe-agent>=2.0",
 ]
 
 [project.urls]

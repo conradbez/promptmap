@@ -1,7 +1,7 @@
 """
 The pi harness (https://pi.dev): run the pi coding agent headless in a
-directory and collect its answer.  Shared by the ``agent`` and
-``coding_agent`` kinds.
+directory and collect its answer.  ``agent_multi_harness``'s
+``agent_backend="pi"``.
 
 Needs the ``pi`` binary (``npm i -g @mariozechner/pi-coding-agent``) on PATH,
 or at ``PROMPTMAP_PI_BIN``.
@@ -32,7 +32,7 @@ def run_pi(task: str, call: ModelCall, workdir: Path) -> dict:
     binary = _pi_bin()
     if not binary:
         raise FileNotFoundError(
-            f'model_type="{call.spec.model_type}" needs the pi coding agent: '
+            'agent_backend="pi" needs the pi coding agent: '
             "npm i -g @mariozechner/pi-coding-agent (or set PROMPTMAP_PI_BIN)"
         )
     config = call.spec.config

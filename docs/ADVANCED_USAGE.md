@@ -615,16 +615,19 @@ contain a path.
 
 ## Agent models (`model_type="agent"`)
 
-Both agent kinds run [pi](https://pi.dev) headless and share these config keys:
-`agent_model`, `agent_step_limit` and `agent_cost_limit` (see the table below).
+Both agent kinds run [mini-swe-agent](https://mini-swe-agent.com) (a minimal
+bash-only agent, pure Python, installed with promptmap, no Node needed) and
+share these config keys: `agent_model`, `agent_step_limit` and
+`agent_cost_limit` (see the table below).
 
-```bash
-npm i -g @mariozechner/pi-coding-agent   # the pi CLI (or set PROMPTMAP_PI_BIN)
-```
+mini-swe-agent picks its LLM from, in order: `config(agent_model="...")` on the
+model, `agent_model = "..."` in `client.py`, then the `MSWEA_MODEL_NAME` env var.
+Each is a [litellm](https://docs.litellm.ai/docs/providers) model name such as
+`anthropic/claude-sonnet-5`. It does not use your `llm_call`.
 
 An `agent` model is **text in, text out**: the rendered template is the task,
-pi works in a fresh scratch folder (it may run commands, write scripts, fetch
-things), and its final reply is the output. `output_format="json"` parses it.
+the agent works in a fresh scratch folder (it may run commands, write scripts, fetch
+things), and what it submits is the output. `output_format="json"` parses it.
 
 ```jinja
 {# map/count.prompt #}
@@ -634,7 +637,7 @@ Sum the counts in the CSV. Write the total to total.txt in your outputs folder. 
 
 - **Files in:** upstream files named in `promptfiles` are copied into
   `inputs/<model>/` in the workspace, and the task lists them.
-- **Files out:** anything pi writes to `outputs/` becomes the model's files
+- **Files out:** anything the agent writes to `outputs/` becomes the model's files
   (an `Output`: the reply plus those files).
 - Cached on the task plus the input files' hashes.
 
@@ -677,30 +680,31 @@ always starts afresh.
 
 | config key            | meaning |
 |-----------------------|---------|
-| `agent_model`         | pi model, `provider/id` (e.g. `openai/gpt-4o-mini`); default `agent_model` in `client.py`, then pi's own default |
-| `agent_step_limit`    | max agent turns, `0` = no limit (default `0`) |
+| `agent_model`         | litellm model name (e.g. `openai/gpt-4o-mini`); default `agent_model` in `client.py`, then `MSWEA_MODEL_NAME` |
+| `agent_step_limit`    | max LLM calls, `0` = no limit (default `0`) |
 | `agent_cost_limit`    | max spend in dollars, `0` = no limit (default `3`) |
 | `jev_cache_threshold` | verifier score needed to reuse over a changed input (default `0.85`) |
 | `merge_max_files`     | most colliding files to merge rather than re-run (default `5`) |
 | `context_max_chars`   | cap on each diff put into a prompt (default `20000`) |
 | `force_refresh`       | always run the agent (default `false`) |
 
-pi reads provider keys from the usual env vars (`ANTHROPIC_API_KEY`,
+litellm reads provider keys from the usual env vars (`ANTHROPIC_API_KEY`,
 `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, …). It runs commands
 on your machine with no sandbox, inside the scratch copy.
 
 ### Multi-harness agent (`model_type="agent_multi_harness"`, extras)
 
-`pip install "promptmap[extras]"`. This is the agent kind promptmap shipped
-before the agents moved to pi. It works **in place** in `agent_dir`, with the
-rendered template as its task, on one of two harnesses.
+`pip install "promptmap[extras]"`. Unlike `agent` / `coding_agent` (scratch
+copies), it works **in place** in `agent_dir`, with the rendered template as
+its task, on one of three harnesses.
 
-The agent runs shell commands in `agent_dir` until it submits. Two backends:
+The agent runs shell commands in `agent_dir` until it submits. Three backends:
 
 | `agent_backend`  | what it is | install |
 |------------------|------------|---------|
-| `mini-swe-agent` (default) | [mini-swe-agent](https://mini-swe-agent.com): a minimal bash-only agent | included with `promptmap[extras]` |
+| `mini-swe-agent` (default) | [mini-swe-agent](https://mini-swe-agent.com): a minimal bash-only agent | included with promptmap |
 | `opencode`       | [opencode](https://opencode.ai): a full coding agent with file tools and **MCP servers** | `npm i -g opencode-ai` (or `curl -fsSL https://opencode.ai/install \| bash`) |
+| `pi`             | [pi](https://pi.dev): a coding agent run headless (`pi --print --mode json`) | `npm i -g @mariozechner/pi-coding-agent` (or set `PROMPTMAP_PI_BIN`) |
 
 ```bash
 npm i -g opencode-ai                                # opencode (npm, not pip)
@@ -724,8 +728,8 @@ The output is a dict:
 
 | key        | value                                   |
 |------------|-----------------------------------------|
-| `output`   | what the agent submitted (its final reply, for opencode) |
-| `logs`     | the full message trajectory (opencode's JSON events) |
+| `output`   | what the agent submitted (its final reply, for opencode / pi) |
+| `logs`     | the full message trajectory (opencode's / pi's JSON events) |
 | `time_run` | seconds the agent ran                   |
 | `files`    | what the agent wrote into its output directory, as `File` / `Dir` objects; absent when it wrote none |
 
@@ -742,8 +746,8 @@ is `research` in [`examples/pcb_design`](../examples/pcb_design).
 | config key         | meaning                                      |
 |--------------------|----------------------------------------------|
 | `agent_dir`        | working directory (required; created if missing) |
-| `agent_backend`    | `mini-swe-agent` (default) or `opencode`     |
-| `agent_model`      | litellm name for mini-swe-agent (default `MSWEA_MODEL_NAME`); `provider/model` for opencode (default: opencode's own config) |
+| `agent_backend`    | `mini-swe-agent` (default), `opencode` or `pi` |
+| `agent_model`      | litellm name for mini-swe-agent (default `MSWEA_MODEL_NAME`); `provider/model` for opencode / pi (default: their own config) |
 | `agent_step_limit` | max LLM calls, `0` = no limit (default `0`)  |
 | `agent_cost_limit` | max spend in dollars, `0` = no limit (default `3`) |
 | `agent_mcp`        | opencode only: MCP servers the agent may use (see below) |

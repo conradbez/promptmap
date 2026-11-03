@@ -1,7 +1,7 @@
 """
 Extra promptmap model kinds. Importing this package registers all of them:
 ``execute_python`` (`python_exec`), ``agent_multi_harness`` (`agent_multi_harness_exec`:
-mini-swe-agent or opencode), ``python_modal`` (`modal_exec`), ``agent_modal``
+mini-swe-agent, opencode or pi), ``python_modal`` (`modal_exec`), ``agent_modal``
 (`agent_exec`) and ``agent37`` (`agent37_exec`), plus the web-search RAG kinds
 ``brave_search``, ``gemini_search``, ``openai_search`` and ``anthropic_search``
 (called as ``rag_<name>(...)`` in templates).

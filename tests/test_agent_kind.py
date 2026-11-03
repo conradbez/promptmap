@@ -1,4 +1,4 @@
-"""``agent``: the pi agent, text in, text out, with files in and out."""
+"""``agent``: the mini-swe-agent agent, text in, text out, with files in and out."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from promptmap.executor import agent as ag
-from promptmap.executor import pi
+from promptmap.executor import mini_swe
 from promptmap.files import File, Output
 from tests.test_model_types import run_models
 
@@ -80,25 +80,23 @@ def test_unchanged_task_is_cached(fake_agent):
     assert len(fake_agent) == 1
 
 
-def test_missing_pi_says_how_to_install(monkeypatch):
-    monkeypatch.setattr(pi, "_pi_bin", lambda: None)
-    _, _, results = run_models({"a": '{{ config(model_type="agent") }}hi'})
-    assert "npm i -g @mariozechner/pi-coding-agent" in results["a"].error
+def test_mini_swe_agent_submission_is_output(monkeypatch):
+    """run_mini_swe end to end, with a scripted model instead of an LLM."""
+    from minisweagent.models.test_models import DeterministicModel, make_output
 
+    seen = {}
 
-def test_pi_events_become_output_and_limits(tmp_path, monkeypatch):
-    """run_pi against a fake pi binary that prints JSON events."""
-    events = [
-        {"type": "session"},
-        {"type": "message_update", "message": {}},
-        {"type": "message_end", "message": {"role": "assistant", "content": [{"type": "text", "text": "done"}],
-                                            "usage": {"cost": {"total": 0.01}}, "stopReason": "stop"}},
-        {"type": "turn_end"},
-        {"type": "agent_end", "messages": []},
-    ]
-    script = tmp_path / "pi"
-    script.write_text("#!/bin/sh\ncat <<'EOF'\n" + "\n".join(json.dumps(e) for e in events) + "\nEOF\n")
-    script.chmod(0o755)
-    monkeypatch.setenv("PROMPTMAP_PI_BIN", str(script))
-    _, _, results = run_models({"a": '{{ config(model_type="agent") }}hi'})
-    assert results["a"].value == "done"
+    def fake_model(name, model_cfg):
+        seen["name"] = name
+        return DeterministicModel(outputs=[
+            make_output("write", [{"command": "echo '# hi' > outputs/note.md"}]),
+            make_output("done", [{"command": "printf 'COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT\\ndone\\n'"}]),
+        ])
+
+    monkeypatch.setattr(mini_swe, "_agent_model", fake_model)
+    _, _, results = run_models({"a": '{{ config(model_type="agent", agent_model="m1") }}hi'})
+    value = results["a"].value
+    assert isinstance(value, Output)
+    assert value.text.strip() == "done"
+    assert set(value.files) == {"note.md"}
+    assert seen["name"] == "m1"

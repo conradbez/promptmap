@@ -8,7 +8,7 @@ Extra model kinds for [promptmap](https://pypi.org/project/promptmap/):
 | `agent_modal`  | `agent_exec`    | an OpenCode agent (plus optional MCP server) on Modal  |
 | `agent37`      | `agent37_exec`  | a Hermes agent on an Agent37 workspace (`agent37.md`)  |
 | `execute_python` | `python_exec` | the rendered template as Python, in-process; output is `stdout` or an `output` variable |
-| `agent_multi_harness` | `agent_multi_harness_exec` | a coding agent in place in `agent_dir`: mini-swe-agent (default) or opencode with MCP servers (`agent_backend`) |
+| `agent_multi_harness` | `agent_multi_harness_exec` | a coding agent in place in `agent_dir`: mini-swe-agent (default), opencode with MCP servers, or pi (`agent_backend`) |
 
 And RAG kinds, called from any template:
 
@@ -43,5 +43,7 @@ Configuration is read from the environment — see each module's docstring.
   `model_type="agent_multi_harness"`; config keys are unchanged.
 
 `coding_agent` moved the other way: it is now in promptmap core, on the
-[pi](https://pi.dev) harness, under the same name. See promptmap's
+[mini-swe-agent](https://mini-swe-agent.com) harness, under the same name.
+The [pi](https://pi.dev) harness lives here, as `agent_backend="pi"` on
+`agent_multi_harness` (needs Node: `npm i -g @mariozechner/pi-coding-agent`). See promptmap's
 [agent docs](https://github.com/conradbez/promptmap/blob/main/docs/ADVANCED_USAGE.md#agent-models-model_typeagent).

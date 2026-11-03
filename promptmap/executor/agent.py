@@ -1,7 +1,7 @@
 """
-``agent`` — the pi coding agent, text in, text out.
+``agent`` — the mini-swe-agent coding agent, text in, text out.
 
-The rendered template is the task.  pi works in a fresh scratch directory and
+The rendered template is the task.  The agent works in a fresh scratch directory and
 its final reply is the model's output, like an LLM call that can run tools
 along the way.  Nothing on your disk is touched.
 
@@ -16,7 +16,7 @@ For a folder in, patched folder out — with diff-aware reuse — use
 ``coding_agent``.
 
 Config keys: ``agent_model``, ``agent_step_limit``, ``agent_cost_limit``
-(see :mod:`promptmap.executor.pi`).  Results go through the prompt cache, keyed
+(see :mod:`promptmap.executor.mini_swe`).  Results go through the prompt cache, keyed
 on the task and the input files, so an unchanged task does not re-run.
 """
 
@@ -34,7 +34,7 @@ from promptmap.files import (
 )
 from promptmap.model_types import ModelCall, ModelKind, register_model_kind
 
-from . import pi
+from . import mini_swe
 
 NAME = "agent"
 
@@ -90,8 +90,8 @@ def _work(rendered: str, call: ModelCall, inputs: list[tuple[str, File]]) -> Any
 
 
 def _exec_agent(task: str, call: ModelCall, workdir: Path) -> dict:
-    """Run pi — a seam for tests."""
-    return pi.run_pi(task, call, workdir)
+    """Run mini-swe-agent — a seam for tests."""
+    return mini_swe.run_mini_swe(task, call, workdir)
 
 
 def _collect(out_dir: Path) -> list:
@@ -103,5 +103,5 @@ def _collect(out_dir: Path) -> list:
     return items
 
 
-#: The pi agent, text in, text out.
-KIND = register_model_kind(ModelKind(name=NAME, exec_fn=run_agent, config_keys=pi.CONFIG_KEYS))
+#: The mini-swe-agent agent, text in, text out.
+KIND = register_model_kind(ModelKind(name=NAME, exec_fn=run_agent, config_keys=mini_swe.CONFIG_KEYS))

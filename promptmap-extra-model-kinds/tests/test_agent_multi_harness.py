@@ -8,6 +8,7 @@ pytest.importorskip("minisweagent")
 
 from minisweagent.models.test_models import DeterministicModel, make_output
 
+from promptmap.executor import mini_swe
 from promptmap_extra_model_kinds import agent_multi_harness_exec as builtin_kinds
 from conftest import run_models
 
@@ -24,7 +25,7 @@ def scripted_agent(monkeypatch):
             make_output("done", [{"command": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat note.txt"}]),
         ])
 
-    monkeypatch.setattr(builtin_kinds, "_agent_model", fake_model)
+    monkeypatch.setattr(mini_swe, "_agent_model", fake_model)
     return seen
 
 
@@ -73,7 +74,7 @@ def test_agent_json_output_is_parsed(tmp_path, monkeypatch):
             "command": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && echo '{\"drc_errors\": 0}'"
         }])])
 
-    monkeypatch.setattr(builtin_kinds, "_agent_model", fake_model)
+    monkeypatch.setattr(mini_swe, "_agent_model", fake_model)
     _, _, results = run_models({
         "board": f'{{{{ config(model_type="agent_multi_harness", agent_dir="{tmp_path}", output_format="json") }}}}\n'
                  "build it",
@@ -96,7 +97,7 @@ def test_agent_files_become_the_models_files(tmp_path, monkeypatch):
             make_output("done", [{"command": "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && echo noted"}]),
         ])
 
-    monkeypatch.setattr(builtin_kinds, "_agent_model", fake_model)
+    monkeypatch.setattr(mini_swe, "_agent_model", fake_model)
     from promptmap.storage import MemoryStorageBackend
 
     storage = MemoryStorageBackend()

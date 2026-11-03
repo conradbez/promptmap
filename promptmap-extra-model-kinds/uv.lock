@@ -1829,35 +1829,35 @@ wheels = [
 
 [[package]]
 name = "promptmap"
-version = "0.5.17"
+version = "0.6.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
     { name = "jinja2" },
-    { name = "mini-swe-agent" },
     { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "networkx", version = "3.7", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "rich" },
+    { name = "tree-sitter-language-pack" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fb/15/1ae9ea19a60d6debf8ca00991acddb439f395f3929149a4e681c9e25d3ed/promptmap-0.5.17.tar.gz", hash = "sha256:14ca867a05382a6c219f6a828fef27c558d1a136db6b0dfd10e314ac4346d4dc", size = 230345, upload-time = "2026-11-02T11:43:04.53Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/55/28/d5cac1d44385cbd55d25ac0958900bb8c0ca4b27dc75de93db6ea054112a/promptmap-0.6.3.tar.gz", hash = "sha256:19198bc7af752bb7ba0442396a68a86b12b1498973517a09fe1ca07aa6a52b8d", size = 239521, upload-time = "2026-11-03T06:35:50.735Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/40/31/47f8f988214cd32776dd9053ad391477e053503d4fbfb269aa44e79d27fb/promptmap-0.5.17-py3-none-any.whl", hash = "sha256:e1a77080903422f8f62ec33198a29e20fb07b7e576e12116530219778dcb2d88", size = 212795, upload-time = "2026-11-02T11:43:02.746Z" },
+    { url = "https://files.pythonhosted.org/packages/82/86/b6c5e28f4aa6fb96630a611396c2128a2cec619979ffd886d7c03d4aeee6/promptmap-0.6.3-py3-none-any.whl", hash = "sha256:7f5fc5c003a121fcc852ab762e8132a3c3e08f25c5dbb4fdce86e1a78fcde0a1", size = 224454, upload-time = "2026-11-03T06:35:48.919Z" },
 ]
 
 [[package]]
 name = "promptmap-extra-model-kinds"
-version = "0.5.1"
+version = "0.6.2"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
     { name = "httpx" },
+    { name = "mini-swe-agent" },
     { name = "modal" },
     { name = "openai" },
     { name = "promptmap" },
     { name = "python-dotenv" },
-    { name = "tree-sitter-language-pack" },
 ]
 
 [package.dev-dependencies]
@@ -1869,11 +1869,11 @@ dev = [
 requires-dist = [
     { name = "anthropic", specifier = ">=1.15" },
     { name = "httpx", specifier = ">=0.27" },
+    { name = "mini-swe-agent", specifier = ">=2.0" },
     { name = "modal", specifier = ">=1.0" },
     { name = "openai", specifier = ">=2.26" },
-    { name = "promptmap", specifier = ">=0.5.17" },
+    { name = "promptmap", specifier = ">=0.6.0" },
     { name = "python-dotenv", specifier = ">=1.0" },
-    { name = "tree-sitter-language-pack", specifier = ">=1.23" },
 ]
 
 [package.metadata.requires-dev]

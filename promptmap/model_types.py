@@ -54,6 +54,7 @@ to skip discovery (useful in tests).
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import os
 from dataclasses import dataclass, field
@@ -106,6 +107,27 @@ class ModelCall:
     #: here instead of keeping state of its own.  For an ``each=`` model it
     #: is the whole model's previous output, not this item's.
     previous: "PreviousRun | None" = None
+
+
+#: Who hears progress from inside a running model: ``(model_name, step, total)``.
+#: ``total`` is 0 when the model has no fixed limit.  Set by a front end (the
+#: CLI) for the duration of a run; a context var so it follows the model into
+#: the worker thread ``asyncio.to_thread`` puts it on, with no argument threaded
+#: through the executor.
+progress_listener: "contextvars.ContextVar[Callable[[str, int, int], None] | None]" = (
+    contextvars.ContextVar("promptmap_progress_listener", default=None)
+)
+
+
+def report_progress(model_name: str, step: int, total: int = 0) -> None:
+    """Tell the current front end that *model_name* reached *step* of *total*."""
+    listener = progress_listener.get()
+    if listener is None:
+        return
+    try:
+        listener(model_name, step, total)
+    except Exception:  # a display bug must never fail the model
+        logging.getLogger(__name__).debug("progress listener failed", exc_info=True)
 
 
 #: ``async def exec_fn(rendered: str, call: ModelCall) -> Any``

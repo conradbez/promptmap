@@ -89,3 +89,34 @@ def test_callbacks_fire_with_verbose_logging() -> None:
         on_model_start=events.append,
     )
     assert events == ["topic"]
+
+
+def test_agent_step_bar_in_run_callbacks():
+    """An agent's reported steps show as a block bar of step/limit on its status line."""
+    import asyncio
+    import io
+    from types import SimpleNamespace
+
+    from rich.console import Console
+
+    from promptmap.cli import pretty_print
+    from promptmap.model_types import progress_listener, report_progress
+
+    buf = io.StringIO()
+    console = Console(file=buf, force_terminal=False, width=100)
+    token = progress_listener.set(None)
+    try:
+        on_start, on_done = pretty_print.make_run_callbacks(console, [], total=1)
+        on_start("fix")
+
+        async def agent_steps():
+            for step in (1, 2, 3):
+                await asyncio.to_thread(report_progress, "fix", step, 10)
+
+        asyncio.run(agent_steps())
+        on_done(SimpleNamespace(status="success", execution_ms=5))
+    finally:
+        progress_listener.reset(token)
+
+    assert "▰▰▰▱▱▱▱▱▱▱ 3/10 steps OK" in buf.getvalue()
+    assert pretty_print.step_bar(4, 0) == "[cyan]step 4[/cyan]"

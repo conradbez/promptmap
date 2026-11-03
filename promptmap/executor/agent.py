@@ -113,7 +113,7 @@ from typing import Any, Callable, Iterable
 import time
 
 from promptmap.files import Dir, File, FileOutputError, select_path, split_model_path
-from promptmap.model_types import ModelCall, ModelKind, register_model_kind
+from promptmap.model_types import ModelCall, ModelKind, register_model_kind, report_progress
 
 from . import _ast_diff
 
@@ -831,6 +831,7 @@ def _exec_agent(task: str, call: ModelCall) -> dict:
                 error = message.get("errorMessage") or "pi reported an error"
         elif kind == "turn_end":
             steps += 1
+            report_progress(call.spec.name, steps, step_limit)
         if kind in ("turn_end", "message_end"):
             if step_limit and steps >= step_limit:
                 stopped = f"step limit ({step_limit}) reached"

@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Callable
 
 from rich.console import Console
+from rich.control import Control
+from rich.segment import ControlType
 from rich.markup import escape as _escape
 from rich.table import Table
 from rich import box
@@ -61,19 +63,50 @@ def print_run_header(
     c.print()
 
 
+def step_bar(step: int, total: int, width: int = 20) -> str:
+    """``▰▰▰▱▱▱▱▱▱▱ 3/10 steps`` — or ``step 3`` when there is no limit."""
+    if total <= 0:
+        return f"[cyan]step {step}[/cyan]"
+    blocks = min(total, width)
+    filled = min(blocks, round(step * blocks / total))
+    return (
+        f"[cyan]{'▰' * filled}[/cyan][dim]{'▱' * (blocks - filled)}[/dim] "
+        f"[dim]{step}/{total} steps[/dim]"
+    )
+
+
 def make_run_callbacks(
     c: Console,
     results: list[ModelRunResult],
     total: int,
 ) -> tuple[Callable[[str], None], Callable[[ModelRunResult], None]]:
-    """Return (on_start, on_done) callbacks for execute_run."""
+    """Return (on_start, on_done) callbacks for execute_run.
+
+    Also installs a :data:`~promptmap.model_types.progress_listener` so a model
+    that reports steps (an ``agent``) redraws its status line with a step bar.
+    On a non-terminal the bar is drawn once, when the model finishes.
+    """
+    from promptmap.model_types import progress_listener
+
+    line = {"prefix": "", "bar": ""}
 
     def on_start(name: str) -> None:
         idx = len(results) + 1
-        c.print(f"  [{idx}/{total}] [bold]{name}[/bold] … ", end="")
+        line["prefix"] = f"  [{idx}/{total}] [bold]{name}[/bold] … "
+        line["bar"] = ""
+        c.print(line["prefix"], end="")
+
+    def on_progress(name: str, step: int, limit: int) -> None:
+        line["bar"] = step_bar(step, limit)
+        if c.is_terminal:
+            c.control(Control.move_to_column(0), Control((ControlType.ERASE_IN_LINE, 2)))
+            c.print(f"{line['prefix']}{line['bar']} ", end="")
 
     def on_done(result: ModelRunResult) -> None:
         results.append(result)
+        if line["bar"] and not c.is_terminal:
+            c.print(f"{line['bar']} ", end="")
+        line["bar"] = ""
         if result.status == "success":
             c.print(f"[green]OK[/green] [dim]({result.execution_ms} ms)[/dim]")
         elif result.status == "skipped":
@@ -82,6 +115,7 @@ def make_run_callbacks(
             c.print("[red]ERROR[/red]")
             c.print(f"    [dim]{result.error}[/dim]")
 
+    progress_listener.set(on_progress)
     return on_start, on_done
 
 

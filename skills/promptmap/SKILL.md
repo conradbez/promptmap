@@ -33,6 +33,14 @@ What this means for you as the agent:
   model to output. A surprise is information, so act on it.
 - **Turn every real mistake into a test.** When a run drifted off the map,
   fix the node, then add a test that would have caught it.
+- **You are the CEO, not the factory floor.** Trust the prompts you write and
+  verify them with promptmap tests. Your employees (the sub-prompts) exist for
+  a reason: give them direction. Micromanaging them (reading every model's
+  output, hand-checking code line by line) will not improve the outcome. A good
+  CEO sets checks and balances without inspecting every widget: overall
+  dashboards (`promptmap docs`/`serve`), overall status (`promptmap run`
+  results), and audits (`promptmap test`). If something is wrong, an audit
+  should catch it; if none does, write the audit.
 
 ## Workflow
 

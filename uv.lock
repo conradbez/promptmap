@@ -2217,7 +2217,7 @@ wheels = [
 
 [[package]]
 name = "promptmap"
-version = "0.7.0"
+version = "0.7.1"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
@@ -2274,7 +2274,7 @@ dev = [
 
 [[package]]
 name = "promptmap-extra-model-kinds"
-version = "0.7.0"
+version = "0.7.1"
 source = { editable = "promptmap-extra-model-kinds" }
 dependencies = [
     { name = "anthropic" },
@@ -2291,7 +2291,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "modal", specifier = ">=1.0" },
     { name = "openai", specifier = ">=2.26" },
-    { name = "promptmap", specifier = ">=0.7.0" },
+    { name = "promptmap", editable = "." },
     { name = "python-dotenv", specifier = ">=1.0" },
 ]
 

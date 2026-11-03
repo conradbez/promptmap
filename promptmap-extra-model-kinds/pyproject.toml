@@ -1,6 +1,6 @@
 [project]
 name = "promptmap-extra-model-kinds"
-version = "0.7.0"
+version = "0.7.1"
 description = "Extra promptmap model kinds (execute_python, agent_multi_harness (mini-swe-agent / opencode / pi), python_modal, agent_modal, agent37) and RAG kinds (brave_search, gemini_search, openai_search, anthropic_search)."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -38,3 +38,6 @@ testpaths = ["tests"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.uv.sources]
+promptmap = { path = "..", editable = true }

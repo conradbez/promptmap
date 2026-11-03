@@ -1829,11 +1829,12 @@ wheels = [
 
 [[package]]
 name = "promptmap"
-version = "0.6.3"
-source = { registry = "https://pypi.org/simple" }
+version = "0.7.0"
+source = { editable = "../" }
 dependencies = [
     { name = "click" },
     { name = "jinja2" },
+    { name = "mini-swe-agent" },
     { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "networkx", version = "3.7", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "python-dotenv" },
@@ -1841,19 +1842,39 @@ dependencies = [
     { name = "rich" },
     { name = "tree-sitter-language-pack" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/55/28/d5cac1d44385cbd55d25ac0958900bb8c0ca4b27dc75de93db6ea054112a/promptmap-0.6.3.tar.gz", hash = "sha256:19198bc7af752bb7ba0442396a68a86b12b1498973517a09fe1ca07aa6a52b8d", size = 239521, upload-time = "2026-11-03T06:35:50.735Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/82/86/b6c5e28f4aa6fb96630a611396c2128a2cec619979ffd886d7c03d4aeee6/promptmap-0.6.3-py3-none-any.whl", hash = "sha256:7f5fc5c003a121fcc852ab762e8132a3c3e08f25c5dbb4fdce86e1a78fcde0a1", size = 224454, upload-time = "2026-11-03T06:35:48.919Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.1" },
+    { name = "jinja2", specifier = ">=3.1" },
+    { name = "mini-swe-agent", specifier = ">=2.0" },
+    { name = "networkx", specifier = ">=3.0" },
+    { name = "promptmap-extra-model-kinds", marker = "python_full_version >= '3.11' and extra == 'extras'", editable = "." },
+    { name = "python-dotenv", specifier = ">=1.2.2" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "rich", specifier = ">=13.0" },
+    { name = "tree-sitter-language-pack", specifier = ">=1.23" },
+]
+provides-extras = ["extras"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "fastapi", specifier = ">=0.135.1" },
+    { name = "google-genai", specifier = ">=1.0" },
+    { name = "openai", specifier = ">=2.26.0" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "pytest-asyncio", specifier = ">=0.23" },
+    { name = "python-multipart", specifier = ">=0.0.22" },
+    { name = "uvicorn", specifier = ">=0.41.0" },
 ]
 
 [[package]]
 name = "promptmap-extra-model-kinds"
-version = "0.6.2"
+version = "0.7.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
     { name = "httpx" },
-    { name = "mini-swe-agent" },
     { name = "modal" },
     { name = "openai" },
     { name = "promptmap" },
@@ -1869,10 +1890,9 @@ dev = [
 requires-dist = [
     { name = "anthropic", specifier = ">=1.15" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mini-swe-agent", specifier = ">=2.0" },
     { name = "modal", specifier = ">=1.0" },
     { name = "openai", specifier = ">=2.26" },
-    { name = "promptmap", specifier = ">=0.6.0" },
+    { name = "promptmap", editable = "../" },
     { name = "python-dotenv", specifier = ">=1.0" },
 ]
 

@@ -150,3 +150,18 @@ def test_init_project_with_flags_scaffolds_values_files(tmp_path, monkeypatch):
     assert (proj / "secrets.yml").is_file() and (proj / "secrets-template.yml").is_file()
     assert "secrets.yml" in (proj / ".gitignore").read_text().splitlines()
     assert not (tmp_path / "promptdata.yml").exists()  # written into the project, not cwd
+
+
+def test_clear_cache_command_for_one_model(project):
+    (project / "map" / "kind.prompt").unlink()  # needs a secret; not under test here
+    assert _run("--promptdata", "topic=t", "--promptdata", "tone=x").exit_code == 0
+
+    out = CliRunner().invoke(main, ["clear-cache", "greet"])
+    assert out.exit_code == 0, out.output
+    assert "prompt cache and previous results" in out.output and "greet (1 row)" in out.output
+
+    out = CliRunner().invoke(main, ["clear-cache", "greet", "--keep-previous"])
+    assert "greet (0 rows)" in out.output and "already cleared" in out.output
+
+    assert CliRunner().invoke(main, ["clear-cache"]).exit_code == 2  # names or --all
+    assert CliRunner().invoke(main, ["clear-cache", "--all"]).exit_code == 0

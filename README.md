@@ -27,6 +27,7 @@ promptmap run     # Execute the prompt DAG
 promptmap test    # Validate outputs against map/*.testprompt
 promptmap docs    # Generate HTML report of the run and run history
 promptmap serve   # Launch the interactive local UI / HTTP server
+promptmap clear-cache MODEL  # Make one model start cold on the next run
 ```
 
 **Claude Code skill** (teaches Claude the promptmap workflow, prompt style and testing approach):

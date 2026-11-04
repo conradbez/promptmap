@@ -57,6 +57,7 @@ from promptmap.files import (
     split_model_path,
 )
 from promptmap.model_spec import ModelSpec
+from promptmap.model_types import config_value
 from promptmap.run_ids import template_hash
 from promptmap.secrets import Secrets
 from promptmap.storage.base import StorageBackend
@@ -244,13 +245,13 @@ class RunContext:
         Only a row whose stored template hash matches the current source
         counts, so a result produced by an older version of the prompt is
         never offered as this prompt's previous answer — unless the model
-        sets ``warm_start=true``.  Then, when this template has no result
+        sets ``warm_start=true`` (``coding_agent``'s default).  Then, when this template has no result
         yet, the model's latest result from *any* version of its template is
         offered instead, marked ``same_template=False``, so a kind such as
         ``coding_agent`` can continue from it after a small prompt edit.
         """
         row = self._previous_row(spec)
-        if row is None and _truthy(spec.config.get("warm_start")):
+        if row is None and _truthy(config_value(spec, "warm_start", False)):
             row = self._previous_row(spec, any_template=True)
             if row is not None:
                 return dataclasses.replace(self._as_previous(spec, row), same_template=False)

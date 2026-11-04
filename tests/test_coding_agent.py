@@ -579,7 +579,7 @@ def test_previous_output_of_another_shape_is_ignored(tmp_path, agent, jev, llm):
     assert "Previous attempt" not in agent["tasks"][0]
 
 
-def test_executor_keeps_no_state_and_a_template_edit_starts_afresh(tmp_path, monkeypatch, jev, dir_source):
+def test_executor_keeps_no_state_and_without_warm_start_a_template_edit_starts_afresh(tmp_path, monkeypatch, jev, dir_source):
     from promptmap.executor import build_models_from_dict, execute_run
     from promptmap.storage.sqlite import SQLiteStorageBackend
 
@@ -605,7 +605,7 @@ def test_executor_keeps_no_state_and_a_template_edit_starts_afresh(tmp_path, mon
         assert not results["agent"].error, results["agent"].error
         return results["agent"].value
 
-    first = f'{{{{ config(model_type="{fa.NAME}", promptfiles="src") }}}}write out.py'
+    first = f'{{{{ config(model_type="{fa.NAME}", promptfiles="src", warm_start=false) }}}}write out.py'
     assert run_once(first)["cache"] == "miss"
     assert run_once(first)["cache"] == "hit"       # read back from the SQLite run database
     assert len(tasks) == 1
@@ -710,7 +710,7 @@ def test_warm_start_falls_back_when_upstream_edited_owned_files(tmp_path, agent,
     assert "the prompt was edited" in agent["tasks"][1]
 
 
-def test_warm_start_through_the_executor(tmp_path, monkeypatch, jev, dir_source):
+def test_warm_start_is_the_default_through_the_executor(tmp_path, monkeypatch, jev, dir_source):
     from promptmap.executor import build_models_from_dict, execute_run
     from promptmap.storage.sqlite import SQLiteStorageBackend
 
@@ -738,7 +738,7 @@ def test_warm_start_through_the_executor(tmp_path, monkeypatch, jev, dir_source)
         assert not results["agent"].error, results["agent"].error
         return results["agent"].value
 
-    first = f'{{{{ config(model_type="{fa.NAME}", promptfiles="src", warm_start=true) }}}}write out.py'
+    first = f'{{{{ config(model_type="{fa.NAME}", promptfiles="src") }}}}write out.py'
     assert run_once(first)["cache"] == "miss"
 
     edited = first + "\nKeep it short."
@@ -748,3 +748,21 @@ def test_warm_start_through_the_executor(tmp_path, monkeypatch, jev, dir_source)
     assert "+Keep it short." in tasks[1]
     assert run_once(edited)["cache"] == "hit"        # the edited template now has its own previous
     assert len(tasks) == 2
+
+    # clear-cache for this model: the next run is cold, even after another edit.
+    assert storage.clear_cache(["agent"], previous=True) > 0
+    assert run_once(edited)["cache"] == "miss"
+    assert "Previous attempt" not in tasks[2] and "ALREADY APPLIED" not in tasks[2]
+    assert starts[2] == ["a.py"]
+    assert run_once(edited + "\nAnd tidy.")["cache"] == "warm"  # warm again from the cold run
+
+
+def test_warm_start_is_on_by_default_for_coding_agent_only():
+    from promptmap.model_types import config_value
+
+    agent = ModelSpec(name="a", source="", model_type=fa.NAME, config={})
+    off = ModelSpec(name="a", source="", model_type=fa.NAME, config={"warm_start": False})
+    plain = ModelSpec(name="p", source="", model_type="", config={})
+    assert config_value(agent, "warm_start") is True
+    assert config_value(off, "warm_start") is False
+    assert config_value(plain, "warm_start", False) is False

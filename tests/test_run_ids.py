@@ -418,3 +418,40 @@ def test_cache_check_never_reuses_a_warm_start_fallback(storage) -> None:
 
     assert check.asked == []
     assert results["a"] == "answer 2"
+
+
+# -- clear_cache for one model --------------------------------------------------
+
+
+def test_clear_cache_for_one_model_forgets_its_cache_and_previous(storage) -> None:
+    llm = EchoLLM()
+    models = {"a": "A " + _ITERATE, "b": "B " + _ITERATE}
+    _run(models, storage, llm)
+    assert sorted(llm.prompts) == ["A First draft", "B First draft"]
+
+    assert storage.clear_cache(["a"], previous=True) == 1
+    _run(models, storage, llm)
+
+    second = sorted(llm.prompts[2:])
+    assert second[0] == "A First draft"                 # cold: no cache, no previous
+    assert second[1].startswith("B Improve on: answer")  # b still iterates
+
+
+def test_clear_cache_keep_previous_only_drops_the_prompt_cache(storage) -> None:
+    llm = EchoLLM()
+    _run({"a": "Hello"}, storage, llm)
+    _run({"a": "Hello"}, storage, llm)
+    assert llm.prompts == ["Hello"]  # second run was a cache hit
+
+    storage.clear_cache(["a"], previous=False)
+    _run({"a": _WARM}, storage, llm)  # warm fallback still sees the kept previous
+    assert llm.prompts[1] == "Improve on: answer 1 (asked: Hello)"
+
+
+def test_cleared_rows_are_not_offered_to_warm_start(storage) -> None:
+    llm = EchoLLM()
+    _run({"a": _WARM}, storage, llm)
+    storage.clear_cache(["a"], previous=True)
+    _run({"a": _WARM + " v2"}, storage, llm)
+
+    assert llm.prompts[1] == "First draft v2"

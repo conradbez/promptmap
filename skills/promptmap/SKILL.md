@@ -131,14 +131,16 @@ Add tests for every endpoint.
 Output keys: `output` (answer), `result` (patched `Dir`), `changes`,
 `deleted`, `sum_of_changes`, `cache`. Downstream: `{{ ref('api').changes }}`.
 
-**Tweaking a `coding_agent` prompt without losing its work.** Editing the
-`.prompt` file normally cold-starts the agent: the previous run is keyed on the
-template hash. When you are refining a prompt whose result is mostly right
-(adding a requirement, fixing wording), add `warm_start=true` to its
-`config()`. The agent then starts from its previous change set, sees a diff of
-the old and new prompt and adjusts only what the edit asks for
-(`cache: "warm"`). Leave it off when the edit changes what the model is for,
-since the old result would mislead it. See `#editing-a-prompt-without-a-cold-start-warm_start`.
+**Tweaking a `coding_agent` prompt keeps its work.** `coding_agent` has
+`warm_start` on by default. After you edit its `.prompt` file, the next run
+starts from the previous change set, sees a diff of the old and new prompt and
+adjusts only what the edit asks for (`cache: "warm"`), instead of
+cold-starting. So refine a mostly-right agent prompt in small edits. When an
+edit changes what the model is *for*, the old result would mislead it: run
+`promptmap clear-cache <model>` once for a clean start, or set
+`{{ config(warm_start=false) }}` to always start cold. Other models can opt in
+with `warm_start=true` (it fills `{{ previous }}` across edits). See
+`#editing-a-prompt-without-a-cold-start-warm_start`.
 
 With `promptmap[extras]`: `execute_python` (run rendered Python, capture
 `output`) and `agent_multi_harness` (mini-swe-agent / opencode / pi in place in an
@@ -218,7 +220,8 @@ Advanced — `docs/ADVANCED_USAGE.md`:
 | Replay a known input / assert fields | YAML `given`, `expect` | `#bulk-testing-with-yaml-cases-promptmap-test` |
 | Models that write files or folders | `promptmap.File`, `Dir`, `Output` | `#models-that-produce-files-promptmapfile-promptmapdir-promptmapoutput` |
 | Refine last run's answer | `{{ previous }}`, `cache_check` | `#run-ids-and-iterating-on-the-last-answer-previous` |
-| Edit a `coding_agent` prompt, keep its previous run | `warm_start=true` | `#editing-a-prompt-without-a-cold-start-warm_start` |
+| Edit a `coding_agent` prompt, keep its previous run | `warm_start` (default on for `coding_agent`) | `#editing-a-prompt-without-a-cold-start-warm_start` |
+| Make one model start cold next run | `promptmap clear-cache MODEL` | `#editing-a-prompt-without-a-cold-start-warm_start` |
 | Shared instructions for every model | `global.prompt` | `#global-instructions-globalprompt` |
 | JSON output, caching and other config keys | `config()` | `#output-format-config-config` |
 | Agents / MCP tools | `agent`, `coding_agent`; `agent_multi_harness` + `agent_mcp` | `#agent-models-model_typeagent` |

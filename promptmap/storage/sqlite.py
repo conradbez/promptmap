@@ -282,7 +282,8 @@ class SQLiteStorageBackend:
                           COALESCE(llm_output_validated, llm_output) AS llm_output,
                           llm_output AS llm_output_raw
                    FROM model_results
-                   WHERE (? IS NULL OR template_hash = ?) AND model_name = ?
+                   WHERE template_hash IS NOT NULL AND (? IS NULL OR template_hash = ?)
+                     AND model_name = ?
                      AND status = 'success' AND run_id != ?
                    ORDER BY completed_at DESC
                    LIMIT 1""",
@@ -438,16 +439,28 @@ class SQLiteStorageBackend:
                 (limit,),
             ).fetchall()
 
-    def clear_cache(self) -> int:
-        """Nullify all prompt_hash values, forcing fresh LLM calls on next run.
+    def clear_cache(self, models: list[str] | None = None, previous: bool = False) -> int:
+        """Nullify prompt_hash values, forcing fresh LLM calls on next run.
 
-        Returns the number of cache entries cleared.
+        *models* limits it to those model names (all models when None).  With
+        *previous*, template_hash is nullified too, so those rows are never
+        offered as ``previous`` either — no ``{{ previous }}``, no
+        ``coding_agent`` reuse or ``warm_start``: the next run starts cold.
+        The rows themselves (and ``show-result``) are kept.
+
+        Returns the number of rows changed.
         """
+        sets = "prompt_hash = NULL" + (", template_hash = NULL" if previous else "")
+        live = "prompt_hash IS NOT NULL" + (" OR template_hash IS NOT NULL" if previous else "")
+        sql = f"UPDATE model_results SET {sets} WHERE ({live})"
+        params: list[str] = []
+        if models is not None:
+            if not models:
+                return 0
+            sql += f" AND model_name IN ({','.join('?' * len(models))})"
+            params = list(models)
         with self.get_conn() as conn:
-            cursor = conn.execute(
-                "UPDATE model_results SET prompt_hash = NULL WHERE prompt_hash IS NOT NULL"
-            )
-            return cursor.rowcount
+            return conn.execute(sql, params).rowcount
 
 
 def _now() -> str:

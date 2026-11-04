@@ -104,6 +104,7 @@ class MemoryStorageBackend:
             if run_id != exclude_run_id
             for row in results.values()
             if row.get("model_name") == model_name
+            and row.get("template_hash") is not None
             and (template_hash is None or row.get("template_hash") == template_hash)
             and row.get("status") == "success"
         ]
@@ -236,12 +237,35 @@ class MemoryStorageBackend:
     def get_run_results(self, run_id: str) -> list[dict[str, Any]]:
         return list(self._results.get(run_id, {}).values())
 
+    def clear_cache(self, models: list[str] | None = None, previous: bool = False) -> int:
+        """Forget cached outputs (and with *previous*, previous runs) — see
+        :meth:`SQLiteStorageBackend.clear_cache`."""
+        return _clear_cache_rows(self, None if models is None else set(models), previous)
+
     def get_latest_runs(self, limit: int = 10) -> list[dict[str, Any]]:
         return sorted(
             self._runs.values(),
             key=lambda row: row["created_at"],
             reverse=True,
         )[:limit]
+
+
+def _clear_cache_rows(backend: "MemoryStorageBackend", models, previous: bool) -> int:
+    changed = 0
+    for results in backend._results.values():
+        for row in results.values():
+            if models is not None and row.get("model_name") not in models:
+                continue
+            live = row.get("prompt_hash") is not None or (previous and row.get("template_hash") is not None)
+            if not live:
+                continue
+            backend._cache.pop(row.get("prompt_hash"), None)
+            backend._cache_rows.pop(row.get("prompt_hash"), None)
+            row["prompt_hash"] = None
+            if previous:
+                row["template_hash"] = None
+            changed += 1
+    return changed
 
 
 def _now() -> str:

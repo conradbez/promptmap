@@ -120,5 +120,5 @@ def set_blob_store(store) -> None:
     _DEFAULT_BACKEND.set_blob_store(store)
 
 
-def clear_cache() -> int:
-    return _DEFAULT_BACKEND.clear_cache()
+def clear_cache(models: list[str] | None = None, previous: bool = False) -> int:
+    return _DEFAULT_BACKEND.clear_cache(models, previous)

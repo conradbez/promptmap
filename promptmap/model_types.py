@@ -157,6 +157,11 @@ class ModelKind:
     #: before any model starts, so a missing key fails at once, not mid-run.
     required_secrets: frozenset[str] = field(default_factory=frozenset)
 
+    #: Values a config() key takes for this kind when the model does not set
+    #: it, e.g. ``{"warm_start": True}`` for ``coding_agent``.  Read through
+    #: :func:`config_value`, so a model can still set the key either way.
+    config_defaults: dict[str, Any] = field(default_factory=dict, hash=False, compare=False)
+
 
 # ---------------------------------------------------------------------------
 # Registry
@@ -235,6 +240,17 @@ def model_kind(
         return fn
 
     return decorator
+
+
+def config_value(spec: "ModelSpec", key: str, default: Any = None) -> Any:
+    """*spec*'s config value for *key*: the model's own, else its kind's
+    :attr:`ModelKind.config_defaults` entry, else *default*."""
+    if key in spec.config:
+        return spec.config[key]
+    kind = get_model_kind(spec.model_type)
+    if kind is not None and key in kind.config_defaults:
+        return kind.config_defaults[key]
+    return default
 
 
 def get_model_kind(name: str) -> ModelKind | None:

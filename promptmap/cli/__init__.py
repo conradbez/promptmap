@@ -109,6 +109,7 @@ def main() -> None:
       promptmap run               run every model
       promptmap test              check outputs with test prompts
       promptmap docs --open       browse past runs
+      promptmap clear-cache NAME  make one model start cold next run
     """
 
 
@@ -181,7 +182,11 @@ def main() -> None:
     "--clear-cache",
     is_flag=True,
     default=False,
-    help="Clear the LLM prompt cache before running, forcing fresh calls for all models.",
+    help=(
+        "Clear the LLM prompt cache before running, forcing fresh calls for all models. "
+        "Previous results are kept ({{ previous }}, coding_agent reuse and warm_start); "
+        "`promptmap clear-cache MODEL` forgets those too."
+    ),
 )
 @click.option(
     "--global-instruction",
@@ -525,6 +530,48 @@ def show_runs(limit: int) -> None:
         return
 
     console.print(pretty_print.runs_table(rows))
+
+
+# ---------------------------------------------------------------------------
+# promptmap clear-cache
+# ---------------------------------------------------------------------------
+
+@main.command("clear-cache", short_help="Make models start cold on the next run.")
+@click.argument("models", nargs=-1, metavar="[MODEL]...")
+@click.option("--all", "all_models", is_flag=True, help="Clear every model, not just the ones named.")
+@click.option(
+    "--keep-previous", is_flag=True,
+    help="Only clear the prompt cache; keep previous results for {{ previous }}, "
+         "coding_agent reuse and warm_start.",
+)
+def clear_cache_cmd(models: tuple[str, ...], all_models: bool, keep_previous: bool) -> None:
+    """Forget cached results so the named models start cold on the next run.
+
+    Clears the prompt cache for MODEL and, unless --keep-previous, its
+    previous results too. A coding_agent normally reuses or continues from
+    its last run (it defaults to warm_start=true, which survives edits to
+    the .prompt file); after this its next run starts from scratch. Run
+    history and `promptmap show-result` are kept.
+
+    To turn warm starts off for good, set {{ config(warm_start=false) }}
+    in the model's .prompt file instead.
+
+    \b
+    Examples:
+      promptmap clear-cache add_health
+      promptmap clear-cache add_health api_tests --keep-previous
+      promptmap clear-cache --all
+    """
+    if bool(models) == all_models:
+        raise click.UsageError("Name one or more models, or pass --all (not both).")
+    init_db_or_exit()
+    changed = db.clear_cache(None if all_models else list(models), previous=not keep_previous)
+    what = "prompt cache" if keep_previous else "prompt cache and previous results"
+    scope = "all models" if all_models else ", ".join(models)
+    console.print(f"  [yellow]Cleared {what}[/yellow] for {scope} "
+                  f"({changed} row{'s' if changed != 1 else ''})")
+    if not changed and models:
+        console.print("  [dim]Nothing to clear: already cleared, or never run (check `promptmap ls`).[/dim]")
 
 
 # ---------------------------------------------------------------------------

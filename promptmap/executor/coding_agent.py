@@ -61,8 +61,8 @@ rendered prompt:
             then verify.  When upstream's edits there were
             only comments/formatting and the merge means exactly what this
             model's version meant, the verify call is skipped.
-``warm``    the ``.prompt`` file was edited and the model sets
-            ``warm_start=true``: the previous change set is applied to the
+``warm``    the ``.prompt`` file was edited (and ``warm_start`` is on, the
+            default): the previous change set is applied to the
             input tree and the agent continues from there, told how the task
             changed (a diff of the old and new prompt).  Falls back to
             ``miss`` when upstream also edited files this model had changed.
@@ -96,7 +96,8 @@ Config keys (the agent always works in a scratch copy, never in place):
 ``context_max_chars``    cap on each diff put into a prompt (20000)
 ``force_refresh``        always run the agent (false)
 ``warm_start``           after a ``.prompt`` edit, continue from the last result
-                         of the old template instead of starting cold (false)
+                         of the old template instead of starting cold (true;
+                         ``promptmap clear-cache MODEL`` forces one cold start)
 """
 
 from __future__ import annotations
@@ -870,4 +871,5 @@ KIND = register_model_kind(ModelKind(
         "jev_cache_threshold", "merge_max_files", "context_max_chars", "force_refresh",
         "warm_start",
     },
+    config_defaults={"warm_start": True},
 ))

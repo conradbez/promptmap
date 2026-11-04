@@ -100,3 +100,37 @@ def test_mini_swe_agent_submission_is_output(monkeypatch):
     assert value.text.strip() == "done"
     assert set(value.files) == {"note.md"}
     assert seen["name"] == "m1"
+
+
+def test_agent_is_told_its_remaining_budget(monkeypatch):
+    """Every command result ends with steps/spend left; the last step says submit now."""
+    from minisweagent.models.test_models import DeterministicModel, make_output
+
+    agents = []
+
+    def fake_model(name, model_cfg):
+        model = DeterministicModel(observation_template=model_cfg["observation_template"], outputs=[
+            make_output("look", [{"command": "true"}], cost=0.25),
+            make_output("look", [{"command": "true"}], cost=0.25),
+            make_output("done", [{"command": "printf 'COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT\\nok\\n'"}]),
+        ])
+        agents.append(model)
+        return model
+
+    monkeypatch.setattr(mini_swe, "_agent_model", fake_model)
+    seen = []
+    real = mini_swe.run_mini_swe
+
+    def spy(task, call, workdir):
+        result = real(task, call, workdir)
+        seen.extend(m.get("content") for m in result["logs"] if m.get("role") in ("user", "tool"))
+        return result
+
+    monkeypatch.setattr(ag, "_exec_agent", spy)
+    _, _, results = run_models({
+        "a": '{{ config(model_type="agent", agent_step_limit=3, agent_cost_limit=2) }}hi',
+    })
+    assert results["a"].value.strip() == "ok"
+    budgets = [str(c) for c in seen if "<budget>" in str(c)]
+    assert "Step 1 of 3 (2 left). $0.25 of $2.00 spent. Submit your final output before" in budgets[0]
+    assert "Step 2 of 3 (1 left). $0.50 of $2.00 spent. Your next response is your last" in budgets[1]

@@ -688,6 +688,10 @@ always starts afresh.
 | `context_max_chars`   | cap on each diff put into a prompt (default `20000`) |
 | `force_refresh`       | always run the agent (default `false`) |
 
+The agent sees its budget after every command (`Step 3 of 5 (2 left). $0.04
+of $3.00 spent.`) and is told to submit on its last step, since a run cut off by
+a limit ends with an empty `output`.
+
 litellm reads provider keys from the usual env vars (`ANTHROPIC_API_KEY`,
 `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, …). It runs commands
 on your machine with no sandbox, inside the scratch copy.

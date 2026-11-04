@@ -49,8 +49,11 @@ def run_mini_swe(task: str, call: ModelCall, workdir: Path) -> dict:
             return message
 
     defaults = yaml.safe_load((package_dir / "config" / "default.yaml").read_text())
+    model_cfg = defaults["model"] | {
+        "observation_template": defaults["model"]["observation_template"] + _BUDGET_TEMPLATE,
+    }
     agent = _Agent(
-        _agent_model(agent_model_name(call.spec), defaults["model"]),
+        _agent_model(agent_model_name(call.spec), model_cfg),
         LocalEnvironment(cwd=str(workdir), **defaults["environment"]),
         **defaults["agent"] | {
             "step_limit": step_limit,
@@ -77,6 +80,20 @@ the output after it, e.g.:
 
     printf 'COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT\\n%s\\n' "your final output"
 """
+
+
+#: Appended to every command result so the agent knows what it has left.
+#: Template vars come from the agent: n_model_calls / model_cost so far, and
+#: its step_limit / cost_limit (0 = none).
+_BUDGET_TEMPLATE = """
+{%- if step_limit or cost_limit %}
+<budget>
+{%- if step_limit %} Step {{ n_model_calls }} of {{ step_limit }} ({{ step_limit - n_model_calls }} left).{% endif %}
+{%- if cost_limit %} ${{ '%.2f' % model_cost }} of ${{ '%.2f' % cost_limit }} spent.{% endif %}
+{%- if step_limit and step_limit - n_model_calls <= 1 %} Your next response is your last: submit your final output now.
+{%- else %} Submit your final output before you run out; work cut off by a limit is lost.{% endif %}
+</budget>
+{%- endif %}"""
 
 
 def agent_model_name(spec) -> str | None:

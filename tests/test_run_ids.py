@@ -176,6 +176,26 @@ def test_previous_comes_back_for_a_template_that_returns(storage) -> None:
     assert llm.prompts[2] == "Improve on: answer 1 (asked: First draft)"
 
 
+_WARM = "{{ config(warm_start=true) }}" + _ITERATE
+
+
+def test_warm_start_offers_the_old_template_after_an_edit(storage) -> None:
+    llm = EchoLLM()
+    _run({"a": _WARM}, storage, llm)
+    _run({"a": _WARM + " v2"}, storage, llm)
+
+    assert llm.prompts[1] == "Improve on: answer 1 (asked: First draft) v2"
+
+
+def test_warm_start_prefers_the_current_template_once_it_has_run(storage) -> None:
+    llm = EchoLLM()
+    _run({"a": _WARM}, storage, llm)
+    _run({"a": _WARM + " v2"}, storage, llm)
+    _run({"a": _WARM}, storage, llm)
+
+    assert llm.prompts[2] == "Improve on: answer 1 (asked: First draft)"
+
+
 def test_previous_is_per_model(storage) -> None:
     llm = EchoLLM()
     _run({"a": _ITERATE}, storage, llm)
@@ -388,3 +408,13 @@ def test_classifier_cache_check_thresholds_p_yes() -> None:
     state, question = asked[0]
     assert "Slogan for tea\n" in state and "Slogan for teas" in state and "Tea time!" in state
     assert question == promptmap.classifier.CACHE_QUESTION
+
+
+def test_cache_check_never_reuses_a_warm_start_fallback(storage) -> None:
+    """warm_start informs a re-run; it must not serve an old template's answer."""
+    llm, check = EchoLLM(), Checker(True)
+    _run({"a": "{{ config(warm_start=true) }}Slogan for tea"}, storage, llm)
+    results = _run({"a": "{{ config(warm_start=true) }}Slogan for coffee"}, storage, llm, cache_check=check)
+
+    assert check.asked == []
+    assert results["a"] == "answer 2"

@@ -271,6 +271,7 @@ When `output_format: json` is set, promptmap validates the LLM output as JSON (s
 | `each` | Path to an upstream list; run this model once per item, any `model_type` — see [Map and reduce](#map-and-reduce-each) |
 | `global_instruction` | `False` opts this model out of the run's [global instruction](#global-instructions-globalprompt) |
 | `cache` | `False` skips reading the prompt cache, so the model always re-runs; the fresh result still overwrites the cached entry |
+| `warm_start` | `True` keeps `previous` across edits to the `.prompt` file — see [Editing a prompt without a cold start](#editing-a-prompt-without-a-cold-start-warm_start) |
 
 Any other key — and any unknown `model_type` — raises an `UnknownConfigKeyWarning` naming the model and file, with a did-you-mean suggestion, so typos like `output_fmt="json"` surface instead of being silently ignored. The key is still kept in the config dict, since promptmap forwards the whole dict to a `llm_call(prompt, config=...)` that accepts one. If your `llm_call` consumes custom keys, register them once to silence the warning:
 
@@ -418,11 +419,62 @@ Write a first draft of a slogan for {{ promptdata('topic') }}.
 `template_hash`**. Edit the `.prompt` file and it is `None` again until the
 new version has run once; revert the edit and the old version's last result
 comes back. Failed runs are never offered. Promptdata is not part of the
-match, so a run with different inputs still sees the last answer.
+match, so a run with different inputs still sees the last answer. To keep
+`previous` across an edit, set `warm_start=true` (below).
 
 Because the rendered prompt now includes the last output, it usually differs
 from run to run, so a model that reads `previous` is rarely a prompt-cache
 hit.
+
+### Editing a prompt without a cold start (`warm_start`)
+
+```jinja
+{{ config(model_type="coding_agent", promptfiles="repo", warm_start=true) }}
+Add a /health endpoint and a test for it. Return JSON, not plain text.
+```
+
+**Why.** `previous` is keyed on the template hash so that an answer to an old
+prompt is never mistaken for an answer to the new one. For a cheap LLM call
+that is the right default. For an expensive one, above all a `coding_agent`
+that spent 30 steps building a feature, it means a one-line tweak to the
+`.prompt` file throws all that work away and starts over.
+
+**What it does.** With `warm_start=true`, when the current template has no
+successful run yet, `previous` falls back to the model's latest successful run
+from *any* version of its template. It carries `previous.same_template ==
+False` so a kind or template can tell. Once the edited template has run, its
+own result takes over again.
+
+- **`coding_agent`:** applies its previous change set to the current input
+  tree and starts the agent there, showing it a diff of the old and new prompt
+  and telling it to change only what the edit asks for. The output reports
+  `cache: "warm"`. If upstream also edited files the previous run had changed,
+  it falls back to an ordinary `miss` re-run, which still gets the previous
+  change as context.
+- **Templates:** `{{ previous }}` is filled in after an edit too.
+- **`cache_check`** is never offered a warm-start fallback: an old template's
+  answer may inform a re-run, but it never replaces one.
+
+**When to use it.**
+
+- You are refining the wording or adding a requirement to a prompt whose
+  result is mostly right: "also handle the empty list", "use snake_case",
+  "keep it under 100 lines".
+- The model is expensive to run cold (agents, long multi-step work).
+
+**When not to.**
+
+- The edit changes what the model is *for*: a new task, a different output
+  shape. The old result is then misleading context; leave `warm_start` off (or
+  remove it for one run) so the agent starts clean.
+- You want reproducible runs: a warm result depends on the run history, not
+  only on the prompt and its inputs. Delete the run database, or set
+  `force_refresh=true` on a `coding_agent`, to get a clean result.
+
+The alternative that needs no flag is a follow-up node: a second
+`coding_agent` with `promptfiles="first_agent"` whose prompt is only the tweak.
+That keeps both steps visible in the DAG, at the cost of one more node per
+tweak.
 
 ### Deciding when a changed prompt is worth re-asking (`cache_check`)
 
@@ -672,11 +724,13 @@ always mean a new agent run. The `cache` key in the output says what happened:
 | `hit`    | the input is unchanged, or only comments/formatting changed in files this model did not touch | none |
 | `replay` | upstream changed files this model did not touch; its change set is re-applied and verified | one classifier/LLM call |
 | `merged` | upstream also edited this model's files; merged with `git merge-file`, conflicts by one LLM call, then verified | one or two calls |
+| `warm`   | the `.prompt` file was edited and `warm_start=true`; the agent continues from its previous change, told how the prompt changed | a short agent run |
 | `miss`   | anything else; the agent re-runs, told its previous change and why it was not reused | a full agent run |
 
 "Changed" means changed in meaning: files are compared by syntax tree
 (tree-sitter), with comments and formatting ignored. Editing the `.prompt` file
-always starts afresh.
+starts afresh, unless the model sets `warm_start=true` — see
+[Editing a prompt without a cold start](#editing-a-prompt-without-a-cold-start-warm_start).
 
 | config key            | meaning |
 |-----------------------|---------|
@@ -687,6 +741,7 @@ always starts afresh.
 | `merge_max_files`     | most colliding files to merge rather than re-run (default `5`) |
 | `context_max_chars`   | cap on each diff put into a prompt (default `20000`) |
 | `force_refresh`       | always run the agent (default `false`) |
+| `warm_start`          | after a `.prompt` edit, continue from the old template's last result (default `false`) |
 
 The agent sees its budget after every command (`Step 3 of 5 (2 left). $0.04
 of $3.00 spent.`) and is told to submit on its last step, since a run cut off by

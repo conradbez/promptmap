@@ -26,7 +26,7 @@ Output::
                 — the input tree it worked from, as hashes plus the original
                 text of only the files this model changed or deleted,
      "sum_of_changes": {"ast_summary": [...], "unified_diff": "..."} — result vs input,
-     "cache":   "hit" | "replay" | "merged" | "miss",
+     "cache":   "hit" | "replay" | "merged" | "warm" | "miss",
      "merged_by": {path: "git" | "llm"} — when files were merged,
      ...the agent kind's "logs" and "time_run" on a miss}
 
@@ -61,6 +61,11 @@ rendered prompt:
             then verify.  When upstream's edits there were
             only comments/formatting and the merge means exactly what this
             model's version meant, the verify call is skipped.
+``warm``    the ``.prompt`` file was edited and the model sets
+            ``warm_start=true``: the previous change set is applied to the
+            input tree and the agent continues from there, told how the task
+            changed (a diff of the old and new prompt).  Falls back to
+            ``miss`` when upstream also edited files this model had changed.
 ``miss``    anything else, or a failed merge or verification: run the agent
             on the new tree, telling it its previous change, its previous
             answer, what changed upstream and why the old change was not reused.
@@ -90,6 +95,8 @@ Config keys (the agent always works in a scratch copy, never in place):
 ``merge_max_files``      most colliding files to merge rather than re-run (5)
 ``context_max_chars``    cap on each diff put into a prompt (20000)
 ``force_refresh``        always run the agent (false)
+``warm_start``           after a ``.prompt`` edit, continue from the last result
+                         of the old template instead of starting cold (false)
 """
 
 from __future__ import annotations
@@ -263,6 +270,8 @@ class Last:
     changes: dict[str, bytes]
     deleted: tuple[str, ...]
     sum_of_changes: dict | None = None
+    #: False when the last run was of an older version of the template (warm_start).
+    same_template: bool = True
 
     def was(self, path: str) -> bytes | None:
         """*path* as this model received it last time."""
@@ -336,6 +345,7 @@ def last_run(call: ModelCall) -> Last | None:
         changes={p: decode_bytes(v, out["result"], p) for p, v in changes.items()},
         deleted=tuple(out.get("deleted") or ()),
         sum_of_changes=summary if isinstance(summary, dict) and "ast_summary" in summary else None,
+        same_template=getattr(previous, "same_template", True),
     )
 
 
@@ -552,6 +562,15 @@ async def run_coding_agent(rendered: str, call: ModelCall) -> dict:
         reason = "a refresh was forced"
     elif last is None:
         reason = None  # first run: nothing to reuse, nothing to explain
+    elif not last.same_template:
+        # warm_start after a .prompt edit: never reuse as-is, continue from it.
+        try:
+            warm = await _run_warm(rendered, call, last, base)
+        except FileOutputError:
+            warm = None
+        if warm is not None:
+            return warm
+        reason = "the prompt was edited"
     elif last.prompt != rendered:
         reason = "the task itself changed"
     else:
@@ -693,32 +712,96 @@ def _shape(call, output, base: Dir, result: Dir, changes: dict[str, bytes], dele
     }
 
 
-async def _run_agent(rendered: str, call: ModelCall, last: Last | None, base: Dir, reason: str | None) -> dict:
-    task = rendered + OUTCOME_CONTRACT + _previous_attempt(call, last, base, reason)
+async def _run_agent(
+    rendered: str, call: ModelCall, last: Last | None, base: Dir, reason: str | None,
+    *, start: Dir | None = None, context: str | None = None, verdict: str = "miss",
+) -> dict:
+    """Run the agent on a scratch copy of *start* (default: *base*).
+
+    The output is always measured against *base*, the real input, so a run
+    that starts from a pre-applied tree still reports every change it owns.
+    """
+    task = rendered + OUTCOME_CONTRACT + (
+        context if context is not None else _previous_attempt(call, last, base, reason)
+    )
+    start = base if start is None else start
 
     def work() -> dict:
         scratch = Path(tempfile.mkdtemp(prefix="promptmap-coding-agent-"))
         try:
-            root = base.save(scratch)
+            root = start.save(scratch)
             spec = call.spec.derive(config={**call.spec.config, "agent_dir": str(root)})
             raw = _exec_agent(task, dataclasses.replace(call, spec=spec))
             result = json.loads(raw) if isinstance(raw, str) else raw
-            result["result"] = snapshot_dir(root, keep=set(base.entries), name=base.name)
+            result["result"] = snapshot_dir(root, keep=set(start.entries), name=base.name)
             return result
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
 
     # Keyed on the task (which carries the previous attempt) and the input
     # tree, so an identical situation is memoised by promptmap's own cache.
-    value = await call.compute(f"{task}\x00base:{base.sha256}", compute=lambda: asyncio.to_thread(work))
+    key = f"{task}\x00base:{base.sha256}"
+    if start is not base:
+        key += f"\x00start:{start.sha256}"
+    value = await call.compute(key, compute=lambda: asyncio.to_thread(work))
     value = json.loads(value) if isinstance(value, str) else dict(value)
     result: Dir = value["result"]
     base_hashes = hashes(base)
     after = hashes(result)
     changes = {p: result.entries[p].read_bytes() for p, s in after.items() if base_hashes.get(p) != s}
     deleted = sorted(p for p in base_hashes if p not in after)
-    shaped = _shape(call, value.get("output", ""), base, result, changes, deleted, "miss")
+    shaped = _shape(call, value.get("output", ""), base, result, changes, deleted, verdict)
     return {**{k: v for k, v in value.items() if k not in shaped}, **shaped}
+
+
+async def _run_warm(rendered: str, call: ModelCall, last: Last, base: Dir) -> dict | None:
+    """Continue from the last run of an older template (``warm_start``).
+
+    The previous change set is applied to the current input and the agent
+    starts there, told how the task changed — so a small prompt edit costs a
+    few agent steps, not a cold start.  None when upstream also edited files
+    this model had changed: that needs the full re-run, which re-applies the
+    old change by hand.
+    """
+    upstream = changed_paths(last.base_hashes, hashes(base))
+    if upstream & last.owned or any(b.startswith(_OPAQUE_PREFIX) for b in last.changes.values()):
+        return None
+    deleted = [p for p in last.deleted if p in base.entries]
+    start = apply_changes(base, dict(last.changes), deleted)
+    context = _warm_context(call, last, base, rendered, upstream)
+    return await _run_agent(rendered, call, last, base, None, start=start, context=context, verdict="warm")
+
+
+def _warm_context(call: ModelCall, last: Last, base: Dir, rendered: str, upstream: set[str]) -> str:
+    """What the agent needs to adjust its previous work to an edited prompt."""
+    limit = _int(call.spec.config.get("context_max_chars"), DEFAULT_CONTEXT_MAX)
+    prompt_diff = "".join(difflib.unified_diff(
+        last.prompt.splitlines(keepends=True), rendered.splitlines(keepends=True),
+        fromfile="previous task", tofile="current task",
+    ))
+    parts = [
+        "\n\n## Continuing from your previous run",
+        "You did this task before, from a slightly different prompt. Your previous "
+        "changes are ALREADY APPLIED in your working directory. Do not redo them: "
+        "change only what the edited task now asks for, and keep the rest.",
+        f"\n### How the task changed\n```diff\n{_clip(prompt_diff, limit)}```",
+    ]
+    if last.answer:
+        answer = last.answer if isinstance(last.answer, str) else json.dumps(last.answer)
+        parts.append(f"\n### Your previous answer\n{_clip(answer, limit)}")
+    previous = _previous_sum(last)
+    parts.append(
+        "\n### Your previous change (already applied)\n"
+        + (_render_sum(previous, limit) if previous["ast_summary"] else "(no file changes)")
+    )
+    if upstream:
+        since = sum_of_changes(upstream, last.was, lambda p: _read(base, p))
+        if since["ast_summary"]:
+            parts.append(
+                "\n### What changed in the workspace since then (not by you)\n"
+                + _render_sum(since, limit)
+            )
+    return "\n".join(parts) + "\n"
 
 
 def _previous_attempt(call: ModelCall, last: Last | None, base: Dir, reason: str | None) -> str:
@@ -785,5 +868,6 @@ KIND = register_model_kind(ModelKind(
     exec_fn=run_coding_agent,
     config_keys=mini_swe.CONFIG_KEYS | {
         "jev_cache_threshold", "merge_max_files", "context_max_chars", "force_refresh",
+        "warm_start",
     },
 ))

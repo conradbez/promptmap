@@ -16,7 +16,9 @@ what it saved.  Without them token usage is simply not recorded.
 first stores a run's content hashes (:mod:`promptmap.run_ids`); the second
 returns the latest successful row of a model run from the same template
 hash in another run, which backs ``{{ previous }}`` in templates and is the
-candidate a ``cache_check`` judges.  Without
+candidate a ``cache_check`` judges.  Called with ``template_hash=None`` it
+returns the latest row of that model from any template — the fallback a
+model with ``warm_start=true`` uses after its ``.prompt`` file is edited.  Without
 them the hashes are not stored and ``previous`` is always ``None``.
 
 ``blob_store`` is optional too.  A backend that defines it returns the
@@ -61,7 +63,7 @@ class StorageBackend(Protocol):
     def get_cached_token_usage(self, cache_key: str) -> int | None: ...
     def record_run_ids(self, run_id: str, map_hash: str, run_hash: str) -> None: ...
     def get_previous_result(
-        self, model_name: str, template_hash: str, exclude_run_id: str | None = None
+        self, model_name: str, template_hash: str | None, exclude_run_id: str | None = None
     ) -> Any | None: ...
     def mark_model_error(self, run_id: str, model_name: str, error: str) -> None: ...
     def mark_model_skipped(self, run_id: str, model_name: str) -> None: ...

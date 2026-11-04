@@ -661,3 +661,90 @@ def test_binary_files_round_trip_through_reuse(tmp_path, agent, jev, llm, monkey
     assert again["result"]["logo.png"].read_bytes() == PNG[::-1]
     assert again["result"]["new.pdf"].read_bytes() == b"%PDF\xff" * 1000
     assert len(agent["tasks"]) == 1                   # never re-ran the agent
+
+
+# ---------------------------------------------------------------------------
+# warm_start: a .prompt edit continues from the old template's last result
+# ---------------------------------------------------------------------------
+
+def _from_older_template(tmp_path) -> None:
+    """Mark this test's stored previous run as coming from an older template."""
+    import dataclasses
+
+    key = str(tmp_path)
+    _HISTORY[key] = dataclasses.replace(_HISTORY[key], same_template=False)
+
+
+def test_warm_start_continues_from_previous_changes(tmp_path, agent, jev, llm):
+    run(tree(), tmp_path, llm, warm_start="true")
+    _from_older_template(tmp_path)
+
+    seen = {}
+
+    def tweak(root: Path) -> None:
+        seen["files"] = {p.name for p in root.iterdir()}
+        seen["feature"] = (root / "feature.py").read_text()
+        (root / "feature.py").write_text("FEATURE = 'loud'\n")
+
+    agent["edit"] = tweak
+    out = run(tree(), tmp_path, llm, prompt="add the feature, loudly", warm_start="true")
+
+    assert out["cache"] == "warm"
+    # The agent started from its previous result, not the bare input.
+    assert seen["feature"] == "FEATURE = True\n" and "old.txt" not in seen["files"]
+    task = agent["tasks"][1]
+    assert "ALREADY APPLIED" in task
+    assert "+add the feature, loudly" in task and "-add the feature" in task
+    # Changes are still measured against the real input tree.
+    assert files(out["result"]) == {**EXPECTED, "feature.py": b"FEATURE = 'loud'\n"}
+    assert set(out["changes"]) == {"feature.py", "util.py"} and out["deleted"] == ["old.txt"]
+
+
+def test_warm_start_falls_back_when_upstream_edited_owned_files(tmp_path, agent, jev, llm):
+    run(tree(), tmp_path, llm, warm_start="true")
+    _from_older_template(tmp_path)
+
+    out = run(tree(util__py=b"def u():\n    return 5\n"), tmp_path, llm, prompt="add it v2", warm_start="true")
+
+    assert out["cache"] == "miss"
+    assert "the prompt was edited" in agent["tasks"][1]
+
+
+def test_warm_start_through_the_executor(tmp_path, monkeypatch, jev, dir_source):
+    from promptmap.executor import build_models_from_dict, execute_run
+    from promptmap.storage.sqlite import SQLiteStorageBackend
+
+    tasks, starts = [], []
+
+    def exec_agent(task, call):
+        root = Path(call.spec.config["agent_dir"])
+        tasks.append(task)
+        starts.append(sorted(p.name for p in root.iterdir()))
+        (root / "out.py").write_text(f"x = {len(tasks)}\n")
+        return json.dumps({"output": "ok", "logs": [], "time_run": 0.0})
+
+    monkeypatch.setattr(fa, "_exec_agent", exec_agent)
+    monkeypatch.chdir(tmp_path)
+    storage = SQLiteStorageBackend(tmp_path / "db" / "promptmap.db")
+    storage.init_db()
+    src = '{{ config(model_type="dir_source") }}output = Dir({"a.py": b"a = 1\\n"}, name="app")'
+
+    def run_once(agent_source):
+        specs = list(build_models_from_dict({"src": src, "agent": agent_source}).values())
+        run_id = storage.create_run(model_count=len(specs))
+        results = {r.model_name: r for r in asyncio.run(execute_run(
+            run_id=run_id, ordered_models=specs, storage_backend=storage, llm_call=lambda p: "YES",
+        ))}
+        assert not results["agent"].error, results["agent"].error
+        return results["agent"].value
+
+    first = f'{{{{ config(model_type="{fa.NAME}", promptfiles="src", warm_start=true) }}}}write out.py'
+    assert run_once(first)["cache"] == "miss"
+
+    edited = first + "\nKeep it short."
+    out = run_once(edited)
+    assert out["cache"] == "warm"
+    assert starts[1] == ["a.py", "out.py"]          # began from the previous result
+    assert "+Keep it short." in tasks[1]
+    assert run_once(edited)["cache"] == "hit"        # the edited template now has its own previous
+    assert len(tasks) == 2

@@ -29,13 +29,17 @@ class PreviousRun:
     template, available as ``{{ previous }}`` — ``None`` when there is none.
 
     Gated on the template hash: edit the ``.prompt`` file and ``previous``
-    is ``None`` until the edited version has run once.
+    is ``None`` until the edited version has run once — unless the model
+    sets ``warm_start=true``, which falls back to the latest result of any
+    version of the template (``same_template`` is then False).
     """
     #: The rendered prompt that was sent — after Jinja, before the LLM.
     prompt: str
     #: What the model produced, parsed for ``output_format="json"``.
     output: Any
     run_id: str = ""
+    #: False when this came from an older version of the template (warm_start).
+    same_template: bool = True
 
     def __str__(self) -> str:
         return str(self.output)

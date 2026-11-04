@@ -93,17 +93,18 @@ class MemoryStorageBackend:
         return self._cache.get(_prompt_hash(cache_key))
 
     def get_previous_result(
-        self, model_name: str, template_hash: str, exclude_run_id: str | None = None
+        self, model_name: str, template_hash: str | None, exclude_run_id: str | None = None
     ) -> dict[str, Any] | None:
         """The latest successful row of *model_name* run from this same
-        template, outside *exclude_run_id*."""
+        template (any template when *template_hash* is None), outside
+        *exclude_run_id*."""
         matches = [
             row
             for run_id, results in self._results.items()
             if run_id != exclude_run_id
             for row in results.values()
             if row.get("model_name") == model_name
-            and row.get("template_hash") == template_hash
+            and (template_hash is None or row.get("template_hash") == template_hash)
             and row.get("status") == "success"
         ]
         if not matches:

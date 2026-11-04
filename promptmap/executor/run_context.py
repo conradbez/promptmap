@@ -32,6 +32,7 @@ functions.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import hashlib
 import inspect
 import json
@@ -189,7 +190,7 @@ class RunContext:
 
     _accounting: dict[str, _ModelAccounting] = field(default_factory=dict)
     _files: dict[str, list | None] = field(default_factory=dict)
-    _previous_rows: dict[str, Any] = field(default_factory=dict)
+    _previous_rows: dict[tuple[str, bool], Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.blobs is None:
@@ -242,19 +243,27 @@ class RunContext:
 
         Only a row whose stored template hash matches the current source
         counts, so a result produced by an older version of the prompt is
-        never offered as this prompt's previous answer.
+        never offered as this prompt's previous answer — unless the model
+        sets ``warm_start=true``.  Then, when this template has no result
+        yet, the model's latest result from *any* version of its template is
+        offered instead, marked ``same_template=False``, so a kind such as
+        ``coding_agent`` can continue from it after a small prompt edit.
         """
         row = self._previous_row(spec)
+        if row is None and _truthy(spec.config.get("warm_start")):
+            row = self._previous_row(spec, any_template=True)
+            if row is not None:
+                return dataclasses.replace(self._as_previous(spec, row), same_template=False)
         return None if row is None else self._as_previous(spec, row)
 
-    def _previous_row(self, spec: ModelSpec) -> Any:
+    def _previous_row(self, spec: ModelSpec, *, any_template: bool = False) -> Any:
         """The storage row behind :meth:`previous_for`, fetched once per model."""
-        if spec.name not in self._previous_rows:
+        key = (spec.name, any_template)
+        if key not in self._previous_rows:
             lookup = getattr(self.storage, "get_previous_result", None)
-            self._previous_rows[spec.name] = (
-                lookup(spec.name, template_hash(spec.source), self.run_id) if lookup else None
-            )
-        return self._previous_rows[spec.name]
+            wanted = None if any_template else template_hash(spec.source)
+            self._previous_rows[key] = lookup(spec.name, wanted, self.run_id) if lookup else None
+        return self._previous_rows[key]
 
     def _as_previous(self, spec: ModelSpec, row: Any) -> PreviousRun:
         output: Any = decode_output(row["llm_output"] or "", self.blobs)
@@ -268,8 +277,9 @@ class RunContext:
     async def reusable_previous(self, rendered: str, spec: ModelSpec) -> str | None:
         """The model's last raw response, if ``cache_check`` approves reusing it.
 
-        The candidate is the same one ``{{ previous }}`` sees: the model's
-        latest successful result from another run of this same template.
+        The candidate is the model's latest successful result from another
+        run of this same template — never a ``warm_start`` fallback from an
+        older template, which may only inform a re-run, not replace one.
         The template is fixed, so the two compiled prompts differ only in
         what was rendered into them — promptdata, upstream outputs, RAG —
         and that difference is what the checker judges.  It sees the
@@ -583,3 +593,10 @@ class RunContext:
         """True when every LLM call this model made was a cache hit."""
         acct = self._acct(name)
         return acct.calls > 0 and acct.cache_hits == acct.calls
+
+
+def _truthy(value: Any) -> bool:
+    """A config flag's value: ``true``/``"true"``/``"yes"``/``1`` are on."""
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)

@@ -38,6 +38,7 @@ _BUILTIN_CONFIG_KEYS = frozenset({
     "global_instruction",
     "each",
     "cache",
+    "warm_start",
 })
 
 _extra_config_keys: set[str] = set()

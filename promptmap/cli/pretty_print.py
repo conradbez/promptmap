@@ -96,6 +96,29 @@ def _squares(done: int, todo: int) -> str:
     return " ".join(["[bold]■[/bold]"] * done + ["[grey50]■[/grey50]"] * todo)
 
 
+#: How each cache label reads in `promptmap run`: (short label, colour).
+_CACHE_LABELS = {
+    "cache": ("cached", "cyan"),
+    "cache_check": ("reused · cache_check", "cyan"),
+    "hit": ("hit · change re-applied", "cyan"),
+    "replay": ("replay · re-applied + verified", "cyan"),
+    "merged": ("merged · re-applied + merged", "cyan"),
+    "warm": ("warm · continued previous run", "magenta"),
+    "miss": ("miss · agent ran", "yellow"),
+}
+
+
+def cache_label(cache: str) -> str:
+    """Rich markup for a :attr:`ModelRunResult.cache` value; "" when it just ran."""
+    if not cache:
+        return ""
+    parts = []
+    for verdict in cache.split(", "):
+        text, colour = _CACHE_LABELS.get(verdict, (verdict, "cyan"))
+        parts.append(f"[{colour}]{text}[/{colour}]")
+    return " [dim]·[/dim] " + ", ".join(parts)
+
+
 def make_run_callbacks(
     c: Console,
     results: list[ModelRunResult],
@@ -129,7 +152,10 @@ def make_run_callbacks(
             c.print(f"{line['bar']} ", end="")
         line["bar"] = ""
         if result.status == "success":
-            c.print(f"[green]OK[/green] [dim]({format_duration(result.execution_ms)})[/dim]")
+            c.print(
+                f"[green]OK[/green] [dim]({format_duration(result.execution_ms)})[/dim]"
+                f"{cache_label(getattr(result, 'cache', ''))}"
+            )
         elif result.status == "skipped":
             c.print("[yellow]SKIPPED[/yellow]")
         else:
@@ -160,6 +186,15 @@ def print_run_summary(
         summary.add_row("        :", f"[red]{errors}[/red] errored")
     if skipped:
         summary.add_row("        :", f"[yellow]{skipped}[/yellow] skipped")
+    cache_counts: dict[str, int] = {}
+    for r in all_results:
+        if r.status == "success":
+            for verdict in (getattr(r, "cache", "") or "ran").split(", "):
+                cache_counts[verdict] = cache_counts.get(verdict, 0) + 1
+    if set(cache_counts) - {"ran"}:
+        order = ["ran", "cache", "cache_check", "hit", "replay", "merged", "warm", "miss"]
+        ranked = sorted(cache_counts, key=lambda v: (order.index(v) if v in order else len(order), v))
+        summary.add_row("Cache   :", " · ".join(f"{cache_counts[v]} {v}" for v in ranked))
     used = [r.spent_tokens for r in all_results if r.spent_tokens is not None]
     saved = [r.cache_spent_tokens for r in all_results if r.cache_spent_tokens is not None]
     if used or saved:

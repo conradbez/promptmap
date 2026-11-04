@@ -714,7 +714,7 @@ def test_warm_start_is_the_default_through_the_executor(tmp_path, monkeypatch, j
     from promptmap.executor import build_models_from_dict, execute_run
     from promptmap.storage.sqlite import SQLiteStorageBackend
 
-    tasks, starts = [], []
+    tasks, starts, labels = [], [], []
 
     def exec_agent(task, call):
         root = Path(call.spec.config["agent_dir"])
@@ -736,6 +736,7 @@ def test_warm_start_is_the_default_through_the_executor(tmp_path, monkeypatch, j
             run_id=run_id, ordered_models=specs, storage_backend=storage, llm_call=lambda p: "YES",
         ))}
         assert not results["agent"].error, results["agent"].error
+        labels.append(results["agent"].cache)
         return results["agent"].value
 
     first = f'{{{{ config(model_type="{fa.NAME}", promptfiles="src") }}}}write out.py'
@@ -755,6 +756,8 @@ def test_warm_start_is_the_default_through_the_executor(tmp_path, monkeypatch, j
     assert "Previous attempt" not in tasks[2] and "ALREADY APPLIED" not in tasks[2]
     assert starts[2] == ["a.py"]
     assert run_once(edited + "\nAnd tidy.")["cache"] == "warm"  # warm again from the cold run
+    # What `promptmap run` shows next to the model, run by run.
+    assert labels == ["miss", "warm", "hit", "miss", "warm"]
 
 
 def test_warm_start_is_on_by_default_for_coding_agent_only():

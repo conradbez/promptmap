@@ -138,7 +138,9 @@ adjusts only what the edit asks for (`cache: "warm"`), instead of
 cold-starting. So refine a mostly-right agent prompt in small edits. When an
 edit changes what the model is *for*, the old result would mislead it: run
 `promptmap clear-cache <model>` once for a clean start, or set
-`{{ config(warm_start=false) }}` to always start cold. Other models can opt in
+`{{ config(warm_start=false) }}` to always start cold. `promptmap run` prints
+the verdict after each model (`· cached`, `· warm · continued previous run`,
+`· miss · agent ran`), so you can see what a prompt edit cost. Other models can opt in
 with `warm_start=true` (it fills `{{ previous }}` across edits). See
 `#editing-a-prompt-without-a-cold-start-warm_start`.
 

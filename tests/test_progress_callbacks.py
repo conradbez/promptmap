@@ -123,3 +123,32 @@ def test_agent_step_bar_in_run_callbacks():
     assert pretty_print.step_bar(2, 5) == " ".join([done] * 2 + [todo] * 3) + " [dim]2/5[/dim]"
     assert pretty_print.step_bar(3, 0) == " ".join([done] * 3) + " [dim]3 steps[/dim]"
     assert pretty_print.step_bar(50, 100).count(done) == 10  # scaled to 20 squares
+
+
+def test_run_line_shows_how_the_output_was_produced():
+    import io
+    from types import SimpleNamespace
+
+    from rich.console import Console
+
+    from promptmap.cli import pretty_print
+
+    buf = io.StringIO()
+    console = Console(file=buf, force_terminal=False, width=120)
+    results: list = []
+    on_start, on_done = pretty_print.make_run_callbacks(console, results, total=3)
+    for name, cache in (("a", ""), ("b", "cache"), ("fix", "warm")):
+        on_start(name)
+        on_done(SimpleNamespace(status="success", execution_ms=5, cache=cache))
+    lines = buf.getvalue().splitlines()
+
+    assert lines[0].endswith("OK (5 ms)")            # ran: no label
+    assert "· cached" in lines[1]
+    assert "· warm · continued previous run" in lines[2]
+
+    from promptmap.executor.executor import ModelRunResult
+
+    real = [ModelRunResult(model_name=r_name, status="success", cache=c)
+            for r_name, c in (("a", ""), ("b", "cache"), ("fix", "warm"))]
+    pretty_print.print_run_summary(console, real, pretty_print.Path("outputs"), [], "run-1")
+    assert "1 ran · 1 cache · 1 warm" in buf.getvalue()

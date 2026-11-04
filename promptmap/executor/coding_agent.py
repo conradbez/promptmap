@@ -556,6 +556,14 @@ async def llm_merge(call: ModelCall, goal: str, sides: dict[str, tuple]) -> dict
 # ---------------------------------------------------------------------------
 
 async def run_coding_agent(rendered: str, call: ModelCall) -> dict:
+    out = await _run_coding_agent(rendered, call)
+    report = getattr(call, "report_cache", None)  # promptmap >= 0.7.7
+    if report is not None and isinstance(out, dict):
+        report(out.get("cache", ""))
+    return out
+
+
+async def _run_coding_agent(rendered: str, call: ModelCall) -> dict:
     base = resolve_base(call)
     last = last_run(call)
 

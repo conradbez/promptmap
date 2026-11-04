@@ -455,3 +455,29 @@ def test_cleared_rows_are_not_offered_to_warm_start(storage) -> None:
     _run({"a": _WARM + " v2"}, storage, llm)
 
     assert llm.prompts[1] == "First draft v2"
+
+
+# -- cache labels on run results ------------------------------------------------
+
+
+def _results(models, storage, llm, **kwargs):
+    from promptmap.executor import build_models_from_dict, execute_run
+    import asyncio
+
+    storage.init_db() if hasattr(storage, "init_db") else None
+    specs = list(build_models_from_dict(models).values())
+    run_id = storage.create_run(model_count=len(specs))
+    return {r.model_name: r for r in asyncio.run(execute_run(
+        run_id=run_id, ordered_models=specs, storage_backend=storage, llm_call=llm, **kwargs,
+    ))}
+
+
+def test_results_label_exact_hits_and_cache_check_reuse(storage) -> None:
+    llm = EchoLLM()
+    assert _results({"a": "Slogan for tea"}, storage, llm)["a"].cache == ""
+    assert _results({"a": "Slogan for tea"}, storage, llm)["a"].cache == "cache"
+
+    models = {"a": "Slogan for {{ promptdata('topic') }}"}
+    _results(models, storage, llm, promptdata={"topic": "tea"})
+    approved = _results(models, storage, llm, promptdata={"topic": "green tea"}, cache_check=Checker(True))
+    assert approved["a"].cache == "cache_check"

@@ -127,6 +127,10 @@ class _ModelAccounting:
     elapsed_ms: int = 0
     calls: int = 0
     cache_hits: int = 0
+    #: Of those hits, how many were a changed prompt cache_check let through.
+    approved_hits: int = 0
+    #: Verdicts the kind reported through ``call.report_cache`` (in order).
+    reported_cache: list[str] = field(default_factory=list)
 
     #: What ctx.cached() actually computed (or served) for this model — the raw
     #: LLM response, before any post-processing the strategy applies to it.
@@ -427,6 +431,7 @@ class RunContext:
             else:
                 acct.calls += 1
                 acct.cache_hits += 1
+                acct.approved_hits += 1
                 self._record_artifact(acct, reused)
                 if state is not None:
                     # Stored under the new key, so an identical prompt next
@@ -594,6 +599,28 @@ class RunContext:
         """True when every LLM call this model made was a cache hit."""
         acct = self._acct(name)
         return acct.calls > 0 and acct.cache_hits == acct.calls
+
+    def report_cache(self, name: str, verdict: str) -> None:
+        """Record a kind's own cache verdict for *name* (``call.report_cache``)."""
+        if verdict:
+            self._acct(name).reported_cache.append(str(verdict))
+
+    def cache_label(self, name: str) -> str:
+        """How *name* was produced, for display: ``""`` when it simply ran.
+
+        A kind's own verdict wins (``coding_agent``: ``hit``, ``replay``,
+        ``merged``, ``warm``, ``miss``) — except that a ``miss`` whose work
+        was itself served from the prompt cache shows as that cache hit.
+        Otherwise ``cache`` for an exact prompt-cache hit and ``cache_check``
+        when the run's cache_check approved reusing the last result.
+        """
+        acct = self._acct(name)
+        reported = list(dict.fromkeys(acct.reported_cache))  # unique, in order
+        if reported and reported != ["miss"]:
+            return ", ".join(reported)
+        if self.served_from_cache(name):
+            return "cache_check" if acct.approved_hits else "cache"
+        return ", ".join(reported)
 
 
 def _truthy(value: Any) -> bool:

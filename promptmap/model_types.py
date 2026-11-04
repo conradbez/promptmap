@@ -108,6 +108,12 @@ class ModelCall:
     #: is the whole model's previous output, not this item's.
     previous: "PreviousRun | None" = None
 
+    #: ``call.report_cache("warm")`` — tell the front end how this output was
+    #: produced when the kind has its own reuse logic (``coding_agent``'s
+    #: hit / replay / merged / warm / miss).  Shown next to the model in
+    #: ``promptmap run``; promptmap's own prompt-cache hits need no report.
+    report_cache: Callable[[str], None] = field(default=lambda verdict: None, repr=False)
+
 
 #: Who hears progress from inside a running model: ``(model_name, step, total)``.
 #: ``total`` is 0 when the model has no fixed limit.  Set by a front end (the

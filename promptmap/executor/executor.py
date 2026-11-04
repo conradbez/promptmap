@@ -50,6 +50,11 @@ class ModelRunResult:
     error: str = ""
     execution_ms: int = 0
     cached: bool = False
+    #: How the output was produced, for display: "" when the model simply
+    #: ran; "cache" (exact prompt-cache hit); "cache_check" (a changed prompt
+    #: the run's cache_check let reuse the last result); or a kind's own
+    #: verdict, e.g. coding_agent's "hit" / "replay" / "merged" / "warm" / "miss".
+    cache: str = ""
     prompt_skipped: bool = False  # True when a skip function fired during rendering
     #: Tokens spent by this model's calls, and those its cache hits saved.
     #: Unknown (None) unless ``llm_call`` returned a :class:`promptmap.LLMResult`.
@@ -166,6 +171,7 @@ async def _produce_one(
         compute=partial(ctx.cached, spec=spec, state=state),
         secrets=ctx.secrets,
         previous=ctx.previous_for(spec),
+        report_cache=partial(ctx.report_cache, spec.name),
     )
     return await kind.exec_fn(rendered, call)
 
@@ -302,6 +308,7 @@ async def execute_model(spec: ModelSpec, ctx: RunContext) -> ModelRunResult:
         llm_output=output,
         execution_ms=ctx.elapsed_ms(spec.name),
         cached=ctx.served_from_cache(spec.name),
+        cache=ctx.cache_label(spec.name),
         prompt_skipped=skipped,
         value=ctx.outputs[spec.name],
         spent_tokens=spent,

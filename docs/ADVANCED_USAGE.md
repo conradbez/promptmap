@@ -85,6 +85,26 @@ promptmap.run(
 )
 ```
 
+`r.cache` says how a successful model's output was produced. `promptmap run`
+prints it after each model and counts each kind in the summary:
+
+```
+  [1/3] repo       … OK (2 ms)
+  [2/3] add_health … OK (0.4 s) · warm · continued previous run
+  [3/3] summary    … OK (0 ms) · cached
+  Cache   :   1 ran · 1 cache · 1 warm
+```
+
+| `r.cache` | meaning |
+|-----------|---------|
+| `""` | the model ran (no label shown) |
+| `cache` | exact prompt-cache hit: same rendered prompt, config and files |
+| `cache_check` | the prompt changed, but your `cache_check` let the last result be reused |
+| `hit` / `replay` / `merged` / `warm` / `miss` | a `coding_agent`'s own verdict — see [Coding agent](#coding-agent-model_typecoding_agent) |
+
+A custom kind with its own reuse logic reports its verdict with
+`call.report_cache("...")` (see [Writing your own model kind](#writing-your-own-model-kind-model_type)).
+
 ---
 
 ## Token usage (`promptmap.LLMResult`)
@@ -740,7 +760,8 @@ Add a /health endpoint and a test for it.
 - **Chaining:** the next `coding_agent` takes `promptfiles="add_health"`.
 
 **Reuse instead of re-running.** With the same prompt, a changed input does not
-always mean a new agent run. The `cache` key in the output says what happened:
+always mean a new agent run. The `cache` key in the output says what happened,
+and `promptmap run` prints it after the model (`OK (0.4 s) · warm · continued previous run`):
 
 | `cache`  | when | cost |
 |----------|------|------|
@@ -912,7 +933,7 @@ promptmap renders the template for you and hands your function two things:
 | | |
 |---|---|
 | `rendered` | The rendered prompt text, with every `ref()`, `promptdata()` and skip function already resolved |
-| `call` | `call.llm(rendered)` sends it to your LLM; `call.spec` is the model being run (`call.spec.name`, `call.spec.config`); `call.outputs` holds upstream outputs by name; `call.compute(rendered, compute=fn)` caches arbitrary work |
+| `call` | `call.llm(rendered)` sends it to your LLM; `call.spec` is the model being run (`call.spec.name`, `call.spec.config`); `call.outputs` holds upstream outputs by name; `call.compute(rendered, compute=fn)` caches arbitrary work; `call.previous` is the last result; `call.report_cache(label)` names how you produced this one |
 
 Whatever you return becomes the model's output — the thing `ref('loud')` gives
 downstream models, and the thing written to `outputs/`. Return a string and it
@@ -1060,6 +1081,12 @@ async def counter(rendered, call):
 ```
 
 Editing the `.prompt` file resets it, as does a fresh run database.
+
+**Say how you produced the output.** A kind that reuses work its own way (as
+`call.previous` makes possible) can tell the user with
+`call.report_cache("reused")`. The label is shown after the model in
+`promptmap run` and lands in `ModelRunResult.cache`. promptmap's own prompt-cache
+hits are labelled for you.
 
 **Opt out of the global instruction.** If your rendered template is not a prompt
 for a model to answer — Python source, or a value passed straight through — set

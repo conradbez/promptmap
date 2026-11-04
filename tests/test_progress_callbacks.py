@@ -118,5 +118,8 @@ def test_agent_step_bar_in_run_callbacks():
     finally:
         progress_listener.reset(token)
 
-    assert "▰▰▰▱▱▱▱▱▱▱ 3/10 steps OK" in buf.getvalue()
-    assert pretty_print.step_bar(4, 0) == "[cyan]step 4[/cyan]"
+    assert "■ ■ ■ ■ ■ ■ ■ ■ ■ ■ 3/10 OK" in buf.getvalue()
+    done, todo = "[bold]■[/bold]", "[grey50]■[/grey50]"
+    assert pretty_print.step_bar(2, 5) == " ".join([done] * 2 + [todo] * 3) + " [dim]2/5[/dim]"
+    assert pretty_print.step_bar(3, 0) == " ".join([done] * 3) + " [dim]3 steps[/dim]"
+    assert pretty_print.step_bar(50, 100).count(done) == 10  # scaled to 20 squares

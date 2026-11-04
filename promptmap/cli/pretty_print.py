@@ -79,15 +79,21 @@ def print_run_header(
 
 
 def step_bar(step: int, total: int, width: int = 20) -> str:
-    """``▰▰▰▱▱▱▱▱▱▱ 3/10 steps`` — or ``step 3`` when there is no limit."""
+    """One square per step: grey until done, then solid.
+
+    With ``agent_step_limit=5`` after 2 steps: ``■ ■ ■ ■ ■ 2/5`` (first two
+    solid, the rest grey).  Limits over *width* are scaled to *width* squares.
+    With no limit, a solid square per step so far (capped at *width*).
+    """
     if total <= 0:
-        return f"[cyan]step {step}[/cyan]"
+        return f"{_squares(min(step, width), 0)} [dim]{step} steps[/dim]"
     blocks = min(total, width)
     filled = min(blocks, round(step * blocks / total))
-    return (
-        f"[cyan]{'▰' * filled}[/cyan][dim]{'▱' * (blocks - filled)}[/dim] "
-        f"[dim]{step}/{total} steps[/dim]"
-    )
+    return f"{_squares(filled, blocks - filled)} [dim]{step}/{total}[/dim]"
+
+
+def _squares(done: int, todo: int) -> str:
+    return " ".join(["[bold]■[/bold]"] * done + ["[grey50]■[/grey50]"] * todo)
 
 
 def make_run_callbacks(

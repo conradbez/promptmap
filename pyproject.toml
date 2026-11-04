@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "promptmap"
-version = "0.7.1"
+version = "0.7.2"
 description = "A dbt-inspired prompt orchestration tool for LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,6 +16,9 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "pyyaml>=6.0",
     "mini-swe-agent>=2.0",
+    # litellm imports mcp on any tool-calling request (mini-swe-agent always
+    # sends tools) but only ships it in its [mcp] extra.
+    "litellm[mcp]",
     "tree-sitter-language-pack>=1.23",
 ]
 

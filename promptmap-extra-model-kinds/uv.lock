@@ -1829,11 +1829,12 @@ wheels = [
 
 [[package]]
 name = "promptmap"
-version = "0.7.0"
+version = "0.7.2"
 source = { editable = "../" }
 dependencies = [
     { name = "click" },
     { name = "jinja2" },
+    { name = "litellm" },
     { name = "mini-swe-agent" },
     { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "networkx", version = "3.7", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -1847,6 +1848,7 @@ dependencies = [
 requires-dist = [
     { name = "click", specifier = ">=8.1" },
     { name = "jinja2", specifier = ">=3.1" },
+    { name = "litellm", extras = ["mcp"] },
     { name = "mini-swe-agent", specifier = ">=2.0" },
     { name = "networkx", specifier = ">=3.0" },
     { name = "promptmap-extra-model-kinds", marker = "python_full_version >= '3.11' and extra == 'extras'", editable = "." },
@@ -1870,7 +1872,7 @@ dev = [
 
 [[package]]
 name = "promptmap-extra-model-kinds"
-version = "0.7.0"
+version = "0.7.1"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },

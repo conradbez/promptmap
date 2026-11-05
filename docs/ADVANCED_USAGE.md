@@ -514,6 +514,31 @@ there is nothing to reuse or continue from: no `{{ previous }}`, no
 clears only the prompt cache for every model and keeps previous results, so a
 `coding_agent` can still reuse its last change.
 
+### Renaming a model (`promptmap rename`)
+
+A model's history is stored under its name, so renaming the `.prompt` file by
+hand costs a cold run, and every `ref('old')` breaks. Rename with the CLI
+instead:
+
+```bash
+promptmap rename add_health add_health_endpoint --dry-run  # show what would change
+promptmap rename add_health add_health_endpoint
+```
+
+In one step it:
+- renames the `.prompt` file, keeping its folder and `NN_x_` prefix, plus
+  `validation/<old>.py` if there is one
+- rewrites `ref('old')` and `config(promptfiles=..., each=...)` in other
+  models and tests, and `given` / `expect` keys in YAML cases
+- moves the model's rows in the run database to the new name, and updates the
+  stored template hash of every model whose file it rewrote
+
+So the next run reuses as before: the renamed `coding_agent` and the
+downstream models report `hit` / `cached`, not `miss`. Prose that mentions the
+old name, `client.py` and `outputs/` are not changed. The command refuses a
+name that already has a file, or stored results (pass `--force` to merge the
+two histories).
+
 The alternative that needs no flag is a follow-up node: a second
 `coding_agent` with `promptfiles="first_agent"` whose prompt is only the tweak.
 That keeps both steps visible in the DAG, at the cost of one more node per

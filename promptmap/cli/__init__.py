@@ -110,6 +110,7 @@ def main() -> None:
       promptmap test              check outputs with test prompts
       promptmap docs --open       browse past runs
       promptmap clear-cache NAME  make one model start cold next run
+      promptmap rename OLD NEW    rename a model, keeping its history
     """
 
 
@@ -572,6 +573,71 @@ def clear_cache_cmd(models: tuple[str, ...], all_models: bool, keep_previous: bo
                   f"({changed} row{'s' if changed != 1 else ''})")
     if not changed and models:
         console.print("  [dim]Nothing to clear: already cleared, or never run (check `promptmap ls`).[/dim]")
+
+
+# ---------------------------------------------------------------------------
+# promptmap rename
+# ---------------------------------------------------------------------------
+
+@main.command("rename", short_help="Rename a model: its file, its references and its history.")
+@click.argument("old")
+@click.argument("new")
+@click.option("--map-dir", default="map", show_default=True, help="Directory containing *.prompt files.")
+@click.option("--validation-dir", default="validation", show_default=True,
+              help="Directory containing per-model validation Python files.")
+@click.option("--dry-run", is_flag=True, help="Show what would change, and change nothing.")
+@click.option("--force", is_flag=True,
+              help="Rename even if the run database already has results stored under NEW "
+                   "(the two histories are merged).")
+def rename_cmd(old: str, new: str, map_dir: str, validation_dir: str, dry_run: bool, force: bool) -> None:
+    """Rename model OLD to NEW without losing its cache or previous run.
+
+    Renaming the .prompt file by hand breaks every ref('OLD') and costs a
+    cold run: previous results (coding_agent reuse, warm_start, {{ previous }})
+    are stored under the model's name. This renames, in one step:
+
+    \b
+      - the .prompt file (keeping its folder and NN_x_ prefix)
+      - validation/OLD.py, if there is one
+      - ref('OLD') and config(promptfiles=..., each=...) in other models and tests
+      - given/expect keys in YAML test cases
+      - OLD's history in the run database, so the next run reuses it
+
+    Prose that merely mentions OLD, client.py and outputs/ are not changed.
+
+    \b
+    Examples:
+      promptmap rename add_health add_health_endpoint --dry-run
+      promptmap rename add_health add_health_endpoint
+    """
+    from promptmap.rename import RenameError, apply_rename, plan_rename
+
+    try:
+        plan = plan_rename(map_dir, old, new, validation_dir)
+    except (RenameError, FileNotFoundError) as exc:
+        raise click.ClickException(str(exc))
+
+    init_db_or_exit()
+    if db.model_has_results(new) and not force:
+        raise click.ClickException(
+            f"The run database already has results for '{new}'. "
+            "Pass --force to merge the two histories."
+        )
+
+    verb = "Would" if dry_run else ""
+    for src, dst in plan.moves:
+        console.print(f"  {verb + ' move' if verb else 'Moved'}   {src} [dim]→[/dim] {dst}")
+    for path in plan.edits:
+        console.print(f"  {verb + ' edit' if verb else 'Edited'}  {path} [dim](references to {old})[/dim]")
+    if dry_run:
+        console.print(f"  Would move the run history of [bold]{old}[/bold] to [bold]{new}[/bold]."
+                      "\n  [dim]Nothing changed (--dry-run).[/dim]")
+        return
+
+    apply_rename(plan)
+    moved = db.rename_model(old, new, plan.retemplate)
+    console.print(f"  [green]Renamed[/green] [bold]{old}[/bold] → [bold]{new}[/bold] "
+                  f"({moved} stored result{'s' if moved != 1 else ''} moved)")
 
 
 # ---------------------------------------------------------------------------

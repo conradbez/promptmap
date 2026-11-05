@@ -439,6 +439,45 @@ class SQLiteStorageBackend:
                 (limit,),
             ).fetchall()
 
+    def model_has_results(self, model_name: str) -> bool:
+        with self.get_conn() as conn:
+            return conn.execute(
+                "SELECT 1 FROM model_results WHERE model_name = ? OR model_name LIKE ? ESCAPE '\\' LIMIT 1",
+                (model_name, _like_prefix(model_name) + "[%"),
+            ).fetchone() is not None
+
+    def rename_model(self, old: str, new: str, retemplate: dict[str, tuple[str, str]] | None = None) -> int:
+        """Move *old*'s history to *new*: its rows, its ``each=`` items
+        (``old[i]``) and the ``depends_on`` lists that name it.  For each
+        model in *retemplate* (``name -> (old source, new source)``), rows
+        stored from the old source get the new source and its hash, so the
+        model's previous result still matches its rewritten file.
+
+        Returns the number of the renamed model's rows moved.
+        """
+        with self.get_conn() as conn:
+            moved = conn.execute(
+                "UPDATE model_results SET model_name = ? WHERE model_name = ?", (new, old)
+            ).rowcount
+            moved += conn.execute(
+                "UPDATE model_results SET model_name = ? || substr(model_name, ?) "
+                "WHERE model_name LIKE ? ESCAPE '\\'",
+                (new, len(old) + 1, _like_prefix(old) + "[%"),
+            ).rowcount
+            old_json, new_json = json.dumps(old), json.dumps(new)
+            conn.execute(
+                "UPDATE model_results SET depends_on = replace(depends_on, ?, ?) "
+                "WHERE instr(depends_on, ?) > 0",
+                (old_json, new_json, old_json),
+            )
+            for name, (before, after) in (retemplate or {}).items():
+                conn.execute(
+                    "UPDATE model_results SET prompt_template = ?, template_hash = ? "
+                    "WHERE model_name = ? AND template_hash = ?",
+                    (after, template_hash(after), name, template_hash(before)),
+                )
+            return moved
+
     def clear_cache(self, models: list[str] | None = None, previous: bool = False) -> int:
         """Nullify prompt_hash values, forcing fresh LLM calls on next run.
 
@@ -461,6 +500,11 @@ class SQLiteStorageBackend:
             params = list(models)
         with self.get_conn() as conn:
             return conn.execute(sql, params).rowcount
+
+
+def _like_prefix(text: str) -> str:
+    """*text* escaped for a LIKE pattern (backslash as the escape character)."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _now() -> str:

@@ -122,3 +122,11 @@ def set_blob_store(store) -> None:
 
 def clear_cache(models: list[str] | None = None, previous: bool = False) -> int:
     return _DEFAULT_BACKEND.clear_cache(models, previous)
+
+
+def rename_model(old: str, new: str, retemplate: dict[str, tuple[str, str]] | None = None) -> int:
+    return _DEFAULT_BACKEND.rename_model(old, new, retemplate)
+
+
+def model_has_results(model_name: str) -> bool:
+    return _DEFAULT_BACKEND.model_has_results(model_name)

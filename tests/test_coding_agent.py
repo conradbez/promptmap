@@ -769,3 +769,50 @@ def test_warm_start_is_on_by_default_for_coding_agent_only():
     assert config_value(agent, "warm_start") is True
     assert config_value(off, "warm_start") is False
     assert config_value(plain, "warm_start", False) is False
+
+
+def test_rename_keeps_coding_agent_history_and_downstream_reuse(tmp_path, monkeypatch, jev, dir_source):
+    from promptmap.executor import execute_run, load_models
+    from promptmap.rename import apply_rename, plan_rename
+    from promptmap.storage.sqlite import SQLiteStorageBackend
+
+    tasks = []
+
+    def exec_agent(task, call):
+        tasks.append(task)
+        (Path(call.spec.config["agent_dir"]) / "out.py").write_text("x = 1\n")
+        return json.dumps({"output": "ok", "logs": [], "time_run": 0.0})
+
+    monkeypatch.setattr(fa, "_exec_agent", exec_agent)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "map").mkdir()
+    (tmp_path / "map" / "src.prompt").write_text(
+        '{{ config(model_type="dir_source") }}output = Dir({"a.py": b"a = 1\\n"}, name="app")')
+    (tmp_path / "map" / "build.prompt").write_text(
+        f'{{{{ config(model_type="{fa.NAME}", promptfiles="src") }}}}write out.py')
+    (tmp_path / "map" / "tests.prompt").write_text(
+        f'{{{{ config(model_type="{fa.NAME}", promptfiles="build.result") }}}}add tests')
+    storage = SQLiteStorageBackend(tmp_path / "db" / "promptmap.db")
+    storage.init_db()
+
+    def run_once():
+        specs = list(load_models(tmp_path / "map").values())
+        run_id = storage.create_run(model_count=len(specs))
+        results = {r.model_name: r for r in asyncio.run(execute_run(
+            run_id=run_id, ordered_models=specs,
+            storage_backend=storage, llm_call=lambda p: "YES",
+        ))}
+        assert all(not r.error for r in results.values()), {k: r.error for k, r in results.items()}
+        return {k: r.cache for k, r in results.items()}
+
+    assert run_once() == {"src": "", "build": "miss", "tests": "miss"}
+
+    plan = plan_rename(tmp_path / "map", "build", "build_app")
+    apply_rename(plan)
+    assert storage.rename_model("build", "build_app", plan.retemplate) == 1
+    assert 'promptfiles="build_app.result"' in (tmp_path / "map" / "tests.prompt").read_text()
+
+    # Both reuse their last change: the renamed model by its moved history, the
+    # downstream one because its stored template hash followed its rewritten file.
+    assert run_once() == {"src": "", "build_app": "hit", "tests": "hit"}
+    assert len(tasks) == 2

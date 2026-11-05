@@ -140,7 +140,10 @@ edit changes what the model is *for*, the old result would mislead it: run
 `promptmap clear-cache <model>` once for a clean start, or set
 `{{ config(warm_start=false) }}` to always start cold. `promptmap run` prints
 the verdict after each model (`· cached`, `· warm · continued previous run`,
-`· miss · agent ran`), so you can see what a prompt edit cost. Other models can opt in
+`· miss · agent ran`), so you can see what a prompt edit cost. To rename a
+model, use `promptmap rename <old> <new>` (try `--dry-run` first), never a
+plain file rename: the command also rewrites `ref()` / `promptfiles` and moves
+the model's run history, so the agent's previous work is not lost. Other models can opt in
 with `warm_start=true` (it fills `{{ previous }}` across edits). See
 `#editing-a-prompt-without-a-cold-start-warm_start`.
 
@@ -224,6 +227,7 @@ Advanced — `docs/ADVANCED_USAGE.md`:
 | Refine last run's answer | `{{ previous }}`, `cache_check` | `#run-ids-and-iterating-on-the-last-answer-previous` |
 | Edit a `coding_agent` prompt, keep its previous run | `warm_start` (default on for `coding_agent`) | `#editing-a-prompt-without-a-cold-start-warm_start` |
 | Make one model start cold next run | `promptmap clear-cache MODEL` | `#editing-a-prompt-without-a-cold-start-warm_start` |
+| Rename a model, keep its history | `promptmap rename OLD NEW` | `#renaming-a-model-promptmap-rename` |
 | Shared instructions for every model | `global.prompt` | `#global-instructions-globalprompt` |
 | JSON output, caching and other config keys | `config()` | `#output-format-config-config` |
 | Agents / MCP tools | `agent`, `coding_agent`; `agent_multi_harness` + `agent_mcp` | `#agent-models-model_typeagent` |

@@ -237,6 +237,32 @@ class MemoryStorageBackend:
     def get_run_results(self, run_id: str) -> list[dict[str, Any]]:
         return list(self._results.get(run_id, {}).values())
 
+    def model_has_results(self, model_name: str) -> bool:
+        return any(
+            name == model_name or name.startswith(model_name + "[")
+            for results in self._results.values() for name in results
+        )
+
+    def rename_model(self, old: str, new: str, retemplate: dict[str, tuple[str, str]] | None = None) -> int:
+        """Move *old*'s history to *new* — see :meth:`SQLiteStorageBackend.rename_model`."""
+        hashes = {name: (template_hash(a), template_hash(b), b) for name, (a, b) in (retemplate or {}).items()}
+        moved = 0
+        for results in self._results.values():
+            for name in list(results):
+                if name == old or name.startswith(old + "["):
+                    row = results.pop(name)
+                    row["model_name"] = new + name[len(old):]
+                    results[row["model_name"]] = row
+                    moved += 1
+            for row in results.values():
+                deps = row.get("depends_on")
+                if isinstance(deps, str) and json.dumps(old) in deps:
+                    row["depends_on"] = json.dumps([new if d == old else d for d in json.loads(deps)])
+                before_after = hashes.get(row.get("model_name"))
+                if before_after and row.get("template_hash") == before_after[0]:
+                    row["template_hash"], row["prompt_template"] = before_after[1], before_after[2]
+        return moved
+
     def clear_cache(self, models: list[str] | None = None, previous: bool = False) -> int:
         """Forget cached outputs (and with *previous*, previous runs) — see
         :meth:`SQLiteStorageBackend.clear_cache`."""

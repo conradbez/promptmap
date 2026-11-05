@@ -41,6 +41,10 @@ from promptmap.storage.base import StorageBackend
 from promptmap.types import PromptFile
 
 
+#: Default for ``execute_run(max_parallel=...)`` and ``promptmap run --threads``.
+DEFAULT_MAX_PARALLEL = 4
+
+
 @dataclass
 class ModelRunResult:
     model_name: str
@@ -335,9 +339,10 @@ async def execute_run(
     secrets: Mapping[str, str] | None = None,
     cache_check: Callable[..., Any] | None = None,
     wrap_refs: bool | Callable[[str, bool], str] | None = None,
+    max_parallel: int = DEFAULT_MAX_PARALLEL,
 ) -> list[ModelRunResult]:
     """
-    Execute all *ordered_models* in dependency order.
+    Execute all *ordered_models* in dependency order, independent ones in parallel.
 
     Parameters
     ----------
@@ -380,6 +385,11 @@ async def execute_run(
     wrap_refs:
         Wrap each ``ref()`` output in ``[name]…[/name]`` tags, or in the tags a
         callable ``(name, is_open) -> str`` returns.
+    max_parallel:
+        Most models running at once (default 4, like dbt's ``threads``).
+        Models that do not depend on each other run concurrently; ``1`` runs
+        them one at a time.  Results are returned in the order they finished,
+        which is always a valid dependency order.
 
     Returns
     -------
@@ -440,98 +450,104 @@ async def execute_run(
     # Preloaded outputs count as completed, as do models an earlier phase skipped.
     completed: set[str] = set(ctx.outputs) | ctx.skip_downstream
 
+    def finish(result: ModelRunResult) -> None:
+        results.append(result)
+        if on_model_done:
+            on_model_done(result)
+
+    def settle(spec: ModelSpec) -> bool:
+        """Skip *spec* if an upstream failed or asked it to; True when skipped."""
+        blocked_by = [dep for dep in spec.depends_on if dep in failed_upstream]
+        if blocked_by:
+            storage_backend.mark_model_skipped(run_id, spec.name)
+            failed_upstream.add(spec.name)
+            finish(ModelRunResult(
+                model_name=spec.name,
+                status="skipped",
+                error=f"Skipped because upstream models failed: {blocked_by}",
+            ))
+            return True
+        skip_signalled_by = [dep for dep in spec.depends_on if dep in ctx.skip_downstream]
+        if skip_signalled_by:
+            storage_backend.mark_model_skipped(run_id, spec.name)
+            ctx.skip_downstream.add(spec.name)  # propagate further downstream
+            completed.add(spec.name)
+            finish(ModelRunResult(
+                model_name=spec.name,
+                status="skipped",
+                error=(
+                    "Skipped because upstream models signalled "
+                    f"skip_this_and_downstream: {skip_signalled_by}"
+                ),
+            ))
+            return True
+        return False
+
+    # Every model whose dependencies are done starts at once, up to
+    # *max_parallel* at a time — so two coding agents that do not depend on
+    # each other work side by side.  A model starts the moment its last
+    # dependency finishes, not when a whole "layer" does.
+    limit = max(1, int(max_parallel or 1))
     pending = list(ordered_models)
-    while pending:
-        still_waiting: list[ModelSpec] = []
-        made_progress = False
+    running: dict[asyncio.Task, ModelSpec] = {}
+    try:
+        while pending or running:
+            # Start (or skip) everything that is ready.  Skipping can unblock
+            # more models, so scan until a pass changes nothing.
+            changed = True
+            while changed:
+                changed = False
+                still_waiting: list[ModelSpec] = []
+                for spec in pending:
+                    waiting_deps = [
+                        dep for dep in spec.depends_on
+                        if dep not in completed and dep not in failed_upstream
+                    ]
+                    if waiting_deps:
+                        still_waiting.append(spec)
+                    elif settle(spec):
+                        changed = True
+                    elif len(running) >= limit:
+                        still_waiting.append(spec)
+                    else:
+                        if on_model_start:
+                            on_model_start(spec.name)
+                        storage_backend.mark_model_running(run_id, spec.name)
+                        running[asyncio.ensure_future(execute_model(spec, ctx))] = spec
+                        changed = True
+                pending = still_waiting
 
-        for spec in pending:
-            # Deps still running — come back to this model next iteration
-            waiting_deps = [
-                dep for dep in spec.depends_on
-                if dep not in completed and dep not in failed_upstream
-            ]
-            if waiting_deps:
-                still_waiting.append(spec)
-                continue
+            if not running:
+                # Nothing running and nothing could start: unresolvable (e.g.
+                # circular deps).  Report each stuck model so none is dropped.
+                for spec in pending:
+                    storage_backend.mark_model_error(
+                        run_id, spec.name, "Unresolvable dependency (possible cycle)"
+                    )
+                    finish(ModelRunResult(
+                        model_name=spec.name,
+                        status="error",
+                        error=f"Unresolvable dependency (possible cycle): {spec.depends_on}",
+                    ))
+                break
 
-            made_progress = True
-
-            # Skip if any dependency failed *in this run* (preloaded deps are fine)
-            blocked_by = [dep for dep in spec.depends_on if dep in failed_upstream]
-            if blocked_by:
-                storage_backend.mark_model_skipped(run_id, spec.name)
-                result = ModelRunResult(
-                    model_name=spec.name,
-                    status="skipped",
-                    error=f"Skipped because upstream models failed: {blocked_by}",
-                )
-                results.append(result)
-                failed_upstream.add(spec.name)
-                if on_model_done:
-                    on_model_done(result)
-                continue
-
-            # Skip if any dependency called skip_this_and_downstream
-            skip_signalled_by = [
-                dep for dep in spec.depends_on if dep in ctx.skip_downstream
-            ]
-            if skip_signalled_by:
-                storage_backend.mark_model_skipped(run_id, spec.name)
-                result = ModelRunResult(
-                    model_name=spec.name,
-                    status="skipped",
-                    error=(
-                        "Skipped because upstream models signalled "
-                        f"skip_this_and_downstream: {skip_signalled_by}"
-                    ),
-                )
-                results.append(result)
-                ctx.skip_downstream.add(spec.name)  # propagate further downstream
-                completed.add(spec.name)
-                if on_model_done:
-                    on_model_done(result)
-                continue
-
-            if on_model_start:
-                on_model_start(spec.name)
-
-            storage_backend.mark_model_running(run_id, spec.name)
-
-            try:
-                result = await execute_model(spec, ctx)
-            except Exception as exc:  # noqa: BLE001
-                error_msg = str(exc)
-                storage_backend.mark_model_error(run_id, spec.name, error_msg)
-                failed_upstream.add(spec.name)
-                result = ModelRunResult(
-                    model_name=spec.name,
-                    status="error",
-                    error=error_msg,
-                )
-            else:
-                completed.add(spec.name)
-
-            results.append(result)
-            if on_model_done:
-                on_model_done(result)
-
-        pending = still_waiting
-        if not made_progress:
-            # No model could run this pass — unresolvable (e.g. circular deps).
-            # Emit an error result for each stuck model so nothing is silently dropped.
-            for spec in still_waiting:
-                storage_backend.mark_model_error(
-                    run_id, spec.name, "Unresolvable dependency (possible cycle)"
-                )
-                result = ModelRunResult(
-                    model_name=spec.name,
-                    status="error",
-                    error=f"Unresolvable dependency (possible cycle): {spec.depends_on}",
-                )
-                results.append(result)
-                if on_model_done:
-                    on_model_done(result)
-            break
+            done, _ = await asyncio.wait(running, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                spec = running.pop(task)
+                exc = task.exception()
+                if exc is not None:
+                    error_msg = str(exc)
+                    storage_backend.mark_model_error(run_id, spec.name, error_msg)
+                    failed_upstream.add(spec.name)
+                    finish(ModelRunResult(model_name=spec.name, status="error", error=error_msg))
+                else:
+                    completed.add(spec.name)
+                    finish(task.result())
+    finally:
+        # Interrupted (Ctrl-C, a cancelled caller): stop the models still running.
+        for task in running:
+            task.cancel()
+        if running:
+            await asyncio.gather(*running, return_exceptions=True)
 
     return results

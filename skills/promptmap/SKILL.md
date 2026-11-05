@@ -114,7 +114,10 @@ become the model's files.
 
 **`coding_agent`** runs mini-swe-agent as a pure function: a `Dir` in, the patched `Dir` out.
 The input tree comes from upstream via `promptfiles`; leave it out and the
-agent creates the tree from scratch. Chain agents by passing one's output to
+agent creates the tree from scratch. Independent agents (neither refs the
+other) run in parallel, so split unrelated work into sibling agents rather than
+one long chain (`promptmap run --threads N` caps how many run at once,
+default 4). Chain agents by passing one's output to
 the next. It caches its change and only re-runs the agent when upstream
 changed the meaning of the code.
 

@@ -37,7 +37,7 @@ from promptmap.executor.graph import (
     UnknownModelError,
     UnknownModelTypeError,
 )
-from promptmap.executor.executor import execute_run
+from promptmap.executor.executor import DEFAULT_MAX_PARALLEL, execute_run
 from promptmap.gates import execute_gated_run, gate_reads, gate_upstream, load_gates
 from promptmap.llm import (
     resolve_blob_store,
@@ -206,12 +206,24 @@ def main() -> None:
     default=False,
     help="Wrap each ref() output in [model_name]...[/model_name] tags.",
 )
-def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple[str, ...], secret_flags: tuple[str, ...], promptfiles: tuple[str, ...], validation_dir: str, clear_cache: bool, global_instruction_path: str | None, wrap_refs: bool) -> None:
+@click.option(
+    "--threads", "-t",
+    default=DEFAULT_MAX_PARALLEL,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help=(
+        "Most models running at once. Models that do not depend on each other "
+        "(e.g. two coding agents) run in parallel; 1 runs them one at a time."
+    ),
+)
+def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple[str, ...], secret_flags: tuple[str, ...], promptfiles: tuple[str, ...], validation_dir: str, clear_cache: bool, global_instruction_path: str | None, wrap_refs: bool, threads: int) -> None:
     """Execute all prompt models in dependency order.
 
     *.testprompt tests in the map dir are gates unless they set {{ config(gate=False) }}:
     they run first, after only the models they read, and the rest of the
     pipeline runs if they all pass.
+
+    Models that do not depend on each other run in parallel (--threads, default 4).
 
     Defaults for any value not passed as a flag are read from promptdata.yml,
     promptfiles.yml and secrets.yml in the current directory (create them
@@ -403,6 +415,7 @@ def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple
         secrets=secrets,
         cache_check=cache_check,
         wrap_refs=wrap_refs,
+        max_parallel=threads,
     )
     gated = None
     try:

@@ -27,8 +27,18 @@ results = promptmap.run(
     validation_dir="validation", # optional: per-model validation functions
     global_instruction="Answer in British English.",  # optional: text added to every prompt
     secrets={"OPENAI_API_KEY": user_key},  # optional: per-run credentials, never stored
+    max_parallel=4,            # optional: most models running at once (default 4)
 )
 ```
+
+> **Parallel runs.** Models that do not depend on each other run at the same
+> time, up to `max_parallel` (CLI: `promptmap run --threads N`, default 4,
+> like dbt's `threads`). A model starts as soon as its own upstream models
+> finish, so two independent `coding_agent`s work side by side, and a model
+> that reads both starts when the slower one is done. `max_parallel=1` runs
+> one model at a time. Results come back in the order models finished. A sync
+> `llm_call` runs in a worker thread, so it must be safe to call from several
+> threads at once (provider SDK clients are).
 
 > **Secrets.** `secrets=` (CLI: `--secret NAME=VALUE`, or a bare `--secret NAME`
 > to read env var `NAME`) passes credentials to the run.
@@ -783,6 +793,8 @@ Add a /health endpoint and a test for it.
   final reply. `changes` / `deleted` hold just what this model changed, and
   `sum_of_changes` has a per-symbol summary plus a unified diff.
 - **Chaining:** the next `coding_agent` takes `promptfiles="add_health"`.
+- **Parallel:** agents that do not depend on each other run at the same time,
+  each in its own scratch copy (see [Parallel runs](#promptmaprun); `--threads`).
 
 **Reuse instead of re-running.** With the same prompt, a changed input does not
 always mean a new agent run. The `cache` key in the output says what happened,

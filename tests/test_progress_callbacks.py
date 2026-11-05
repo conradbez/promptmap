@@ -114,7 +114,7 @@ def test_agent_step_bar_in_run_callbacks():
                 await asyncio.to_thread(report_progress, "fix", step, 10)
 
         asyncio.run(agent_steps())
-        on_done(SimpleNamespace(status="success", execution_ms=5))
+        on_done(SimpleNamespace(model_name="fix", status="success", execution_ms=5))
     finally:
         progress_listener.reset(token)
 
@@ -139,7 +139,7 @@ def test_run_line_shows_how_the_output_was_produced():
     on_start, on_done = pretty_print.make_run_callbacks(console, results, total=3)
     for name, cache in (("a", ""), ("b", "cache"), ("fix", "warm")):
         on_start(name)
-        on_done(SimpleNamespace(status="success", execution_ms=5, cache=cache))
+        on_done(SimpleNamespace(model_name=name, status="success", execution_ms=5, cache=cache))
     lines = buf.getvalue().splitlines()
 
     assert lines[0].endswith("OK (5 ms)")            # ran: no label

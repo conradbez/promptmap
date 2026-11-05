@@ -140,6 +140,7 @@ async def async_run(
     secrets: Mapping[str, str] | None = None,
     cache_check: Callable[..., bool | Awaitable[bool]] | None = None,
     wrap_refs: bool | Callable[[str, bool], str] | None = None,
+    max_parallel: int = 4,
 ):
     """
     Execute prompt models as a Python library call.
@@ -227,6 +228,10 @@ async def async_run(
         Pass a callable ``(name, is_open) -> str`` to write the tags yourself,
         e.g. ``lambda name, is_open: f"<{'' if is_open else '/'}{name}>"``.
         JSON and file outputs are passed through unwrapped.
+    max_parallel:
+        Most models running at once (default 4).  Models that do not depend
+        on each other run concurrently, e.g. two independent coding agents;
+        ``1`` runs them one at a time.
 
     Returns
     -------
@@ -363,6 +368,7 @@ async def async_run(
         console.print(f"[dim]{ts()}[/dim]")
 
     completed: list[ModelRunResult] = []
+    started: list[str] = []
     model_start_times: dict[str, float] = {}
 
     def _log_model_line(idx: int, verb: str, name: str, badge: str) -> None:
@@ -372,7 +378,8 @@ async def async_run(
             console.print(f"[dim]{ts()}[/dim]  [bold]{idx} of {total}[/bold] {verb} prompt model [cyan]{name}[/cyan] {dots} {badge}")
 
     def on_start(name: str) -> None:
-        idx = len(completed) + 1
+        started.append(name)
+        idx = len(started)  # models may run in parallel: count starts, not finishes
         model_start_times[name] = time.monotonic()
         _log_model_line(idx, "START", name, "[[yellow]RUN[/yellow]]")
         if on_model_start:
@@ -412,6 +419,7 @@ async def async_run(
         secrets=secrets,
         cache_check=cache_check,
         wrap_refs=wrap_refs,
+        max_parallel=max_parallel,
     )
 
     errors = sum(1 for r in results if r.status == "error")
@@ -466,6 +474,7 @@ def run(
     secrets: "Mapping[str, str] | None" = None,
     cache_check: "Callable[..., bool | Awaitable[bool]] | None" = None,
     wrap_refs: "bool | Callable[[str, bool], str] | None" = None,
+    max_parallel: int = 4,
 ):
     """Run prompt models synchronously.
 
@@ -492,4 +501,5 @@ def run(
         secrets=secrets,
         cache_check=cache_check,
         wrap_refs=wrap_refs,
+        max_parallel=max_parallel,
     ))

@@ -126,41 +126,64 @@ def make_run_callbacks(
 ) -> tuple[Callable[[str], None], Callable[[ModelRunResult], None]]:
     """Return (on_start, on_done) callbacks for execute_run.
 
-    Also installs a :data:`~promptmap.model_types.progress_listener` so a model
-    that reports steps (an ``agent``) redraws its status line with a step bar.
-    On a non-terminal the bar is drawn once, when the model finishes.
+    Models that do not depend on each other run in parallel, so each model's
+    line (``[2/5] name … OK (1.2 s)``) is printed whole when it finishes.  In a
+    terminal, one status line below them lists the models still running,
+    with a step bar for any that report steps (an agent); it is redrawn in
+    place and erased before each finished line.
+
+    Also installs a :data:`~promptmap.model_types.progress_listener` for those
+    step reports.  On a non-terminal the bar is printed once, on the
+    model's finished line.
     """
     from promptmap.model_types import progress_listener
 
-    line = {"prefix": "", "bar": ""}
+    running: dict[str, str] = {}  # name -> step bar ("" until it reports one)
+    bars: dict[str, str] = {}      # last bar per model, for its finished line
+    shown = {"status": False}
+
+    def clear_status() -> None:
+        if shown["status"]:
+            c.control(Control.move_to_column(0), Control((ControlType.ERASE_IN_LINE, 2)))
+            shown["status"] = False
+
+    def draw_status() -> None:
+        clear_status()
+        if not c.is_terminal or not running:
+            return
+        parts = [f"[bold]{name}[/bold]{' ' + bar if bar else ''}" for name, bar in running.items()]
+        c.print(f"  [dim]running:[/dim] {' [dim]·[/dim] '.join(parts)} ", end="")
+        shown["status"] = True
 
     def on_start(name: str) -> None:
-        idx = len(results) + 1
-        line["prefix"] = f"  [{idx}/{total}] [bold]{name}[/bold] … "
-        line["bar"] = ""
-        c.print(line["prefix"], end="")
+        running[name] = ""
+        draw_status()
 
     def on_progress(name: str, step: int, limit: int) -> None:
-        line["bar"] = step_bar(step, limit)
-        if c.is_terminal:
-            c.control(Control.move_to_column(0), Control((ControlType.ERASE_IN_LINE, 2)))
-            c.print(f"{line['prefix']}{line['bar']} ", end="")
+        bars[name] = step_bar(step, limit)
+        if name in running:
+            running[name] = bars[name]
+            draw_status()
 
     def on_done(result: ModelRunResult) -> None:
         results.append(result)
-        if line["bar"] and not c.is_terminal:
-            c.print(f"{line['bar']} ", end="")
-        line["bar"] = ""
+        running.pop(result.model_name, None)
+        bar = bars.pop(result.model_name, "")
+        clear_status()
+        line = f"  [{len(results)}/{total}] [bold]{result.model_name}[/bold] … "
+        if bar and not c.is_terminal:
+            line += f"{bar} "
         if result.status == "success":
             c.print(
-                f"[green]OK[/green] [dim]({format_duration(result.execution_ms)})[/dim]"
+                f"{line}[green]OK[/green] [dim]({format_duration(result.execution_ms)})[/dim]"
                 f"{cache_label(getattr(result, 'cache', ''))}"
             )
         elif result.status == "skipped":
-            c.print("[yellow]SKIPPED[/yellow]")
+            c.print(f"{line}[yellow]SKIPPED[/yellow]")
         else:
-            c.print("[red]ERROR[/red]")
+            c.print(f"{line}[red]ERROR[/red]")
             c.print(f"    [dim]{result.error}[/dim]")
+        draw_status()
 
     progress_listener.set(on_progress)
     return on_start, on_done

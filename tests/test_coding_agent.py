@@ -816,3 +816,70 @@ def test_rename_keeps_coding_agent_history_and_downstream_reuse(tmp_path, monkey
     # downstream one because its stored template hash followed its rewritten file.
     assert run_once() == {"src": "", "build_app": "hit", "tests": "hit"}
     assert len(tasks) == 2
+
+
+def test_independent_coding_agents_run_in_parallel(tmp_path, monkeypatch, jev, dir_source):
+    """Two agents that do not depend on each other work side by side; the
+    model that reads both starts only after both finished."""
+    import threading
+    import time
+
+    from promptmap.executor import build_models_from_dict, execute_run
+    from promptmap.storage import MemoryStorageBackend
+
+    both_running = threading.Barrier(2, timeout=5)  # breaks unless both agents run at once
+    spans: dict[str, tuple[float, float]] = {}
+
+    def exec_agent(task, call):
+        name = call.spec.name
+        began = time.monotonic()
+        if name in ("api", "ui"):
+            both_running.wait()
+        (Path(call.spec.config["agent_dir"]) / f"{name}.py").write_text("x = 1\n")
+        spans[name] = (began, time.monotonic())
+        return json.dumps({"output": "ok", "logs": [], "time_run": 0.0})
+
+    monkeypatch.setattr(fa, "_exec_agent", exec_agent)
+    src = '{{ config(model_type="dir_source") }}output = Dir({"a.py": b"a = 1\\n"}, name="app")'
+    agent = f'{{{{ config(model_type="{fa.NAME}", promptfiles="src") }}}}'
+    models = build_models_from_dict({
+        "src": src,
+        "api": agent + "build the api",
+        "ui": agent + "build the ui",
+        "review": f'{{{{ config(model_type="{fa.NAME}", promptfiles="api.result") }}}}'
+                  "review {{ ref('ui').output }}",
+    })
+    storage = MemoryStorageBackend()
+    results = asyncio.run(execute_run(
+        run_id=storage.create_run(model_count=4), ordered_models=list(models.values()),
+        storage_backend=storage, llm_call=lambda p: "YES",
+    ))
+    errors = {r.model_name: r.error for r in results if r.error}
+    assert not errors, errors
+    assert spans["review"][0] >= max(spans["api"][1], spans["ui"][1])
+    assert [r.model_name for r in results][-1] == "review"
+
+
+def test_max_parallel_caps_how_many_models_run_at_once():
+    from promptmap.executor import build_models_from_dict, execute_run
+    from promptmap.storage import MemoryStorageBackend
+
+    live = {"now": 0, "peak": 0}
+
+    async def llm(prompt):
+        live["now"] += 1
+        live["peak"] = max(live["peak"], live["now"])
+        await asyncio.sleep(0.02)
+        live["now"] -= 1
+        return "ok"
+
+    models = build_models_from_dict({f"m{i}": f"prompt {i}" for i in range(5)})
+    for limit, expected in ((2, 2), (1, 1), (8, 5)):
+        live.update(now=0, peak=0)
+        storage = MemoryStorageBackend()
+        results = asyncio.run(execute_run(
+            run_id=storage.create_run(model_count=5), ordered_models=list(models.values()),
+            storage_backend=storage, llm_call=llm, max_parallel=limit,
+        ))
+        assert all(r.status == "success" for r in results)
+        assert live["peak"] == expected, (limit, live["peak"])

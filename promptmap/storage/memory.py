@@ -110,7 +110,8 @@ class MemoryStorageBackend:
         ]
         if not matches:
             return None
-        row = max(matches, key=lambda r: r["completed_at"])
+        # Ties on the millisecond clock go to the row written last.
+        _, row = max(enumerate(matches), key=lambda ir: (ir[1]["completed_at"], ir[0]))
         return {
             "run_id": row["run_id"],
             "prompt_rendered": row["prompt_rendered"],

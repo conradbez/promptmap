@@ -61,6 +61,14 @@
 
     /* Files produced by models */
     .file-strip { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    /* In the run table the strip is one row tall; "…" opens the rest. */
+    .file-cell { display: flex; align-items: flex-start; gap: 4px; }
+    .file-strip.collapsible { max-height: 46px; overflow: hidden; }
+    .file-strip.collapsible.expanded { max-height: none; }
+    .file-more {
+      all: unset; cursor: pointer; padding: 0 6px; line-height: 44px;
+      color: var(--pico-primary); font-weight: 700; white-space: nowrap;
+    }
     .file-thumb {
       width: 44px; height: 44px; object-fit: cover; border-radius: 4px;
       border: 1px solid var(--pico-muted-border-color); cursor: zoom-in;
@@ -104,7 +112,8 @@
   {% macro tokens(n) %}{{ '{:,}'.format(n) if n is not none else '—' }}{% endmacro %}
 
   {% macro file_strip(files) %}
-  <div class="file-strip">
+  <div class="file-cell">
+  <div class="file-strip collapsible">
     {% for f in files %}
       {% if f.missing %}
       <span class="file-chip missing" title="{{ f.label }} — blob missing from the store">⚠ {{ f.name }}</span>
@@ -118,6 +127,9 @@
       {% endif %}
     {% endfor %}
   </div>
+  <button type="button" class="file-more" hidden onclick="toggleStrip(event, this)"
+          title="Show all {{ files | length }} files">…</button>
+  </div>
   {% endmacro %}
 
   <main class="container">
@@ -126,28 +138,14 @@
       <p>promptmap run history &mdash; generated {{ generated_at }}</p>
     </hgroup>
 
-    {% if latest_files %}
+    {% if dag_section %}
     <section>
-      <h2>Files <small style="font-weight:400;color:var(--pico-muted-color)">— latest run {{ latest_run.short_id }}</small></h2>
-      <div class="gallery">
-        {% for f in latest_files %}
-        <article>
-          {% if f.preview %}
-          <div class="preview" onclick="openImage(this)" data-title="{{ f.model_name }} — {{ f.label }}" data-href="{{ f.href }}">
-            <img src="{{ f.href }}" alt="{{ f.name }}" loading="lazy">
-          </div>
-          {% else %}
-          <div class="preview"><span class="mime">{{ '⚠ missing' if f.missing else f.mime }}</span></div>
-          {% endif %}
-          <div class="meta">
-            <div class="name">{{ f.name }}</div>
-            <small><code>{{ f.model_name }}</code>{% if f.label != f.name %} · {{ f.label }}{% endif %}</small>
-            <small>{{ f.size }} · sha256:{{ f.sha }}</small>
-            {% if not f.missing %}<a href="{{ f.href }}" download="{{ f.name }}">Download</a>{% endif %}
-          </div>
-        </article>
-        {% endfor %}
-      </div>
+      <h2>Model DAG</h2>
+      <article>
+        <div class="mermaid" style="overflow:auto">
+{{ dag_section | safe }}
+        </div>
+      </article>
     </section>
     {% endif %}
 
@@ -245,14 +243,30 @@
       </figure>
     </section>
 
-    {% if dag_section %}
+    {% if latest_files %}
     <section>
-      <h2>Model DAG</h2>
-      <article>
-        <div class="mermaid" style="overflow:auto">
-{{ dag_section | safe }}
-        </div>
-      </article>
+      <details class="files-section">
+      <summary><strong>Files</strong> <small style="color:var(--pico-muted-color)">— {{ latest_files | length }} from latest run {{ latest_run.short_id }}</small></summary>
+      <div class="gallery">
+        {% for f in latest_files %}
+        <article>
+          {% if f.preview %}
+          <div class="preview" onclick="openImage(this)" data-title="{{ f.model_name }} — {{ f.label }}" data-href="{{ f.href }}">
+            <img src="{{ f.href }}" alt="{{ f.name }}" loading="lazy">
+          </div>
+          {% else %}
+          <div class="preview"><span class="mime">{{ '⚠ missing' if f.missing else f.mime }}</span></div>
+          {% endif %}
+          <div class="meta">
+            <div class="name">{{ f.name }}</div>
+            <small><code>{{ f.model_name }}</code>{% if f.label != f.name %} · {{ f.label }}{% endif %}</small>
+            <small>{{ f.size }} · sha256:{{ f.sha }}</small>
+            {% if not f.missing %}<a href="{{ f.href }}" download="{{ f.name }}">Download</a>{% endif %}
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      </details>
     </section>
     {% endif %}
   </main>
@@ -310,6 +324,26 @@
     modal.addEventListener('click', function (event) {
       if (event.target === modal) closeContent();
     });
+
+    // A collapsed file strip shows "…" only when its files do not fit on one
+    // row. Measured when a strip gets a size, i.e. when its run is expanded.
+    var stripObserver = new ResizeObserver(function (entries) {
+      entries.forEach(function (entry) {
+        var strip = entry.target, more = strip.nextElementSibling;
+        if (!more || strip.classList.contains('expanded')) return;
+        more.hidden = strip.scrollHeight <= strip.clientHeight + 1;
+      });
+    });
+    document.querySelectorAll('.file-strip.collapsible').forEach(function (s) {
+      stripObserver.observe(s);
+    });
+
+    function toggleStrip(event, button) {
+      event.stopPropagation();
+      var strip = button.previousElementSibling;
+      var open = strip.classList.toggle('expanded');
+      button.textContent = open ? 'less' : '…';
+    }
 
     function toggleDetail(runId) {
       var row = document.getElementById('detail-' + runId);

@@ -285,7 +285,7 @@ class SQLiteStorageBackend:
                    WHERE template_hash IS NOT NULL AND (? IS NULL OR template_hash = ?)
                      AND model_name = ?
                      AND status = 'success' AND run_id != ?
-                   ORDER BY completed_at DESC
+                   ORDER BY completed_at DESC, id DESC
                    LIMIT 1""",
                 (template_hash, template_hash, model_name, exclude_run_id or ""),
             ).fetchone()

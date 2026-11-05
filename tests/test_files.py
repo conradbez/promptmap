@@ -464,6 +464,13 @@ def test_docs_exports_files_and_shows_them(tmp_path):
     assert f'src="files/{sha}/logo.png"' in html
     assert "spec.pdf" in html and 'download="spec.pdf"' in html
     assert "Files" in html and "latest run" in html
+    # The gallery sits at the bottom of the page, in an expander that starts closed.
+    gallery = html.index('<details class="files-section">')
+    assert gallery > html.index("Run History")
+    assert html.index("Model DAG") < html.index("Run History")  # DAG first
+    assert '<details class="files-section" open' not in html
+    # Files in the run table collapse to one row, with a "…" toggle for the rest.
+    assert 'class="file-strip collapsible"' in html and 'class="file-more"' in html
     assert "$promptmap:v1" not in html  # the envelope never leaks into the report
 
 

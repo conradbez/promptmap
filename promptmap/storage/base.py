@@ -7,6 +7,10 @@ what the pipeline actually passed downstream rather than the raw text.  That
 method is optional: a backend that does not define it simply keeps the raw
 output, and the executor skips the call.
 
+``record_cache_label`` is optional too: it stores how a model's output was
+produced (``ModelRunResult.cache``) for the docs page; without it the page
+falls back to the ``cached`` flag.
+
 ``record_token_usage`` and ``get_cached_token_usage`` are optional as well.
 The first stores the tokens a model spent (and those its cache hits saved);
 the second returns the tokens spent behind a cache entry, so a hit can report
@@ -53,6 +57,7 @@ class StorageBackend(Protocol):
         cached: bool = False,
     ) -> None: ...
     def record_validated_output(self, run_id: str, model_name: str, output: str) -> None: ...
+    def record_cache_label(self, run_id: str, model_name: str, label: str) -> None: ...
     def record_token_usage(
         self,
         run_id: str,

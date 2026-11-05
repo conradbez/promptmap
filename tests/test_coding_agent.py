@@ -758,6 +758,13 @@ def test_warm_start_is_the_default_through_the_executor(tmp_path, monkeypatch, j
     assert run_once(edited + "\nAnd tidy.")["cache"] == "warm"  # warm again from the cold run
     # What `promptmap run` shows next to the model, run by run.
     assert labels == ["miss", "warm", "hit", "miss", "warm"]
+    # ...and the same labels are stored for the docs page's run history.
+    stored = [
+        row["cache_label"]
+        for run in reversed(storage.get_latest_runs(10))
+        for row in storage.get_run_results(run["run_id"]) if row["model_name"] == "agent"
+    ]
+    assert stored == labels
 
 
 def test_warm_start_is_on_by_default_for_coding_agent_only():

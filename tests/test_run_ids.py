@@ -481,3 +481,37 @@ def test_results_label_exact_hits_and_cache_check_reuse(storage) -> None:
     _results(models, storage, llm, promptdata={"topic": "tea"})
     approved = _results(models, storage, llm, promptdata={"topic": "green tea"}, cache_check=Checker(True))
     assert approved["a"].cache == "cache_check"
+
+
+def test_cache_label_is_stored_and_shown_on_the_docs_page(storage, tmp_path) -> None:
+    from promptmap.docs import generate_docs
+    from promptmap.executor import build_models_from_dict
+
+    llm = EchoLLM()
+    models = {"a": "Slogan for tea"}
+    _results(models, storage, llm)
+    second = _results(models, storage, llm)
+    run_id = storage.get_latest_runs(1)[0]["run_id"]
+    row = [r for r in storage.get_run_results(run_id) if r["model_name"] == "a"][0]
+    assert second["a"].cache == "cache"
+    assert row["cache_label"] == "cache"
+
+    out = tmp_path / "docs" / "index.html"
+    runs = storage.get_latest_runs()
+    generate_docs(
+        runs=runs,
+        run_results={r["run_id"]: storage.get_run_results(r["run_id"]) for r in runs},
+        models=build_models_from_dict(models), output_path=out,
+    )
+    html = out.read_text()
+    assert html.count('data-cache="cache"') == 1  # the second run only; the first one ran
+
+
+def test_docs_cache_tags_cover_agent_verdicts_and_old_rows() -> None:
+    from promptmap.docs import _cache_tags
+
+    assert _cache_tags("warm", False)[0]["text"] == "warm · continued previous run"
+    assert _cache_tags("hit", False)[0]["verdict"] == "hit"  # no LLM call, still labelled
+    assert _cache_tags(None, True)[0]["text"] == "cached"    # stored before labels existed
+    assert _cache_tags(None, False) == []
+    assert [t["verdict"] for t in _cache_tags("hit, warm", False)] == ["hit", "warm"]

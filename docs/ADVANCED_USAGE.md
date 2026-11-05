@@ -112,6 +112,12 @@ prints it after each model and counts each kind in the summary:
 | `cache_check` | the prompt changed, but your `cache_check` let the last result be reused |
 | `hit` / `replay` / `merged` / `warm` / `miss` | a `coding_agent`'s own verdict — see [Coding agent](#coding-agent-model_typecoding_agent) |
 
+The same label is stored with each run (`cache_label` in the run database)
+and shown as a tag next to the model's status in the run history of
+`promptmap docs`, so you can see afterwards which runs re-ran an agent and
+which reused its work. Runs recorded before 0.7.12 show a plain "cached" tag
+where they were served from the prompt cache.
+
 A custom kind with its own reuse logic reports its verdict with
 `call.report_cache("...")` (see [Writing your own model kind](#writing-your-own-model-kind-model_type)).
 

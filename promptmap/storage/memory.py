@@ -223,6 +223,9 @@ class MemoryStorageBackend:
             "llm_output_validated"
         ] = output
 
+    def record_cache_label(self, run_id: str, model_name: str, label: str) -> None:
+        self._results.setdefault(run_id, {}).setdefault(model_name, {})["cache_label"] = label
+
     def mark_model_error(self, run_id: str, model_name: str, error: str) -> None:
         self._results[run_id][model_name].update(
             {

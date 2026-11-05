@@ -19,7 +19,7 @@ from rich.markup import escape as _escape
 from rich.table import Table
 from rich import box
 
-from promptmap.executor.executor import ModelRunResult
+from promptmap.executor.executor import CACHE_LABELS, ModelRunResult
 from promptmap.tester import TestResult
 
 
@@ -96,16 +96,6 @@ def _squares(done: int, todo: int) -> str:
     return " ".join(["[bold]■[/bold]"] * done + ["[grey50]■[/grey50]"] * todo)
 
 
-#: How each cache label reads in `promptmap run`: (short label, colour).
-_CACHE_LABELS = {
-    "cache": ("cached", "cyan"),
-    "cache_check": ("reused · cache_check", "cyan"),
-    "hit": ("hit · change re-applied", "cyan"),
-    "replay": ("replay · re-applied + verified", "cyan"),
-    "merged": ("merged · re-applied + merged", "cyan"),
-    "warm": ("warm · continued previous run", "magenta"),
-    "miss": ("miss · agent ran", "yellow"),
-}
 
 
 def cache_label(cache: str) -> str:
@@ -114,7 +104,7 @@ def cache_label(cache: str) -> str:
         return ""
     parts = []
     for verdict in cache.split(", "):
-        text, colour = _CACHE_LABELS.get(verdict, (verdict, "cyan"))
+        text, colour = CACHE_LABELS.get(verdict, (verdict, "cyan"))
         parts.append(f"[{colour}]{text}[/{colour}]")
     return " [dim]·[/dim] " + ", ".join(parts)
 

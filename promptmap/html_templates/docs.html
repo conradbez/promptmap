@@ -204,7 +204,9 @@
                         <td><span class="type-chip">{{ r.model_type }}</span></td>
                         <td class="config-cell">{{ r.config or '—' }}</td>
                         <td style="white-space:nowrap">
-                          {{ badge(r.status) }}{% if r.cached %}<span class="tag">Cached</span>{% endif %}
+                          {{ badge(r.status) }}{% for t in r.cache_tags %}<span class="tag cache-tag" data-cache="{{ t.verdict }}"
+                            style="color:{{ t.colour }};border-color:{{ t.colour }}"
+                            title="How this output was produced">{{ t.text }}</span>{% endfor %}
                         </td>
                         {# 0 ms is a real measurement (a model that made no call); — means not recorded. #}
                         <td style="color:var(--pico-muted-color);white-space:nowrap">{{ (r.execution_ms ~ ' ms') if r.execution_ms is not none else '—' }}</td>

@@ -32,6 +32,7 @@ _ADDED_COLUMNS = {
         "spent_tokens": "INTEGER",
         "cache_spent_tokens": "INTEGER",
         "template_hash": "TEXT",
+        "cache_label": "TEXT",
     },
     "runs": {
         "map_hash": "TEXT",
@@ -115,7 +116,8 @@ class SQLiteStorageBackend:
                     model_type       TEXT      NOT NULL DEFAULT '',
                     config           TEXT      NOT NULL DEFAULT '{}',
                     spent_tokens     INTEGER,
-                    cache_spent_tokens INTEGER
+                    cache_spent_tokens INTEGER,
+                    cache_label      TEXT
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_model_results_run
@@ -389,6 +391,15 @@ class SQLiteStorageBackend:
                 "UPDATE model_results SET llm_output_validated=? "
                 "WHERE run_id=? AND model_name=?",
                 (output, run_id, model_name),
+            )
+
+    def record_cache_label(self, run_id: str, model_name: str, label: str) -> None:
+        """How the model's output was produced (:attr:`ModelRunResult.cache`),
+        for the docs page: ``cache``, ``cache_check``, ``hit``, ``warm``, …"""
+        with self.get_conn() as conn:
+            conn.execute(
+                "UPDATE model_results SET cache_label=? WHERE run_id=? AND model_name=?",
+                (label, run_id, model_name),
             )
 
     def record_token_usage(

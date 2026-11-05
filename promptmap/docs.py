@@ -143,6 +143,27 @@ def _human_size(size: int) -> str:
     return f"{size} B"  # pragma: no cover
 
 
+#: CSS colours for the CACHE_LABELS colour names.
+_TAG_COLOURS = {"cyan": "#0891b2", "magenta": "#a21caf", "yellow": "#b45309"}
+
+
+def _cache_tags(label: str | None, cached: bool) -> list[dict]:
+    """``[{"text", "colour", "verdict"}]`` for a model row's cache label.
+
+    A row stored before labels were recorded has none; its ``cached`` flag
+    still says "served from the prompt cache".
+    """
+    from promptmap.executor.executor import CACHE_LABELS
+
+    if not label:
+        return [{"text": "cached", "colour": _TAG_COLOURS["cyan"], "verdict": "cache"}] if cached else []
+    tags = []
+    for verdict in label.split(", "):
+        text, colour = CACHE_LABELS.get(verdict, (verdict, "cyan"))
+        tags.append({"text": text, "colour": _TAG_COLOURS.get(colour, colour), "verdict": verdict})
+    return tags
+
+
 def _total(values) -> int | None:
     """Sum the known values, or None when none is known."""
     known = [v for v in values if v is not None]
@@ -227,6 +248,7 @@ def generate_docs(
             "output_preview": (text or "")[:200],
             "files": files,
             "cached": bool(_column(r, "cached")),
+            "cache_tags": _cache_tags(_column(r, "cache_label"), bool(_column(r, "cached"))),
             "tokens_used": _column(r, "spent_tokens"),
             "tokens_cached": _column(r, "cache_spent_tokens"),
         }

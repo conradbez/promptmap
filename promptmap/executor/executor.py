@@ -41,6 +41,19 @@ from promptmap.storage.base import StorageBackend
 from promptmap.types import PromptFile
 
 
+#: How each :attr:`ModelRunResult.cache` value reads, in ``promptmap run`` and
+#: on the docs page: ``verdict -> (short label, colour)``.  "" (the model ran)
+#: has no label.  Unknown verdicts from custom kinds show as themselves.
+CACHE_LABELS: dict[str, tuple[str, str]] = {
+    "cache": ("cached", "cyan"),
+    "cache_check": ("reused · cache_check", "cyan"),
+    "hit": ("hit · change re-applied", "cyan"),
+    "replay": ("replay · re-applied + verified", "cyan"),
+    "merged": ("merged · re-applied + merged", "cyan"),
+    "warm": ("warm · continued previous run", "magenta"),
+    "miss": ("miss · agent ran", "yellow"),
+}
+
 #: Default for ``execute_run(max_parallel=...)`` and ``promptmap run --threads``.
 DEFAULT_MAX_PARALLEL = 4
 
@@ -271,6 +284,10 @@ async def execute_model(spec: ModelSpec, ctx: RunContext) -> ModelRunResult:
         cache_key=None if spec.each else (looked_up or ctx.cache_key(spec, rendered, ctx.files_for(spec))),
         cached=ctx.served_from_cache(spec.name),
     )
+    label = ctx.cache_label(spec.name)
+    record_label = getattr(ctx.storage, "record_cache_label", None)
+    if label and record_label is not None:
+        record_label(ctx.run_id, spec.name, label)
     spent, cache_spent = ctx.spent_tokens(spec.name), ctx.cache_spent_tokens(spec.name)
     record_tokens = getattr(ctx.storage, "record_token_usage", None)
     if record_tokens is not None and (spent is not None or cache_spent is not None):
@@ -312,7 +329,7 @@ async def execute_model(spec: ModelSpec, ctx: RunContext) -> ModelRunResult:
         llm_output=output,
         execution_ms=ctx.elapsed_ms(spec.name),
         cached=ctx.served_from_cache(spec.name),
-        cache=ctx.cache_label(spec.name),
+        cache=label,
         prompt_skipped=skipped,
         value=ctx.outputs[spec.name],
         spent_tokens=spent,

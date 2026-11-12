@@ -121,6 +121,10 @@ def set_blob_store(store) -> None:
 
 
 def clear_cache(models: list[str] | None = None, previous: bool = False) -> int:
+    """Clear the prompt cache, and the agent step cache with it."""
+    from promptmap import agent_step_cache
+
+    agent_step_cache.clear(models)
     return _DEFAULT_BACKEND.clear_cache(models, previous)
 
 

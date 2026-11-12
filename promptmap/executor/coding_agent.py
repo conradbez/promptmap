@@ -121,6 +121,7 @@ from typing import Any, Callable, Iterable
 import time
 
 from promptmap.files import Dir, File, FileOutputError, select_path, split_model_path
+from promptmap import agent_step_cache
 from promptmap.model_types import ModelCall, ModelKind, register_model_kind
 
 from . import mini_swe
@@ -735,23 +736,21 @@ async def _run_agent(
     )
     start = base if start is None else start
 
+    # Keyed on the task (which carries the previous attempt) and the input
+    # tree, so an identical situation is memoised by promptmap's own cache.
+    key = f"{task}\x00base:{base.sha256}"
+    if start is not base:
+        key += f"\x00start:{start.sha256}"
+
     def work() -> dict:
-        scratch = Path(tempfile.mkdtemp(prefix="promptmap-coding-agent-"))
-        try:
+        # Same key, same folder: a restarted run replays its steps (agent_step_cache).
+        with agent_step_cache.scratch_dir("promptmap-coding-agent-", f"{call.spec.name}\x00{key}") as scratch:
             root = start.save(scratch)
             spec = call.spec.derive(config={**call.spec.config, "agent_dir": str(root)})
             raw = _exec_agent(task, dataclasses.replace(call, spec=spec))
             result = json.loads(raw) if isinstance(raw, str) else raw
             result["result"] = snapshot_dir(root, keep=set(start.entries), name=base.name)
             return result
-        finally:
-            shutil.rmtree(scratch, ignore_errors=True)
-
-    # Keyed on the task (which carries the previous attempt) and the input
-    # tree, so an identical situation is memoised by promptmap's own cache.
-    key = f"{task}\x00base:{base.sha256}"
-    if start is not base:
-        key += f"\x00start:{start.sha256}"
     value = await call.compute(key, compute=lambda: asyncio.to_thread(work))
     value = json.loads(value) if isinstance(value, str) else dict(value)
     result: Dir = value["result"]

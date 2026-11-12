@@ -15,6 +15,7 @@ import os
 import time
 from pathlib import Path
 
+from promptmap import agent_step_cache
 from promptmap.model_types import ModelCall, report_progress
 
 #: The config keys the harness reads.
@@ -52,8 +53,11 @@ def run_mini_swe(task: str, call: ModelCall, workdir: Path) -> dict:
     model_cfg = defaults["model"] | {
         "observation_template": defaults["model"]["observation_template"] + _BUDGET_TEMPLATE,
     }
+    model = _agent_model(agent_model_name(call.spec), model_cfg)
+    # Replay of identical steps after a cut-off run (see agent_step_cache).
+    agent_step_cache.wrap_query(model, call.spec.name)
     agent = _Agent(
-        _agent_model(agent_model_name(call.spec), model_cfg),
+        model,
         LocalEnvironment(cwd=str(workdir), **defaults["environment"]),
         **defaults["agent"] | {
             "step_limit": step_limit,

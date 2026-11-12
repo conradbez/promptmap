@@ -24,14 +24,13 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import shutil
-import tempfile
 from pathlib import Path
 from typing import Any
 
 from promptmap.files import (
     Dir, File, FileOutputError, Output, iter_files, safe_relpath, select_path, split_model_path,
 )
+from promptmap import agent_step_cache
 from promptmap.model_types import ModelCall, ModelKind, register_model_kind
 
 from . import mini_swe
@@ -62,15 +61,15 @@ def input_files(call: ModelCall) -> list[tuple[str, File]]:
 async def run_agent(rendered: str, call: ModelCall) -> Any:
     inputs = input_files(call)
     digest = hashlib.sha256("\n".join(f"{p}:{f.sha256}" for p, f in inputs).encode()).hexdigest()
+    key = f"{rendered}\x00inputs:{digest}"
     return await call.compute(
-        f"{rendered}\x00inputs:{digest}",
-        compute=lambda: asyncio.to_thread(_work, rendered, call, inputs),
+        key, compute=lambda: asyncio.to_thread(_work, rendered, call, inputs, key),
     )
 
 
-def _work(rendered: str, call: ModelCall, inputs: list[tuple[str, File]]) -> Any:
-    workdir = Path(tempfile.mkdtemp(prefix="promptmap-agent-"))
-    try:
+def _work(rendered: str, call: ModelCall, inputs: list[tuple[str, File]], key: str = "") -> Any:
+    # Same key, same folder: a restarted run replays its steps (agent_step_cache).
+    with agent_step_cache.scratch_dir("promptmap-agent-", f"{call.spec.name}\x00{key}") as workdir:
         for rel, file in inputs:
             target = workdir / "inputs" / rel
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -83,8 +82,6 @@ def _work(rendered: str, call: ModelCall, inputs: list[tuple[str, File]]) -> Any
         )
         result = _exec_agent(rendered + note, call, workdir)
         files = _collect(workdir / "outputs")  # File reads its bytes now
-    finally:
-        shutil.rmtree(workdir, ignore_errors=True)
     text = result["output"]
     return Output(text, files=files) if files else text
 

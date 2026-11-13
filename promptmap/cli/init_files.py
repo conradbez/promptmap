@@ -212,9 +212,11 @@ def register_command(main) -> None:
     )
     @click.option(
         "--provider", default=None,
-        help="LiteLLM provider (e.g. anthropic, openai, gemini). Asked interactively if omitted.",
+        help="LiteLLM provider: anthropic, openai, gemini, groq, openrouter, ... "
+             "Omit it in a terminal to pick from a filterable list of all of them.",
     )
-    @click.option("--model", default=None, help="Model name. Asked interactively if omitted.")
+    @click.option("--model", default=None,
+                  help="Any model the provider serves (not checked). Asked if omitted.")
     @click.option(
         "--api-key", default=None,
         help="Value for the provider's API key variable (e.g. GROQ_API_KEY), written to .env.",
@@ -234,11 +236,10 @@ def register_command(main) -> None:
     ) -> None:
         """Scaffold a starter promptmap project inside PROJECT_NAME/.
 
-        Writes settings.yml with the provider and model `promptmap run` calls
-        through LiteLLM, and the API key variables it needs to .env.  Whatever
-        --provider / --model / --api-key / --env leave out is asked for;
-        Enter at a prompt leaves it blank.  --no-interactive asks nothing and
-        leaves it blank.
+        Writes settings.yml (the provider + model `promptmap run` calls via
+        LiteLLM) and .env (the API key it needs).  Anything the flags leave
+        out is asked for; Enter leaves it blank.  --no-interactive asks
+        nothing: use it in scripts and from agents.
 
         --secrets, --data and --files also write secrets.yml (+ secrets-template.yml),
         promptdata.yml and promptfiles.yml, listing the keys the project's
@@ -248,13 +249,13 @@ def register_command(main) -> None:
 
         \b
         Examples:
+          promptmap init my_project           (asks provider, model, key)
           promptmap init my_project --provider anthropic --model claude-sonnet-4-5
-          promptmap init my_project          (asks for provider, model, API key)
-          promptmap init my_project --provider groq --model llama-3.3-70b-versatile --api-key gsk_...
-          promptmap init my_project --no-interactive   (blank settings.yml + .env to edit)
-          promptmap init --provider openai   (in an existing project: rewrite settings.yml)
+          promptmap init my_project --provider openai --model gpt-4o-mini --api-key sk-...
+          promptmap init my_project --no-interactive    (blank files to edit)
+          promptmap init --provider openai    (existing project: new settings)
           promptmap init my_project --secrets --data
-          promptmap init --secrets          (in an existing project)
+          promptmap init --secrets            (existing project)
         """
         from promptmap import settings as _settings
 

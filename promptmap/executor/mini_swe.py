@@ -41,6 +41,12 @@ def run_mini_swe(task: str, call: ModelCall, workdir: Path) -> dict:
             f'model_type="{call.spec.model_type}" needs mini-swe-agent: pip install mini-swe-agent'
         ) from exc
 
+    # Same litellm hygiene as the default backend: no message logging,
+    # callbacks or debug output (mini-swe-agent calls litellm directly).
+    from promptmap.llm import quiet_litellm
+
+    quiet_litellm()
+
     step_limit = call.spec.config_int("agent_step_limit", 0)
 
     class _Agent(DefaultAgent):

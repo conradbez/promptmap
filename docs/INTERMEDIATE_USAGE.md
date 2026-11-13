@@ -121,7 +121,7 @@ API keys come from the environment or `.env`. When `init` or `run` saves a provi
 
 Examples: `groq` → `GROQ_API_KEY`; `gemini` → `GEMINI_API_KEY` (`GOOGLE_API_KEY` also works); `azure` → `AZURE_API_KEY`, `AZURE_API_BASE`, `AZURE_API_VERSION`; `bedrock` → `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`.
 
-The default backend switches LiteLLM's telemetry, message logging, callbacks and debug output off, so prompts go to the provider only. litellm is pinned to an exact version in promptmap's dependencies.
+The default backend and the agent kinds switch LiteLLM's message logging, callbacks and debug output off, so prompts go to the provider only. promptmap also sets `LITELLM_LOCAL_MODEL_COST_MAP=True` (unless you set it yourself), so importing litellm doesn't download its price list from GitHub. litellm is pinned to an exact version in promptmap's dependencies.
 
 Attached files (`promptfiles`) go in the same message: text inline, images and PDFs as base64 content blocks (the model must accept them).
 

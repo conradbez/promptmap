@@ -3,7 +3,7 @@ promptmap CLI
 
 Commands
 --------
-promptmap init         Scaffold a starter project (or add secrets/data/files YAML).
+promptmap init         Scaffold a project: settings.yml (provider/model), .env (key), map/.
 promptmap run          Execute all prompt models (or a subset via --select).
 promptmap test         Run *.testprompt tests from the map/ directory.
 promptmap ls           List discovered models and their dependencies.
@@ -12,6 +12,8 @@ promptmap show-result  Print the stored output for a specific model + run.
 promptmap docs         Generate an HTML report of past runs.
 promptmap serve        Serve the docs report and a web/HTTP model runner.
 promptmap type-hints   Write jinja-lsp autocomplete stubs for .prompt files.
+promptmap clear-cache  Make models start cold on the next run.
+promptmap rename       Rename a model, keeping its references and history.
 """
 
 from __future__ import annotations
@@ -144,7 +146,7 @@ def main() -> None:
 
     \b
     Get started:
-      promptmap init my_project   scaffold a project, then cd my_project
+      promptmap init my_project   scaffold a project (picks provider, model, key)
       promptmap run               run every model
       promptmap test              check outputs with test prompts
       promptmap docs --open       browse past runs
@@ -274,6 +276,10 @@ def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple
 
     Models that do not depend on each other run in parallel (--threads, default 4).
 
+    The LLM is the provider + model in settings.yml (API key in .env), or
+    client.py's llm_call if it has one.  With neither, a terminal is asked
+    to pick one; --no-interactive fails instead.
+
     Defaults for any value not passed as a flag are read from promptdata.yml,
     promptfiles.yml and secrets.yml in the current directory (create them
     with `promptmap init --data --files --secrets`). Flags override them key by key.
@@ -283,7 +289,8 @@ def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple
       promptmap run
       promptmap run -s summaries --promptdata topic=cats
       promptmap run --promptfile doc=report.pdf --secret OPENAI_API_KEY
-      promptmap run --provider openai --model gpt-4o-mini
+      promptmap run --provider openai --model gpt-4o-mini   (saved to settings.yml)
+      promptmap run --no-interactive                        (scripts, agents, CI)
     """
     c = Console(highlight=not no_color)
     configure_llm_or_exit(map_dir, provider, model, no_interactive=no_interactive,

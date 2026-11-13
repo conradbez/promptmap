@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+import os
+
+# litellm downloads its model price list from GitHub on every import unless
+# this is set.  Use the copy bundled with the (pinned) package instead: no
+# network call just for importing.  setdefault, so exporting
+# LITELLM_LOCAL_MODEL_COST_MAP=False opts back in.  Must run before anything
+# imports litellm.
+os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+
 import re
 from enum import Enum
 from importlib.metadata import PackageNotFoundError, version as package_version

@@ -46,12 +46,18 @@ What this means for you as the agent:
 
 ```bash
 uv tool install promptmap
-promptmap init --provider anthropic --model claude-sonnet-4-5   # writes settings.yml
+promptmap init my_project --no-interactive --provider anthropic --model claude-sonnet-4-5
 promptmap run        # run the DAG (add -s <model> to run one model + upstream)
 promptmap test       # run tests against the latest run
 promptmap docs       # HTML report: rendered prompts, outputs, tokens, tests
 promptmap serve      # local UI to explore and trigger runs
 ```
+
+`init` writes `settings.yml` (provider + model) and `.env` (API key). As an
+agent, always pass `--no-interactive` (the prompts need a human) plus the
+flags you know; run `promptmap init --help` for the valid options. Never
+paste a user's key into a command — leave it blank in `.env` for them.
+One prompt can use another model: `{{ config(model="...") }}`.
 
 Loop: edit one node → `promptmap run -s <model>` → read the output (or
 `promptmap docs`) → `promptmap test` → repeat.
@@ -216,7 +222,8 @@ Intermediate — `docs/INTERMEDIATE_USAGE.md`:
 | Pull search/RAG results into a prompt | `rag.py`, `rag_*()` kinds | `#rag-inside-prompts-ragpy` |
 | Organise many models | subfolders in `map/` | `#grouping-models-in-folders` |
 | Skip a model conditionally | `skip_and_set_to_value()` | `#how-to-dynamically-skip-a-model` |
-| Swap LLM provider / custom call | `client.py` | `#customising-the-llm-backend-clientpy` |
+| Change provider / model | `settings.yml`, `config(model=...)` | `#choosing-the-provider-and-model-settingsyml` |
+| Fully custom LLM call | `client.py` | `#customising-the-llm-backend-clientpy` |
 | Schema-check an output in Python | `validation/<model>.py` | `#validation-validation` |
 | Yes/no classifier judge, gate tests | `.testprompt` options | `#promptmap-tests` |
 

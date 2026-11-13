@@ -215,14 +215,30 @@ def register_command(main) -> None:
         help="LiteLLM provider (e.g. anthropic, openai, gemini). Asked interactively if omitted.",
     )
     @click.option("--model", default=None, help="Model name. Asked interactively if omitted.")
+    @click.option(
+        "--api-key", default=None,
+        help="Value for the provider's API key variable (e.g. GROQ_API_KEY), written to .env.",
+    )
+    @click.option(
+        "--env", "env_flags", multiple=True, metavar="NAME=VALUE",
+        help="Write NAME=VALUE to .env (e.g. AZURE_API_BASE=...). Repeatable.",
+    )
+    @click.option(
+        "--no-interactive", "--nointeractive", "no_interactive", is_flag=True, default=False,
+        help="Ask nothing: anything not given by a flag is left blank in settings.yml / .env.",
+    )
     def init(
         project_name: str | None, force: bool, with_secrets: bool, with_data: bool,
         with_files: bool, map_dir: str, provider: str | None, model: str | None,
+        api_key: str | None, env_flags: tuple[str, ...], no_interactive: bool,
     ) -> None:
         """Scaffold a starter promptmap project inside PROJECT_NAME/.
 
         Writes settings.yml with the provider and model `promptmap run` calls
-        through LiteLLM.  Without --provider / --model they are asked for.
+        through LiteLLM, and the API key variables it needs to .env.  Whatever
+        --provider / --model / --api-key / --env leave out is asked for;
+        Enter at a prompt leaves it blank.  --no-interactive asks nothing and
+        leaves it blank.
 
         --secrets, --data and --files also write secrets.yml (+ secrets-template.yml),
         promptdata.yml and promptfiles.yml, listing the keys the project's
@@ -233,17 +249,25 @@ def register_command(main) -> None:
         \b
         Examples:
           promptmap init my_project --provider anthropic --model claude-sonnet-4-5
-          promptmap init my_project          (asks for provider and model)
+          promptmap init my_project          (asks for provider, model, API key)
+          promptmap init my_project --provider groq --model llama-3.3-70b-versatile --api-key gsk_...
+          promptmap init my_project --no-interactive   (blank settings.yml + .env to edit)
           promptmap init --provider openai   (in an existing project: rewrite settings.yml)
           promptmap init my_project --secrets --data
           promptmap init --secrets          (in an existing project)
         """
+        from promptmap import settings as _settings
+
+        env_values = parse_env_flags(env_flags)
+        interactive = not no_interactive and _settings.is_interactive()
+        llm_flags = provider is not None or model is not None or api_key is not None or bool(env_values)
+        llm_kwargs = dict(interactive=interactive, api_key=api_key, env_values=env_values)
         kinds = [k for k, on in (("secrets", with_secrets), ("data", with_data), ("files", with_files)) if on]
-        if project_name is None and (kinds or provider or model):
+        if project_name is None and (kinds or llm_flags):
             for kind in kinds:
                 init_values_file(console, kind, Path("."), Path(map_dir), force)
-            if provider or model:
-                write_settings(console, Path("."), provider, model)
+            if llm_flags:
+                write_settings(console, Path("."), provider, model, **llm_kwargs)
             return
         project_name = project_name or "generate_articles_example"
         files = dict(INIT_FILES)
@@ -299,8 +323,8 @@ def validate(prompt: str, result: str):
         for kind in kinds:
             init_values_file(console, kind, root, root / map_dir, force)
 
-        if force or not (root / SETTINGS_FILE).exists() or provider or model:
-            write_settings(console, root, provider, model)
+        if force or not (root / SETTINGS_FILE).exists() or llm_flags:
+            write_settings(console, root, provider, model, **llm_kwargs)
         else:
             console.print(f"  [dim]skipped[/dim]  {root / SETTINGS_FILE}  [dim](use --provider/--model to change)[/dim]")
 
@@ -316,39 +340,42 @@ def validate(prompt: str, result: str):
 # settings.yml — provider + model for the default LiteLLM backend
 # ---------------------------------------------------------------------------
 
-def write_settings(console, root: Path, provider: str | None, model: str | None) -> None:
-    """Write *root*/settings.yml, asking for whichever of provider/model is missing.
+def parse_env_flags(pairs) -> dict[str, str]:
+    """--env NAME=VALUE flags -> dict; exits on a malformed one."""
+    import sys
+
+    values = {}
+    for pair in pairs:
+        name, sep, value = pair.partition("=")
+        if not sep or not name.strip():
+            print(f"Error: --env must be NAME=VALUE, got: {pair!r}", file=sys.stderr)
+            sys.exit(1)
+        values[name.strip()] = value
+    return values
+
+
+def write_settings(console, root: Path, provider: str | None, model: str | None, *,
+                   interactive: bool, api_key: str | None = None,
+                   env_values: dict[str, str] | None = None) -> None:
+    """Write *root*/settings.yml and .env, asking (if *interactive*) for what flags left out.
 
     --provider must be a LiteLLM provider; --model is taken as given (the
     list of known models is a menu, not a whitelist).
     """
     import sys
 
-    from promptmap import settings as _settings
-    from promptmap.settings import ask_model, ask_provider, is_known_provider, save_settings
+    from rich.markup import escape
 
-    if (provider is None or model is None) and not _settings.is_interactive():
-        console.print(
-            f"  [yellow]skipped[/yellow]  {root / SETTINGS_FILE}  [dim](not interactive: pass "
-            "--provider and --model, or run `promptmap init` again in a terminal)[/dim]"
-        )
-        return
-    if provider is not None:
-        provider = provider.lower()
-        if not is_known_provider(provider):
-            console.print(
-                f"[red]Error:[/red] unknown provider '{provider}'. "
-                f"Choose one of: {', '.join(_settings.supported_providers())}"
-            )
-            sys.exit(1)
-    else:
-        provider = ask_provider()
-    if model is None:
-        model = ask_model(provider)
-    path = save_settings(root, provider, model)
-    console.print(f"  [green]wrote[/green]  {path}  [dim]({provider}:{model})[/dim]")
-    for note in _settings.ensure_env_keys(root, provider, model, ask=_settings.is_interactive()):
-        console.print(f"  [green]env[/green]    {note}")
+    from promptmap.settings import setup_llm
+
+    try:
+        notes = setup_llm(root, provider=provider, model=model, interactive=interactive,
+                          api_key=api_key, env_values=env_values)
+    except ValueError as exc:
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
+        sys.exit(1)
+    for note in notes:
+        console.print(f"  [green]wrote[/green]  {escape(note)}")
 
 
 # ---------------------------------------------------------------------------

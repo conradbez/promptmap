@@ -94,13 +94,22 @@ model: claude-sonnet-4-5
 
 Three ways to set it:
 
-1. `promptmap init my_project` asks for both. Pick a provider from LiteLLM's list, then a model from a numbered list (type text to filter it). A model name that isn't in the list is used as typed.
-2. `promptmap init --provider openai --model gpt-4o-mini` (or the same flags on `promptmap run`) writes them directly.
+1. `promptmap init my_project` asks for provider, model and API key. Pick a provider from LiteLLM's list, then a model from a numbered list (type text to filter it). A model name that isn't in the list is used as typed. **Enter at any prompt leaves that value blank** — Enter at every prompt writes a blank `settings.yml` (and no key) for you to fill in by hand.
+2. Flags — every prompt has one, so nothing needs to be asked:
+
+   ```bash
+   promptmap init my_project --provider groq --model llama-3.3-70b-versatile --api-key gsk_...
+   promptmap init my_project --provider azure --model my-deployment --api-key ... \
+       --env AZURE_API_BASE=https://... --env AZURE_API_VERSION=2025-01-01
+   promptmap init my_project --no-interactive   # ask nothing; blanks for anything not flagged
+   ```
+
+   `--api-key` fills the provider's key variable (e.g. `GROQ_API_KEY`); `--env NAME=VALUE` writes any variable. `promptmap run` takes the same flags; `run --no-interactive` fails instead of asking when no LLM is set up. Without a terminal (CI, pipes), both behave as `--no-interactive`.
 3. Edit `settings.yml` by hand. `promptmap run` does not validate the values, so any provider/model LiteLLM accepts works (a model already written as `provider/model` is used as-is).
 
 The provider and model lists `init` offers come from the model list bundled with the installed litellm package (no network call); upgrading litellm updates them. If `promptmap run` finds neither `settings.yml` nor a `client.py` and is run in a terminal, it asks for provider and model and saves them.
 
-API keys come from the environment or `.env`. When `init` or `run` saves a provider and model, promptmap asks LiteLLM which variables that model needs (`litellm.validate_environment`) and adds each one missing from `.env` as `NAME=` (creating `.env` if needed and gitignoring it). In a terminal it offers to take each value now (hidden input); say no and fill in `.env` yourself later. A variable that already has a value in `.env` or your environment is left alone.
+API keys come from the environment or `.env`. When `init` or `run` saves a provider and model, promptmap asks LiteLLM which variables that model needs (`litellm.validate_environment`) and adds each one missing from `.env` as `NAME=` (creating `.env` if needed and gitignoring it). In a terminal it offers to take each value now (hidden input); Enter (no) leaves `NAME=` blank to fill in `.env` yourself later. A variable that already has a value in `.env` or your environment is left alone.
 
 Examples: `groq` → `GROQ_API_KEY`; `gemini` → `GEMINI_API_KEY` (`GOOGLE_API_KEY` also works); `azure` → `AZURE_API_KEY`, `AZURE_API_BASE`, `AZURE_API_VERSION`; `bedrock` → `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`.
 

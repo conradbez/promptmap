@@ -15,7 +15,8 @@ A **data-engineering-inspired** prompt orchestration tool for LLMs (think `dbt` 
 ```bash
 uv tool install promptmap
 promptmap init my_project   # asks for provider, model + API key; writes settings.yml and .env
-# or: promptmap init my_project --provider anthropic --model claude-sonnet-4-5
+# or: promptmap init my_project --provider anthropic --model claude-sonnet-4-5 --api-key sk-...
+# or: promptmap init my_project --no-interactive   (blank settings.yml/.env to edit)
 ```
 
 promptmap calls your LLM through [LiteLLM](https://github.com/BerriAI/litellm) (100+ providers). The provider and model

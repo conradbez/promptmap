@@ -73,63 +73,43 @@ from promptmap.cli.pretty_print import console, err_console, format_duration
 # CLI group
 # ---------------------------------------------------------------------------
 
-def configure_llm_or_exit(map_dir: str, provider: str | None, model: str | None) -> None:
-    """Save --provider/--model to settings.yml; ask for them if no LLM is set up.
+def configure_llm_or_exit(
+    map_dir: str, provider: str | None, model: str | None, *,
+    no_interactive: bool = False, api_key: str | None = None, env_flags: tuple[str, ...] = (),
+) -> None:
+    """Apply --provider/--model/--api-key/--env; ask for an LLM if none is set up.
 
     Flags are stored as given — no validation, like hand edits to the file.
-    With neither flag, client.py's llm_call or a complete settings.yml is
-    used as-is; only when both are missing does an interactive terminal get
-    asked (a non-interactive run falls through to the usual error).
+    With no flags, client.py's llm_call or a complete settings.yml is used
+    as-is; only when neither exists does an interactive terminal get asked.
     """
-    from promptmap.llm import has_llm_backend
-    from promptmap import settings as _settings
-    from promptmap.settings import ask_model, ask_provider, load_settings, save_settings
-
-    root = Path(map_dir).resolve().parent
-    if provider or model:
-        try:
-            current = load_settings(map_dir)
-        except Exception as exc:
-            err_console.print(f"[red]Error:[/red] {escape(str(exc))}")
-            sys.exit(1)
-        provider = provider or current.get("provider")
-        if not provider:
-            if not _settings.is_interactive():
-                err_console.print("[red]Error:[/red] --model needs --provider (settings.yml has none).")
-                sys.exit(1)
-            provider = ask_provider()
-        model = model or current.get("model")
-        if not model or (model == current.get("model") and provider != current.get("provider")):
-            if not _settings.is_interactive():
-                err_console.print("[red]Error:[/red] pass --model along with a new --provider.")
-                sys.exit(1)
-            model = ask_model(provider)
-        path = save_settings(root, provider, model)
-        console.print(f"  [dim]{path.name}: {provider}:{model}[/dim]")
-        _note_env_keys(root, provider, model, _settings.is_interactive())
-        return
-    if has_llm_backend(map_dir) or not _settings.is_interactive():
-        return
-    console.print("[yellow]No LLM configured[/yellow] (no settings.yml or client.py). Pick one:")
-    provider = ask_provider()
-    model = ask_model(provider)
-    path = save_settings(root, provider, model)
-    console.print(f"  [green]wrote[/green]  {path}  [dim]({provider}:{model})[/dim]")
-    _note_env_keys(root, provider, model, ask=True)
-    console.print()
-
-
-def _note_env_keys(root: Path, provider: str, model: str, ask: bool) -> None:
-    """Add the variables the provider needs to .env and load them for this run."""
     from dotenv import load_dotenv
 
-    from promptmap.settings import ensure_env_keys
+    from promptmap import settings as _settings
+    from promptmap.cli.init_files import parse_env_flags
+    from promptmap.llm import has_llm_backend
 
-    notes = ensure_env_keys(root, provider, model, ask=ask)
+    root = Path(map_dir).resolve().parent
+    env_values = parse_env_flags(env_flags)
+    interactive = not no_interactive and _settings.is_interactive()
+    flagged = provider is not None or model is not None or api_key is not None or bool(env_values)
+    if not flagged:
+        if has_llm_backend(map_dir) or not interactive:
+            return
+        console.print("[yellow]No LLM configured[/yellow] (no settings.yml or client.py). Pick one:")
+    try:
+        current = _settings.load_settings(map_dir)
+        notes = _settings.setup_llm(
+            root, provider=provider, model=model, interactive=interactive, api_key=api_key,
+            env_values=env_values, current=current, validate_provider=False,
+        )
+    except Exception as exc:
+        err_console.print(f"[red]Error:[/red] {escape(str(exc))}")
+        sys.exit(1)
     for note in notes:
-        console.print(f"  [dim]{note}[/dim]")
-    if notes:
-        load_dotenv(root / ".env")
+        console.print(f"  [dim]{escape(note)}[/dim]")
+    load_dotenv(root / ".env")
+    console.print()
 
 
 def use_client_blob_store(map_dir: str) -> None:
@@ -280,7 +260,12 @@ def main() -> None:
     help="LiteLLM provider to call; saved to settings.yml. Not checked — any name LiteLLM accepts.",
 )
 @click.option("--model", default=None, help="Model to call; saved to settings.yml. Not checked.")
-def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple[str, ...], secret_flags: tuple[str, ...], promptfiles: tuple[str, ...], validation_dir: str, clear_cache: bool, global_instruction_path: str | None, wrap_refs: bool, threads: int, provider: str | None, model: str | None) -> None:
+@click.option("--api-key", default=None, help="Value for the provider's API key variable, saved to .env.")
+@click.option("--env", "env_flags", multiple=True, metavar="NAME=VALUE",
+              help="Save NAME=VALUE to .env (e.g. AZURE_API_BASE=...). Repeatable.")
+@click.option("--no-interactive", "--nointeractive", "no_interactive", is_flag=True, default=False,
+              help="Never prompt; with no LLM configured the run fails instead of asking.")
+def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple[str, ...], secret_flags: tuple[str, ...], promptfiles: tuple[str, ...], validation_dir: str, clear_cache: bool, global_instruction_path: str | None, wrap_refs: bool, threads: int, provider: str | None, model: str | None, api_key: str | None, env_flags: tuple[str, ...], no_interactive: bool) -> None:
     """Execute all prompt models in dependency order.
 
     *.testprompt tests in the map dir are gates unless they set {{ config(gate=False) }}:
@@ -301,7 +286,8 @@ def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple
       promptmap run --provider openai --model gpt-4o-mini
     """
     c = Console(highlight=not no_color)
-    configure_llm_or_exit(map_dir, provider, model)
+    configure_llm_or_exit(map_dir, provider, model, no_interactive=no_interactive,
+                          api_key=api_key, env_flags=env_flags)
 
     if clear_cache:
         init_db_or_exit()

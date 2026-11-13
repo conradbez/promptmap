@@ -245,3 +245,99 @@ def test_default_backend_turns_litellm_logging_off(tmp_path, monkeypatch, fake_l
     resolve_llm_call(str(proj / "map"))("hi")
     assert litellm.success_callback == [] and litellm.failure_callback == []
     assert litellm.turn_off_message_logging is True and litellm.telemetry is False
+
+
+# ---------------------------------------------------------------------------
+# Enter = blank, --no-interactive, and a flag for every prompt
+# ---------------------------------------------------------------------------
+
+def _settings_of(proj: Path) -> dict:
+    return yaml.safe_load((proj / "settings.yml").read_text())
+
+
+def test_enter_at_every_prompt_writes_blank_settings(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("promptmap.settings.is_interactive", lambda: True)
+    result = CliRunner().invoke(main, ["init", "proj"], input="\n\n\n\n")
+    assert result.exit_code == 0, result.output
+    assert _settings_of(tmp_path / "proj") == {"provider": "", "model": ""}
+    assert not (tmp_path / "proj" / ".env").exists()
+
+
+def test_enter_after_provider_leaves_model_and_key_blank(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("promptmap.settings.is_interactive", lambda: True)
+    result = CliRunner().invoke(main, ["init", "proj"], input="groq\n\n\n\n")
+    assert result.exit_code == 0, result.output
+    assert _settings_of(tmp_path / "proj") == {"provider": "groq", "model": ""}
+    assert (tmp_path / "proj" / ".env").read_text() == "GROQ_API_KEY=\n"
+
+
+def test_no_interactive_asks_nothing_even_in_a_terminal(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("promptmap.settings.is_interactive", lambda: True)
+    result = CliRunner().invoke(main, ["init", "proj", "--no-interactive", "--provider", "groq"])
+    assert result.exit_code == 0, result.output
+    assert "?" not in result.output  # no prompt was shown
+    assert _settings_of(tmp_path / "proj") == {"provider": "groq", "model": ""}
+    assert (tmp_path / "proj" / ".env").read_text() == "GROQ_API_KEY=\n"
+
+
+def test_nointeractive_spelling_works(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["init", "proj", "--nointeractive"])
+    assert result.exit_code == 0, result.output
+    assert _settings_of(tmp_path / "proj") == {"provider": "", "model": ""}
+
+
+def test_every_prompt_has_a_flag(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("promptmap.settings.is_interactive", lambda: True)
+    result = CliRunner().invoke(main, [
+        "init", "proj", "--provider", "azure", "--model", "my-deployment",
+        "--api-key", "az-key", "--env", "AZURE_API_BASE=https://x", "--env", "AZURE_API_VERSION=2025-01-01",
+    ])  # no input: any prompt would abort
+    assert result.exit_code == 0, result.output
+    assert _settings_of(tmp_path / "proj") == {"provider": "azure", "model": "my-deployment"}
+    env = (tmp_path / "proj" / ".env").read_text().splitlines()
+    assert sorted(env) == ["AZURE_API_BASE=https://x", "AZURE_API_KEY=az-key", "AZURE_API_VERSION=2025-01-01"]
+
+
+def test_api_key_goes_to_the_providers_variable(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["init", "proj", "--provider", "gemini", "--model", "m", "--api-key", "g-1"])
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "proj" / ".env").read_text() == "GEMINI_API_KEY=g-1\n"
+
+
+def test_api_key_without_known_variable_points_at_env_flag(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["init", "proj", "--no-interactive", "--api-key", "k"])
+    assert result.exit_code == 1
+    assert "--env" in result.output and "NAME=VALUE" in result.output
+
+
+def test_bad_env_flag_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["init", "proj", "--env", "NOEQUALS"])
+    assert result.exit_code == 1
+
+
+def test_run_no_interactive_never_prompts(tmp_path, monkeypatch):
+    proj = _project(tmp_path)
+    monkeypatch.chdir(proj)
+    monkeypatch.setattr("promptmap.settings.is_interactive", lambda: True)
+    result = CliRunner().invoke(main, ["run", "--no-interactive"])
+    assert result.exit_code == 1
+    assert "No LLM configured" in result.output
+    assert not (proj / "settings.yml").exists()
+
+
+def test_run_keeps_current_model_when_only_api_key_given(tmp_path, monkeypatch, fake_litellm):
+    proj = _project(tmp_path)
+    monkeypatch.chdir(proj)
+    save_settings(proj, "groq", "llama")
+    result = CliRunner().invoke(main, ["run", "--api-key", "gsk-1"])
+    assert result.exit_code == 0, result.output
+    assert _settings_of(proj) == {"provider": "groq", "model": "llama"}
+    assert (proj / ".env").read_text() == "GROQ_API_KEY=gsk-1\n"

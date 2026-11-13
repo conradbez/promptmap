@@ -107,6 +107,14 @@ Three ways to set it:
    `--api-key` fills the provider's key variable (e.g. `GROQ_API_KEY`); `--env NAME=VALUE` writes any variable. `promptmap run` takes the same flags; `run --no-interactive` fails instead of asking when no LLM is set up. Without a terminal (CI, pipes), both behave as `--no-interactive`.
 3. Edit `settings.yml` by hand. `promptmap run` does not validate the values, so any provider/model LiteLLM accepts works (a model already written as `provider/model` is used as-is).
 
+**Per prompt:** a `.prompt` file can override either for itself — handy for a cheap model on simple steps and a strong one where it matters:
+
+```jinja
+{{ config(provider="anthropic", model="claude-opus-4-6") }}
+```
+
+`config(model=...)` alone keeps the provider from `settings.yml`. Changing either (in `config()` or `settings.yml`) is a prompt-cache miss, so you never get answers cached from the previous model.
+
 The provider and model lists `init` offers come from the model list bundled with the installed litellm package (no network call); upgrading litellm updates them. If `promptmap run` finds neither `settings.yml` nor a `client.py` and is run in a terminal, it asks for provider and model and saves them.
 
 API keys come from the environment or `.env`. When `init` or `run` saves a provider and model, promptmap asks LiteLLM which variables that model needs (`litellm.validate_environment`) and adds each one missing from `.env` as `NAME=` (creating `.env` if needed and gitignoring it). In a terminal it offers to take each value now (hidden input); Enter (no) leaves `NAME=` blank to fill in `.env` yourself later. A variable that already has a value in `.env` or your environment is left alone.

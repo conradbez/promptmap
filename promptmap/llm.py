@@ -179,13 +179,19 @@ def litellm_llm_call(provider: str, model: str) -> Callable:
     """The default ``llm_call``: one user message to *provider*/*model* via LiteLLM.
 
     Values are passed through unchecked, so settings.yml can name any model
-    LiteLLM accepts.  Files attached to a prompt go in the same message.
+    LiteLLM accepts.  A .prompt file can override either for itself with
+    ``{{ config(provider="openai", model="gpt-4o-mini") }}``.  Files attached
+    to a prompt go in the same message.
     """
-    target = litellm_model(provider, model)
+    default_target = litellm_model(provider, model)
 
-    def llm_call(prompt: str, files: list | None = None):
+    def llm_call(prompt: str, files: list | None = None, config: dict | None = None):
         from promptmap.tokens import LLMResult
 
+        config = config or {}
+        target = default_target
+        if config.get("provider") or config.get("model"):
+            target = litellm_model(str(config.get("provider") or provider), str(config.get("model") or model))
         content: str | list = prompt
         if files:
             content = [{"type": "text", "text": prompt}] + [_file_block(f) for f in files]
@@ -197,6 +203,9 @@ def litellm_llm_call(provider: str, model: str) -> Callable:
         )
 
     llm_call.__name__ = f"litellm_{provider}"
+    # Part of the prompt cache key: switching model in settings.yml must not
+    # serve answers cached from the old one.
+    llm_call.cache_identity = default_target
     return llm_call
 
 

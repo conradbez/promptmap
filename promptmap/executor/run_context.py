@@ -348,9 +348,14 @@ class RunContext:
 
         Secrets are deliberately absent: rotating a key must not invalidate
         the cache, and a key derived from one would be a fingerprint of it.
+        An ``llm_call`` with a ``cache_identity`` (the default backend's
+        provider/model from settings.yml) adds it, so switching model there
+        is a cache miss; a client.py llm_call without one keeps its old keys.
         """
+        identity = getattr(self.llm_call, "cache_identity", None)
         return (
-            rendered
+            (f"{identity}\x00" if identity else "")
+            + rendered
             + "\x00"
             + json.dumps(
                 {k: v for k, v in spec.config.items() if k not in _NON_KEY_CONFIG},

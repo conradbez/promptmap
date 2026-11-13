@@ -445,3 +445,44 @@ def test_live_enter_on_one_match_takes_it(monkeypatch):
 def test_live_enter_on_several_matches_is_refused_until_picked(monkeypatch):
     # "claude" matches two: Enter refused; Tab picks the first; Enter accepts.
     assert _live(monkeypatch, "claude|\r|\t|\r") == "anthropic/claude-sonnet-4.5"
+
+
+# ---------------------------------------------------------------------------
+# Per-prompt config(provider=..., model=...) and the cache
+# ---------------------------------------------------------------------------
+
+def test_config_overrides_provider_and_model(tmp_path, fake_litellm):
+    proj = _project(tmp_path)
+    save_settings(proj, "openai", "gpt-4o-mini")
+    call = resolve_llm_call(str(proj / "map"))
+    call("hi", config={"provider": "anthropic", "model": "claude-x"})
+    call("hi", config={"model": "gpt-5"})
+    call("hi", config={})
+    assert [c["model"] for c in fake_litellm] == ["anthropic/claude-x", "openai/gpt-5", "openai/gpt-4o-mini"]
+
+
+def test_config_provider_and_model_reach_the_backend_without_warning(tmp_path, monkeypatch, fake_litellm):
+    import warnings
+
+    proj = _project(tmp_path)
+    (proj / "map" / "hello.prompt").write_text(
+        '{{ config(provider="groq", model="llama-x") }}\nSay hi', encoding="utf-8")
+    save_settings(proj, "openai", "gpt-4o-mini")
+    monkeypatch.chdir(proj)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        result = CliRunner().invoke(main, ["run"])
+    assert result.exit_code == 0, result.output
+    assert fake_litellm[0]["model"] == "groq/llama-x"
+
+
+def test_switching_model_in_settings_misses_the_cache(tmp_path, monkeypatch, fake_litellm):
+    proj = _project(tmp_path)
+    monkeypatch.chdir(proj)
+    save_settings(proj, "openai", "gpt-4o-mini")
+    assert CliRunner().invoke(main, ["run"]).exit_code == 0
+    assert CliRunner().invoke(main, ["run"]).exit_code == 0  # same model: cached
+    assert len(fake_litellm) == 1
+    save_settings(proj, "openai", "gpt-5")
+    assert CliRunner().invoke(main, ["run"]).exit_code == 0
+    assert [c["model"] for c in fake_litellm] == ["openai/gpt-4o-mini", "openai/gpt-5"]

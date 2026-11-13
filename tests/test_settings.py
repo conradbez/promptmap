@@ -34,6 +34,15 @@ def fake_aisuite(monkeypatch):
     return calls
 
 
+@pytest.fixture(autouse=True)
+def _no_provider_keys(monkeypatch):
+    from promptmap.settings import PROVIDER_ENV_VARS
+
+    for name, aliases in PROVIDER_ENV_VARS.values():
+        for n in (name, *aliases):
+            monkeypatch.delenv(n, raising=False)
+
+
 def _project(tmp_path: Path) -> Path:
     (tmp_path / "map").mkdir()
     (tmp_path / "map" / "hello.prompt").write_text("Say hi", encoding="utf-8")
@@ -106,16 +115,18 @@ def test_init_asks_for_provider_and_model(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("promptmap.settings.is_interactive", lambda: True)
     # "anthropic" by name, then a model the snapshot doesn't know, confirmed.
-    result = CliRunner().invoke(main, ["init", "proj"], input="anthropic\nmy-custom-model\ny\n")
+    result = CliRunner().invoke(main, ["init", "proj"], input="anthropic\nmy-custom-model\ny\nsk-test\n")
     assert result.exit_code == 0, result.output
     settings = yaml.safe_load((tmp_path / "proj" / "settings.yml").read_text())
     assert settings == {"provider": "anthropic", "model": "my-custom-model"}
+    assert (tmp_path / "proj" / ".env").read_text() == "ANTHROPIC_API_KEY=sk-test\n"
+    assert ".env" in (tmp_path / "proj" / ".gitignore").read_text().splitlines()
 
 
 def test_init_model_picked_by_number(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("promptmap.settings.is_interactive", lambda: True)
-    result = CliRunner().invoke(main, ["init", "proj", "--provider", "openai"], input="1\n")
+    result = CliRunner().invoke(main, ["init", "proj", "--provider", "openai"], input="1\n\n")
     assert result.exit_code == 0, result.output
     settings = yaml.safe_load((tmp_path / "proj" / "settings.yml").read_text())
     assert settings["model"] == provider_models("openai")[0]
@@ -134,6 +145,39 @@ def test_run_asks_when_nothing_is_configured(tmp_path, monkeypatch, fake_aisuite
     proj = _project(tmp_path)
     monkeypatch.chdir(proj)
     monkeypatch.setattr("promptmap.settings.is_interactive", lambda: True)
-    result = CliRunner().invoke(main, ["run"], input="gemini\nsome-model\ny\n")
+    result = CliRunner().invoke(main, ["run"], input="gemini\nsome-model\ny\n\n")
     assert result.exit_code == 0, result.output
     assert yaml.safe_load((proj / "settings.yml").read_text()) == {"provider": "gemini", "model": "some-model"}
+
+
+def test_init_appends_key_placeholder_to_existing_env(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "proj").mkdir()
+    (tmp_path / "proj" / ".env").write_text("OTHER=1", encoding="utf-8")
+    result = CliRunner().invoke(main, ["init", "proj", "--provider", "gemini", "--model", "m"])
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "proj" / ".env").read_text() == "OTHER=1\nGEMINI_API_KEY=\n"
+
+
+@pytest.mark.parametrize("existing", ["HF_TOKEN=abc\n", "export HUGGINGFACE_API_KEY=abc\n"])
+def test_existing_key_or_alias_is_left_alone(tmp_path, existing):
+    from promptmap.settings import ensure_env_key
+
+    (tmp_path / ".env").write_text(existing, encoding="utf-8")
+    assert ensure_env_key(tmp_path, "huggingface", ask=False) is None
+    assert (tmp_path / ".env").read_text() == existing
+
+
+def test_key_already_in_environment_is_not_written(tmp_path, monkeypatch):
+    from promptmap.settings import ensure_env_key
+
+    monkeypatch.setenv("OPENAI_API_KEY", "x")
+    assert ensure_env_key(tmp_path, "openai", ask=False) is None
+    assert not (tmp_path / ".env").exists()
+
+
+def test_provider_without_known_key_writes_no_env(tmp_path):
+    from promptmap.settings import ensure_env_key
+
+    assert ensure_env_key(tmp_path, "ollama", ask=False) is None
+    assert not (tmp_path / ".env").exists()

@@ -144,3 +144,69 @@ def ask_model(provider: str) -> str:
 
         click.echo(f"No known model list for {provider}; type the model name.")
     return choose("Model", models, allow_custom=True)
+
+
+# ---------------------------------------------------------------------------
+# .env — the provider's API key
+# ---------------------------------------------------------------------------
+
+#: provider -> (env var written to .env, other names that also count as set)
+PROVIDER_ENV_VARS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "openai": ("OPENAI_API_KEY", ()),
+    "anthropic": ("ANTHROPIC_API_KEY", ()),
+    "gemini": ("GEMINI_API_KEY", ("GOOGLE_API_KEY",)),
+    "groq": ("GROQ_API_KEY", ()),
+    "mistral": ("MISTRAL_API_KEY", ()),
+    "deepseek": ("DEEPSEEK_API_KEY", ()),
+    "cohere": ("COHERE_API_KEY", ()),
+    "huggingface": ("HUGGINGFACE_API_KEY", ("HF_TOKEN",)),
+}
+
+
+def _env_names(path: Path) -> set[str]:
+    if not path.is_file():
+        return set()
+    names = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip().removeprefix("export ").strip()
+        if line and not line.startswith("#") and "=" in line:
+            names.add(line.split("=", 1)[0].strip())
+    return names
+
+
+def ensure_env_key(root: Path, provider: str, ask: bool) -> str | None:
+    """Append *provider*'s API key variable to *root*/.env unless it's already there.
+
+    With *ask*, the value is asked for (hidden; Enter leaves it blank).  A key
+    already in .env or the environment, under any of its names, is left alone.
+    Also gitignores .env.  Returns a line describing what happened, or None.
+    """
+    if provider not in PROVIDER_ENV_VARS:
+        return None
+    name, aliases = PROVIDER_ENV_VARS[provider]
+    path = Path(root) / ".env"
+    present = _env_names(path)
+    if any(n in present or os.environ.get(n) for n in (name, *aliases)):
+        return None
+    value = ""
+    if ask:
+        import click
+
+        value = click.prompt(
+            f"{name} (Enter to fill in later)", default="", show_default=False, hide_input=True
+        ).strip()
+    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    sep = "" if not text or text.endswith("\n") else "\n"
+    path.write_text(f"{text}{sep}{name}={value}\n", encoding="utf-8")
+    _gitignore_env(Path(root))
+    action = "added" if text else "created"
+    return f"{action} {path} ({name}{'' if value else ' — fill in the value'})"
+
+
+def _gitignore_env(root: Path) -> None:
+    path = root / ".gitignore"
+    text = path.read_text(encoding="utf-8") if path.exists() else ""
+    if ".env" in {line.strip().lstrip("/") for line in text.splitlines()}:
+        return
+    sep = "" if not text or text.endswith("\n") else "\n"
+    path.write_text(f"{text}{sep}.env\n", encoding="utf-8")

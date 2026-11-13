@@ -14,7 +14,7 @@ A **data-engineering-inspired** prompt orchestration tool for LLMs (think `dbt` 
 
 ```bash
 uv tool install promptmap --with 'aisuite[anthropic]'  # or: aisuite[openai] | aisuite[gemini] ...
-promptmap init my_project   # asks for provider + model, writes settings.yml
+promptmap init my_project   # asks for provider, model + API key; writes settings.yml and .env
 # or: promptmap init my_project --provider anthropic --model claude-sonnet-4-5
 ```
 
@@ -26,8 +26,7 @@ or edit the file by hand (values aren't validated). Need full control over the c
 Edit your `.prompt` files in `map/`, then run the pipeline, test expectations, and inspect the run:
 
 ```bash
-cd my_project
-export ANTHROPIC_API_KEY=your_key_here   # or put it in .env
+cd my_project   # API key lives in .env (init adds the right variable)
 
 promptmap run     # Execute the prompt DAG
 promptmap test    # Validate outputs against map/*.testprompt

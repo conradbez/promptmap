@@ -106,6 +106,7 @@ def configure_llm_or_exit(map_dir: str, provider: str | None, model: str | None)
             model = ask_model(provider)
         path = save_settings(root, provider, model)
         console.print(f"  [dim]{path.name}: {provider}:{model}[/dim]")
+        _note_env_key(root, provider, _settings.is_interactive())
         return
     if has_llm_backend(map_dir) or not _settings.is_interactive():
         return
@@ -113,7 +114,21 @@ def configure_llm_or_exit(map_dir: str, provider: str | None, model: str | None)
     provider = ask_provider()
     model = ask_model(provider)
     path = save_settings(root, provider, model)
-    console.print(f"  [green]wrote[/green]  {path}  [dim]({provider}:{model})[/dim]\n")
+    console.print(f"  [green]wrote[/green]  {path}  [dim]({provider}:{model})[/dim]")
+    _note_env_key(root, provider, ask=True)
+    console.print()
+
+
+def _note_env_key(root: Path, provider: str, ask: bool) -> None:
+    """Add the provider's API key var to .env and load it for this run."""
+    from dotenv import load_dotenv
+
+    from promptmap.settings import ensure_env_key
+
+    note = ensure_env_key(root, provider, ask=ask)
+    if note:
+        console.print(f"  [dim]{note}[/dim]")
+        load_dotenv(root / ".env")
 
 
 def use_client_blob_store(map_dir: str) -> None:

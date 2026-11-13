@@ -347,6 +347,9 @@ def write_settings(console, root: Path, provider: str | None, model: str | None)
         model = ask_model(provider)
     path = save_settings(root, provider, model)
     console.print(f"  [green]wrote[/green]  {path}  [dim]({provider}:{model})[/dim]")
+    note = _settings.ensure_env_key(root, provider, ask=_settings.is_interactive())
+    if note:
+        console.print(f"  [green]{note.split(' ', 1)[0]}[/green]  {note.split(' ', 1)[1]}")
 
 
 # ---------------------------------------------------------------------------

@@ -100,7 +100,20 @@ Three ways to set it:
 
 The model list `init` offers is a snapshot of [LiteLLM's model list](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json), refreshed at release time by `scripts/deploy.sh`. If `promptmap run` finds neither `settings.yml` nor a `client.py` and is run in a terminal, it asks for provider and model and saves them.
 
-API keys come from the environment or `.env`, named as each provider's SDK expects (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...). Install that SDK with `pip install 'aisuite[<provider>]'`.
+API keys come from the environment or `.env`. When `init` or `run` saves a provider, it adds that provider's key variable to `.env` (creating it, or appending if it exists) and gitignores `.env`. In a terminal it asks for the value (hidden; Enter leaves it blank to fill in later). A key already set in `.env` or the environment is left alone.
+
+| Provider | Variable |
+| --- | --- |
+| openai | `OPENAI_API_KEY` |
+| anthropic | `ANTHROPIC_API_KEY` |
+| gemini | `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) |
+| groq | `GROQ_API_KEY` |
+| mistral | `MISTRAL_API_KEY` |
+| deepseek | `DEEPSEEK_API_KEY` |
+| cohere | `COHERE_API_KEY` |
+| huggingface | `HUGGINGFACE_API_KEY` (or `HF_TOKEN`) |
+
+Other providers: set whatever their SDK expects. Install the SDK with `pip install 'aisuite[<provider>]'`.
 
 Attached text files (`promptfiles`) are appended to the prompt. For binary files (PDFs, images) write a `client.py`.
 

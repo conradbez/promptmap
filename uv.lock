@@ -177,6 +177,20 @@ wheels = [
 ]
 
 [[package]]
+name = "aisuite"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "docstring-parser" },
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/aa/9e/faf30af645e344bf779bb19d1824f93403007b899069b2bbe0bfb0f33450/aisuite-0.2.0.tar.gz", hash = "sha256:fe82891e025101416d58c0b7bc32a1613937bf2021e2f03c237c040fcc4d53f1", size = 193488, upload-time = "2026-09-18T23:31:47.447Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/52/10/fea71fb325b1eecb871f1e4f5c07a2ca62ae6490ea89a2790f4ce9966e3b/aisuite-0.2.0-py3-none-any.whl", hash = "sha256:6c1be95f499347b77f8c0f4626c7f73388408f4e659ab0c39f088b40846eb0c4", size = 228243, upload-time = "2026-09-18T23:31:46.028Z" },
+]
+
+[[package]]
 name = "annotated-doc"
 version = "0.0.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2257,9 +2271,10 @@ wheels = [
 
 [[package]]
 name = "promptmap"
-version = "0.7.12"
+version = "0.7.13"
 source = { editable = "." }
 dependencies = [
+    { name = "aisuite" },
     { name = "click" },
     { name = "jinja2" },
     { name = "litellm", extra = ["mcp"] },
@@ -2290,6 +2305,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aisuite", specifier = ">=0.2.0" },
     { name = "click", specifier = ">=8.1" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "litellm", extras = ["mcp"] },

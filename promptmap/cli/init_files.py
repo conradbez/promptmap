@@ -6,6 +6,8 @@ Scaffold templates and the `promptmap init` Click command.
 
 from pathlib import Path
 
+from promptmap.settings import SETTINGS_FILE
+
 # ---------------------------------------------------------------------------
 # Scaffold file templates
 # ---------------------------------------------------------------------------
@@ -16,7 +18,7 @@ INIT_FILES = {
 
 | File / Directory | Purpose |
 |-----------------|---------|
-| `client.py` | LLM backend (which model/API to call) |
+| `settings.yml` | Which provider + model to call (edit freely) |
 | `map/` | START HERE: Prompt files (`.prompt`) and LLM-as-judge tests (`.testprompt`) |
 | `validation/` | Pre-pass quality gates |
 | `outputs/` | Generated outputs from `promptmap run` (auto-created) |
@@ -101,13 +103,21 @@ Example with post-processing — parse and return a cleaned dict:
 
 ---
 
-## client.py
+## settings.yml
 
-The `client.py` at the project root configures which LLM to call. It must expose a
-`llm_call(prompt: str) -> str` function. See the scaffolded example for details.
+Which LLM `promptmap run` calls, through [aisuite](https://github.com/andrewyng/aisuite):
 
-Scaffolded with `promptmap init --classifier`, it also has `classifier_for_test_feedback`,
-which judges `{{ config(judge="classifier") }}` tests with a one-token yes/no call.
+    provider: anthropic
+    model: claude-sonnet-4-5
+
+Set it with `promptmap init --provider <name> --model <name>`, or edit it by hand —
+values are not validated. API keys come from the environment or `.env`
+(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...). Install the provider SDK
+with `pip install 'aisuite[<provider>]'`.
+
+For full control over the call (file uploads, retries, a custom API), add a
+`client.py` with `llm_call(prompt: str) -> str`; it replaces settings.yml.
+See docs/INTERMEDIATE_USAGE.md.
 """,
     "map/articles.prompt": """\
 {{ config(output_format="json") }}
@@ -173,281 +183,6 @@ Reply with only valid JSON: {"results": "pass"} or {"results": "fail"}.
 """,
 }
 
-CLIENT_PY: dict[str, str] = {
-    "gemini": """\
-import mimetypes
-import os
-from google import genai
-
-import promptmap
-
-# Automatically picked up by `promptmap` to run .prompt files.
-# Optional kwargs passed by promptmap when declared in the signature:
-#   files  - list of open file objects attached to the prompt (via --promptdata key=@path)
-#   config - dict of {{ config(...) }} options from the .prompt file (e.g. {"output_format": "json"})
-def llm_call(prompt: str, files: list | None = None, config: dict | None = None) -> promptmap.LLMResult:
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    uploaded = []
-    for f in (files or []):
-        mime, _ = mimetypes.guess_type(f.name)
-        uploaded.append(client.files.upload(
-            file=f,
-            config={"mime_type": mime or "text/plain"},
-        ))
-    contents = [prompt] + uploaded if uploaded else prompt
-    response = client.models.generate_content(
-        model=os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview"),
-        contents=contents,
-    )
-    # promptmap.LLMResult reports tokens spent to `promptmap docs`; returning the bare text also works.
-    # total_token_count covers input, output and thinking.
-    usage = response.usage_metadata
-    return promptmap.LLMResult(response.text, spent_tokens=usage.total_token_count if usage else None)
-""",
-    "openai": """\
-import os
-from openai import OpenAI
-
-import promptmap
-
-# Automatically picked up by `promptmap` to run .prompt files.
-# Optional kwargs passed by promptmap when declared in the signature:
-#   files  - list of open file objects attached to the prompt (via --promptdata key=@path)
-#   config - dict of {{ config(...) }} options from the .prompt file (e.g. {"output_format": "json"})
-def llm_call(prompt: str, files: list | None = None, config: dict | None = None) -> promptmap.LLMResult:
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-    content: list = [{"type": "input_text", "text": prompt}]
-    for f in (files or []):
-        uploaded = client.files.create(file=f, purpose="user_data")
-        content.append({"type": "input_file", "file_id": uploaded.id})
-    response = client.responses.create(
-        model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
-        input=[{"role": "user", "content": content}],
-    )
-    # promptmap.LLMResult reports tokens spent to `promptmap docs`; returning the bare text also works.
-    # total_tokens covers input, output and reasoning.
-    usage = response.usage
-    return promptmap.LLMResult(response.output_text, spent_tokens=usage.total_tokens if usage else None)
-""",
-    "anthropic": """\
-import os
-import anthropic
-
-import promptmap
-
-# Automatically picked up by `promptmap` to run .prompt files.
-# Optional kwargs passed by promptmap when declared in the signature:
-#   files  - list of open file objects attached to the prompt (via --promptdata key=@path)
-#   config - dict of {{ config(...) }} options from the .prompt file (e.g. {"output_format": "json"})
-def llm_call(prompt: str, files: list | None = None, config: dict | None = None) -> promptmap.LLMResult:
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-    content: list = []
-    for f in (files or []):
-        uploaded = client.beta.files.upload(file=f)
-        content.append({"type": "document", "source": {"type": "file_id", "value": uploaded.id}})
-    content.append({"type": "text", "text": prompt})
-    message = client.messages.create(
-        model=os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
-        max_tokens=8096,
-        messages=[{"role": "user", "content": content}],
-    )
-    # promptmap.LLMResult reports tokens spent to `promptmap docs`; returning the bare text also works.
-    # Anthropic reports no total; output_tokens already includes thinking.
-    usage = message.usage
-    return promptmap.LLMResult(message.content[0].text, spent_tokens=usage.input_tokens + usage.output_tokens)
-""",
-}
-
-# ---------------------------------------------------------------------------
-# OpenAI-compatible providers: same client code, different endpoint and model.
-# `no_thinking` goes in extra_body so a yes/no answer is not eaten by reasoning;
-# `top_logprobs` is 0 where the API returns no logprobs.
-# ---------------------------------------------------------------------------
-
-OPENAI_COMPATIBLE: dict[str, dict[str, str]] = {
-    "deepseek": {
-        "name": "DeepSeek", "key_env": "DEEPSEEK_API_KEY", "base_url": "https://api.deepseek.com",
-        "model_env": "DEEPSEEK_MODEL", "model": "deepseek-v4-flash",
-        "no_thinking": '{"thinking": {"type": "disabled"}}', "top_logprobs": "20",
-    },
-    "qwen": {
-        "name": "Qwen (Alibaba DashScope)", "key_env": "DASHSCOPE_API_KEY",
-        "base_url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-        "model_env": "QWEN_MODEL", "model": "qwen-plus",
-        "no_thinking": '{"enable_thinking": False}', "top_logprobs": "5",
-    },
-    "kimi": {
-        "name": "Kimi (Moonshot)", "key_env": "MOONSHOT_API_KEY", "base_url": "https://api.moonshot.ai/v1",
-        "model_env": "KIMI_MODEL", "model": "kimi-k2.6",
-        "no_thinking": '{"thinking": {"type": "disabled"}}', "top_logprobs": "0",
-    },
-    "xiaomi": {
-        "name": "Xiaomi MiMo", "key_env": "MIMO_API_KEY", "base_url": "https://api.xiaomimimo.com/v1",
-        "model_env": "MIMO_MODEL", "model": "mimo-v2.6-flash",
-        "no_thinking": '{"thinking": {"type": "disabled"}}', "top_logprobs": "0",
-    },
-}
-
-
-def _fill(template: str, values: dict[str, str]) -> str:
-    """Replace <<key>> placeholders (templates hold literal {} and {{ }})."""
-    for key, value in values.items():
-        template = template.replace(f"<<{key}>>", value)
-    return template
-
-
-_OPENAI_COMPATIBLE_CLIENT = """\
-import os
-from openai import OpenAI
-
-import promptmap
-
-# Automatically picked up by `promptmap` to run .prompt files.
-# <<name>> speaks the OpenAI Chat Completions API.
-# Optional kwarg passed by promptmap when declared in the signature:
-#   config - dict of {{ config(...) }} options from the .prompt file (e.g. {"output_format": "json"})
-MODEL = os.environ.get("<<model_env>>", "<<model>>")
-
-
-def _client() -> OpenAI:
-    return OpenAI(api_key=os.environ["<<key_env>>"], base_url="<<base_url>>")
-
-
-def llm_call(prompt: str, config: dict | None = None) -> promptmap.LLMResult:
-    response = _client().chat.completions.create(
-        model=MODEL,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    # promptmap.LLMResult reports tokens spent to `promptmap docs`; returning the bare text also works.
-    # total_tokens covers input, output and reasoning.
-    usage = response.usage
-    return promptmap.LLMResult(
-        response.choices[0].message.content,
-        spent_tokens=usage.total_tokens if usage else None,
-    )
-"""
-
-for _provider, _values in OPENAI_COMPATIBLE.items():
-    CLIENT_PY[_provider] = _fill(_OPENAI_COMPATIBLE_CLIENT, _values)
-
-
-# ---------------------------------------------------------------------------
-# Test feedback classifier — appended to client.py by `promptmap init --classifier`.
-# Jev-like: ask for ONE token and read P(yes) from its logprobs.  Where the
-# provider returns no logprobs the answer is a hard 1.0 / 0.0.
-# ---------------------------------------------------------------------------
-
-_CLASSIFIER_HEADER = """\
-
-
-# --- Test feedback classifier (jev-like) -------------------------------------
-# Judges {{ config(judge="classifier") }} tests: question above a `---` line,
-# text to judge below it.  Returns P(yes) in [0, 1].
-import math
-
-
-def _p_yes(candidates: list[tuple[str, float]]) -> float:
-    \"\"\"P(yes) from (token, logprob) pairs; a plain text answer is (text, 0.0).\"\"\"
-    p = {"yes": 0.0, "no": 0.0}
-    for token, logprob in candidates:
-        word = (token.split() or [""])[0].strip(".,!").lower()
-        if word in p:
-            p[word] += math.exp(logprob)
-    if p["yes"] + p["no"] == 0:
-        raise RuntimeError(f"Classifier answered neither yes nor no: {[t for t, _ in candidates]}")
-    return p["yes"] / (p["yes"] + p["no"])
-
-
-def _yes_no_prompt(state: str, question: str) -> str:
-    return f"{state}\\n\\n{question}\\nAnswer with only yes or no."
-
-"""
-
-_CLASSIFIER_FOOTER = """
-
-classify_call = classifier_for_test_feedback
-"""
-
-_CLASSIFIER_BODY: dict[str, str] = {
-    "gemini": """\
-
-def classifier_for_test_feedback(state: str, question: str) -> float:
-    \"\"\"Gemini 3 returns no logprobs, so this is a hard 1.0 / 0.0 answer.\"\"\"
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    text = client.models.generate_content(
-        model=os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview"),
-        contents=_yes_no_prompt(state, question),
-    ).text
-    return _p_yes([(text or "", 0.0)])
-""",
-    "openai": """\
-
-def classifier_for_test_feedback(state: str, question: str) -> float:
-    \"\"\"One token; P(yes) from its top logprobs (needs a non-reasoning model).\"\"\"
-    response = OpenAI(api_key=os.environ["OPENAI_API_KEY"]).chat.completions.create(
-        model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
-        messages=[{"role": "user", "content": _yes_no_prompt(state, question)}],
-        max_completion_tokens=1,
-        logprobs=True,
-        top_logprobs=20,
-    )
-    top = response.choices[0].logprobs.content[0].top_logprobs
-    return _p_yes([(t.token, t.logprob) for t in top])
-""",
-    "anthropic": """\
-
-def classifier_for_test_feedback(state: str, question: str) -> float:
-    \"\"\"Claude returns no logprobs, so this is a hard 1.0 / 0.0 answer.\"\"\"
-    message = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"]).messages.create(
-        model=os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
-        max_tokens=5,
-        messages=[{"role": "user", "content": _yes_no_prompt(state, question)}],
-    )
-    return _p_yes([(message.content[0].text, 0.0)])
-""",
-}
-
-_OPENAI_COMPATIBLE_LOGPROBS = """\
-
-def classifier_for_test_feedback(state: str, question: str) -> float:
-    \"\"\"One token; P(yes) from its top logprobs.\"\"\"
-    response = _client().chat.completions.create(
-        model=MODEL,
-        messages=[{"role": "user", "content": _yes_no_prompt(state, question)}],
-        max_tokens=1,
-        logprobs=True,
-        top_logprobs=<<top_logprobs>>,
-        extra_body=<<no_thinking>>,
-    )
-    top = response.choices[0].logprobs.content[0].top_logprobs
-    return _p_yes([(t.token, t.logprob) for t in top])
-"""
-
-_OPENAI_COMPATIBLE_TEXT = """\
-
-def classifier_for_test_feedback(state: str, question: str) -> float:
-    \"\"\"<<name>> returns no logprobs, so this is a hard 1.0 / 0.0 answer.\"\"\"
-    response = _client().chat.completions.create(
-        model=MODEL,
-        messages=[{"role": "user", "content": _yes_no_prompt(state, question)}],
-        max_tokens=5,
-        extra_body=<<no_thinking>>,
-    )
-    return _p_yes([(response.choices[0].message.content or "", 0.0)])
-"""
-
-for _provider, _values in OPENAI_COMPATIBLE.items():
-    _body = _OPENAI_COMPATIBLE_LOGPROBS if _values["top_logprobs"] != "0" else _OPENAI_COMPATIBLE_TEXT
-    _CLASSIFIER_BODY[_provider] = _fill(_body, _values)
-
-CLASSIFIER_PY: dict[str, str] = {
-    provider: _CLASSIFIER_HEADER + body + _CLASSIFIER_FOOTER
-    for provider, body in _CLASSIFIER_BODY.items()
-}
-
-PROVIDERS = tuple(CLIENT_PY)
-
-
 # ---------------------------------------------------------------------------
 # CLI command — registered onto the main Click group from cli/__init__.py
 # ---------------------------------------------------------------------------
@@ -476,21 +211,18 @@ def register_command(main) -> None:
         help="Models whose keys --secrets/--data/--files write (relative to the project).",
     )
     @click.option(
-        "--provider",
-        type=click.Choice(PROVIDERS, case_sensitive=False),
-        default="gemini",
-        show_default=True,
-        help="LLM provider to use in the generated client.py.",
+        "--provider", default=None,
+        help="aisuite provider (e.g. anthropic, openai, gemini). Asked interactively if omitted.",
     )
-    @click.option(
-        "--classifier", is_flag=True, default=False,
-        help='Add a yes/no classify_call to client.py, for tests judged with config(judge="classifier") or --judge classifier.',
-    )
+    @click.option("--model", default=None, help="Model name. Asked interactively if omitted.")
     def init(
         project_name: str | None, force: bool, with_secrets: bool, with_data: bool,
-        with_files: bool, map_dir: str, provider: str, classifier: bool,
+        with_files: bool, map_dir: str, provider: str | None, model: str | None,
     ) -> None:
         """Scaffold a starter promptmap project inside PROJECT_NAME/.
+
+        Writes settings.yml with the provider and model `promptmap run` calls
+        through aisuite.  Without --provider / --model they are asked for.
 
         --secrets, --data and --files also write secrets.yml (+ secrets-template.yml),
         promptdata.yml and promptfiles.yml, listing the keys the project's
@@ -500,19 +232,21 @@ def register_command(main) -> None:
 
         \b
         Examples:
-          promptmap init my_project --provider anthropic
+          promptmap init my_project --provider anthropic --model claude-sonnet-4-5
+          promptmap init my_project          (asks for provider and model)
+          promptmap init --provider openai   (in an existing project: rewrite settings.yml)
           promptmap init my_project --secrets --data
           promptmap init --secrets          (in an existing project)
         """
         kinds = [k for k, on in (("secrets", with_secrets), ("data", with_data), ("files", with_files)) if on]
-        if project_name is None and kinds:
+        if project_name is None and (kinds or provider or model):
             for kind in kinds:
                 init_values_file(console, kind, Path("."), Path(map_dir), force)
+            if provider or model:
+                write_settings(console, Path("."), provider, model)
             return
         project_name = project_name or "generate_articles_example"
-        provider = provider.lower()
         files = dict(INIT_FILES)
-        files["client.py"] = CLIENT_PY[provider] + (CLASSIFIER_PY[provider] if classifier else "")
         files["validation/articles.py"] = """\
 # Validation files let you post-process and gate LLM outputs before they flow downstream.
 # - Name this file after the prompt it validates (e.g. articles.py validates articles.prompt).
@@ -565,12 +299,54 @@ def validate(prompt: str, result: str):
         for kind in kinds:
             init_values_file(console, kind, root, root / map_dir, force)
 
+        if force or not (root / SETTINGS_FILE).exists() or provider or model:
+            write_settings(console, root, provider, model)
+        else:
+            console.print(f"  [dim]skipped[/dim]  {root / SETTINGS_FILE}  [dim](use --provider/--model to change)[/dim]")
+
         if created:
             console.print(f"\nRun [bold cyan]cd {project_name} && promptmap run[/bold cyan], or [bold cyan]promptmap run --promptdata topic='your topic'[/bold cyan]")
 
         if is_running_in_vscode():
             setup_vscode_associations()
             console.print("  [dim]VS Code detected — configured .vscode/settings.json for .prompt files[/dim]")
+
+
+# ---------------------------------------------------------------------------
+# settings.yml — provider + model for the default aisuite backend
+# ---------------------------------------------------------------------------
+
+def write_settings(console, root: Path, provider: str | None, model: str | None) -> None:
+    """Write *root*/settings.yml, asking for whichever of provider/model is missing.
+
+    --provider must be an aisuite provider; --model is taken as given (the
+    snapshot of known models is a menu, not a whitelist).
+    """
+    import sys
+
+    from promptmap import settings as _settings
+    from promptmap.settings import ask_model, ask_provider, save_settings, supported_providers
+
+    if (provider is None or model is None) and not _settings.is_interactive():
+        console.print(
+            f"  [yellow]skipped[/yellow]  {root / SETTINGS_FILE}  [dim](not interactive: pass "
+            "--provider and --model, or run `promptmap init` again in a terminal)[/dim]"
+        )
+        return
+    if provider is not None:
+        provider = provider.lower()
+        if provider not in supported_providers():
+            console.print(
+                f"[red]Error:[/red] unknown provider '{provider}'. "
+                f"Choose one of: {', '.join(supported_providers())}"
+            )
+            sys.exit(1)
+    else:
+        provider = ask_provider()
+    if model is None:
+        model = ask_model(provider)
+    path = save_settings(root, provider, model)
+    console.print(f"  [green]wrote[/green]  {path}  [dim]({provider}:{model})[/dim]")
 
 
 # ---------------------------------------------------------------------------

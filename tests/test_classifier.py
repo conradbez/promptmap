@@ -6,7 +6,6 @@ pass when classify_call's P(yes) reaches the threshold.
 from __future__ import annotations
 
 import json
-import math
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -15,7 +14,6 @@ import pytest
 
 import promptmap
 from promptmap.classifier import split_question
-from promptmap.cli import init_files
 from promptmap.storage.memory import MemoryStorageBackend
 from promptmap.tester import execute_tests
 from tests.conftest import run_promptmap
@@ -218,7 +216,6 @@ def test_systemone_classifier_request_shape(systemone_server) -> None:
 
 CLIENT_PY = """\
 import json
-import math
 
 def llm_call(prompt: str, config: dict | None = None) -> str:
     if "---" in prompt:
@@ -259,63 +256,3 @@ def test_cli_test_judge_from_client(classifier_proj: Path) -> None:
     client.write_text(CLIENT_PY + 'test_judge = "classifier"\n', encoding="utf-8")
     result = run_promptmap("test", cwd=classifier_proj, check=False)
     assert result.returncode == 0, result.stdout + result.stderr
-
-
-
-# ---------------------------------------------------------------------------
-# Scaffolded client.py — `promptmap init --classifier`
-# ---------------------------------------------------------------------------
-
-def _fake_sdk_modules(completion):
-    """Stub the provider SDKs so a scaffolded client.py runs without network."""
-    import types
-
-    create = lambda **kwargs: (seen.append(kwargs), completion)[1]  # noqa: E731
-    seen: list = []
-    chat = types.SimpleNamespace(completions=types.SimpleNamespace(create=create))
-    openai = types.ModuleType("openai")
-    openai.OpenAI = lambda **kwargs: types.SimpleNamespace(chat=chat)
-    return {"openai": openai}, seen
-
-
-@pytest.mark.parametrize("provider", init_files.PROVIDERS)
-def test_scaffolded_clients_compile(provider) -> None:
-
-    compile(init_files.CLIENT_PY[provider], "client.py", "exec")
-    source = init_files.CLIENT_PY[provider] + init_files.CLASSIFIER_PY[provider]
-    compile(source, "client.py", "exec")
-    assert "classify_call = classifier_for_test_feedback" in source
-
-
-def test_init_classifier_is_opt_in(tmp_path: Path) -> None:
-    run_promptmap("init", "plain", cwd=tmp_path)
-    run_promptmap("init", "judged", "--provider", "deepseek", "--classifier", cwd=tmp_path)
-    assert "classify_call" not in (tmp_path / "plain" / "client.py").read_text()
-    assert "classify_call" in (tmp_path / "judged" / "client.py").read_text()
-
-
-@pytest.mark.parametrize(("provider", "completion", "expected"), [
-    ("deepseek", {"logprobs": [("Yes", 0.6), (" no", 0.2), ("Maybe", 0.1)]}, 0.75),
-    ("kimi", {"content": "No."}, 0.0),
-    ("xiaomi", {"content": "yes, it does"}, 1.0),
-])
-def test_openai_compatible_classifier(provider, completion, expected, monkeypatch) -> None:
-    import sys
-    import types
-
-
-    top = [types.SimpleNamespace(token=t, logprob=math.log(p)) for t, p in completion.get("logprobs", [])]
-    choice = types.SimpleNamespace(
-        message=types.SimpleNamespace(content=completion.get("content")),
-        logprobs=types.SimpleNamespace(content=[types.SimpleNamespace(top_logprobs=top)]),
-    )
-    modules, seen = _fake_sdk_modules(types.SimpleNamespace(choices=[choice]))
-    for name, module in modules.items():
-        monkeypatch.setitem(sys.modules, name, module)
-    monkeypatch.setenv(init_files.OPENAI_COMPATIBLE[provider]["key_env"], "k")
-
-    namespace: dict = {}
-    exec(init_files.CLIENT_PY[provider] + init_files.CLASSIFIER_PY[provider], namespace)
-    assert namespace["classify_call"]("the text", "Is it good?") == pytest.approx(expected)
-    assert seen[0]["model"] == init_files.OPENAI_COMPATIBLE[provider]["model"]
-    assert ("logprobs" in seen[0]) == ("logprobs" in completion)

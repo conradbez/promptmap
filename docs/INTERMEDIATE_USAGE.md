@@ -83,9 +83,32 @@ Re-running keeps existing values and appends any new keys (`--force` rewrites th
 
 ---
 
+## Choosing the provider and model (`settings.yml`)
+
+By default promptmap sends each prompt through [aisuite](https://github.com/andrewyng/aisuite), using the provider and model in `settings.yml` at the project root (next to `map/`):
+
+```yaml
+provider: anthropic
+model: claude-sonnet-4-5
+```
+
+Three ways to set it:
+
+1. `promptmap init my_project` asks for both. Pick a provider from aisuite's list, then a model from a numbered list (type text to filter it). A model name that isn't in the list is used as typed.
+2. `promptmap init --provider openai --model gpt-4o-mini` (or the same flags on `promptmap run`) writes them directly.
+3. Edit `settings.yml` by hand. `promptmap run` does not validate the values, so any `provider:model` aisuite accepts works.
+
+The model list `init` offers is a snapshot of [LiteLLM's model list](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json), refreshed at release time by `scripts/deploy.sh`. If `promptmap run` finds neither `settings.yml` nor a `client.py` and is run in a terminal, it asks for provider and model and saves them.
+
+API keys come from the environment or `.env`, named as each provider's SDK expects (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...). Install that SDK with `pip install 'aisuite[<provider>]'`.
+
+Attached text files (`promptfiles`) are appended to the prompt. For binary files (PDFs, images) write a `client.py`.
+
+---
+
 ## Customising the LLM backend (`client.py`)
 
-promptmap is unopinionated about which LLM you use. Create `client.py` at the project root (alongside your `map/` directory) and define an `llm_call` function — usually 5 lines:
+For full control over the call — file uploads, retries, system prompts, a private API — create `client.py` at the project root and define `llm_call`. When it defines `llm_call`, it replaces `settings.yml`.
 
 ```python
 # client.py (Anthropic example)
@@ -101,7 +124,9 @@ def llm_call(prompt: str) -> str:
     return message.content[0].text
 ```
 
-promptmap will automatically discover and use this file. Run `promptmap init --provider <gemini|openai|anthropic|deepseek|qwen|kimi|xiaomi>` to scaffold a starter `client.py` for your chosen provider; add `--classifier` to also scaffold a jev-like `classify_call` for classifier-judged tests (P(yes) from one-token logprobs where the provider returns them — OpenAI, DeepSeek, Qwen — otherwise a hard yes/no). If the file exists but does not define `llm_call`, promptmap raises an error at startup.
+`llm_call` may also take `files` (open file objects from `promptfiles`), `config` (the model's `config(...)` options) and `secrets`, and may return `promptmap.LLMResult(text, spent_tokens=...)` to report token usage to `promptmap docs`.
+
+To judge `config(judge="classifier")` tests, define `classify_call(state: str, question: str) -> float` returning P(yes) in [0, 1] — see [`promptmap.classifier`](../promptmap/classifier.py).
 
 `client.py` can also define `cache_check(prompt, previous) -> bool` to let a judge (e.g. that classifier) decide whether a prompt whose input data changed can reuse the last answer — see [`cache_check`](ADVANCED_USAGE.md#deciding-when-a-changed-prompt-is-worth-re-asking-cache_check).
 

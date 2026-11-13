@@ -26,7 +26,7 @@ def _write_models(map_dir: Path, models: dict[str, str]) -> None:
 # ---------------------------------------------------------------------------
 
 def test_cli_run_all_model_types(tmp_path: Path) -> None:
-    run_promptmap("init", "proj", "--provider", "openai", cwd=tmp_path)
+    run_promptmap("init", "proj", "--provider", "openai", "--model", "gpt-4o-mini", cwd=tmp_path)
     proj = tmp_path / "proj"
 
     for folder in ("map", "validation"):

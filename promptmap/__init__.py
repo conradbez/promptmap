@@ -157,7 +157,7 @@ async def async_run(
         also executed fresh; the prompt cache makes unchanged nodes instant.
     llm_call:
         Optional function ``(prompt: str) -> str`` to use as the LLM backend.
-        Falls back to ``llm_call`` in client.py alongside *map_dir*; with
+        Falls back to ``llm_call`` in client.py, else the settings.yml provider/model, alongside *map_dir*; with
         neither, the run fails with a FileNotFoundError naming the fix.
     rag_call:
         Optional function ``(*args) -> list | str`` to back

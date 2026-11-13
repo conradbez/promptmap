@@ -1,8 +1,9 @@
 """
 LLM call resolution.
 
-Looks for a user-provided client.py exposing ``llm_call(prompt: str) -> str``.
-Raises a clear error if none is found — run `promptmap init` to scaffold one.
+The default backend is aisuite, calling the provider/model named in the
+project's settings.yml (see :mod:`promptmap.settings`).  A client.py exposing
+``llm_call(prompt: str) -> str`` replaces it, for full control over the call.
 
 client.py is also where a project registers its own model kinds, so promptmap imports
 it *before* parsing any .prompt file (see :func:`load_client_module`).  The
@@ -84,24 +85,95 @@ def try_load_client_module(map_dir: str) -> ModuleType | None:
 
 
 def resolve_llm_call(map_dir: str) -> Callable[[str], str]:
-    """
-    Search for client.py alongside map_dir (i.e. in its parent).
-    If found and it defines ``llm_call``, return that function.
-    Otherwise raise a FileNotFoundError with a helpful message.
+    """Return the project's ``llm_call``.
+
+    client.py's ``llm_call`` wins when it defines one.  Otherwise the default
+    backend is aisuite, calling the provider/model in settings.yml.  Raises
+    with a helpful message when neither is set up.
     """
     module = load_client_module(map_dir)
+    if module is not None and hasattr(module, "llm_call"):
+        return module.llm_call
+
+    from promptmap.settings import SETTINGS_FILE, load_settings
+
+    settings = load_settings(map_dir)
+    if settings.get("provider") and settings.get("model"):
+        return aisuite_llm_call(str(settings["provider"]), str(settings["model"]))
+
     if module is not None:
-        if hasattr(module, "llm_call"):
-            return module.llm_call
         raise AttributeError(
             f"{client_path(map_dir)} was found but does not define an "
-            "'llm_call(prompt: str) -> str' function."
+            f"'llm_call(prompt: str) -> str' function, and {SETTINGS_FILE} sets no "
+            "provider and model."
+        )
+    raise FileNotFoundError(
+        f"No LLM configured: {SETTINGS_FILE} (provider + model) or client.py "
+        "(llm_call) is needed next to your map/ directory. Run `promptmap init "
+        "--provider <name> --model <name>` to write settings.yml."
+    )
+
+
+def has_llm_backend(map_dir: str) -> bool:
+    """True when client.py defines ``llm_call`` or settings.yml names a provider and model."""
+    module = try_load_client_module(map_dir)
+    if module is not None and hasattr(module, "llm_call"):
+        return True
+    from promptmap.settings import load_settings
+
+    try:
+        settings = load_settings(map_dir)
+    except Exception:
+        return True  # a broken file is reported by resolve_llm_call, not hidden by a prompt
+    return bool(settings.get("provider") and settings.get("model"))
+
+
+def _file_text(f) -> str:
+    """A prompt-attached file as text, for providers aisuite can only send text to."""
+    data = f.read()
+    if isinstance(data, bytes):
+        try:
+            data = data.decode("utf-8")
+        except UnicodeDecodeError:
+            raise ValueError(
+                f"{getattr(f, 'name', 'file')} is binary; the default aisuite backend "
+                "sends text only. Write a client.py llm_call to upload files."
+            ) from None
+    return data
+
+
+def aisuite_llm_call(provider: str, model: str) -> Callable:
+    """The default ``llm_call``: one user message to *provider*:*model* via aisuite.
+
+    Values are passed through unchecked, so settings.yml can name any model
+    aisuite accepts.  Text files attached to a prompt are appended to it.
+    """
+
+    def llm_call(prompt: str, files: list | None = None):
+        import aisuite
+
+        from promptmap.tokens import LLMResult
+
+        for f in files or []:
+            name = os.path.basename(getattr(f, "name", "file"))
+            prompt += f"\n\n--- {name} ---\n{_file_text(f)}"
+        try:
+            response = aisuite.Client().chat.completions.create(
+                model=f"{provider}:{model}",
+                messages=[{"role": "user", "content": prompt}],
+            )
+        except ImportError as exc:
+            raise ImportError(
+                f"{exc}\nInstall the SDK for {provider}: pip install 'aisuite[{provider}]'"
+            ) from exc
+        usage = getattr(response, "usage", None)
+        return LLMResult(
+            response.choices[0].message.content,
+            spent_tokens=getattr(usage, "total_tokens", None),
         )
 
-    raise FileNotFoundError(
-        "No client.py found. Create one alongside your map/ directory with an "
-        "'llm_call(prompt: str) -> str' function, or run `promptmap init` to scaffold a starter project."
-    )
+    llm_call.__name__ = f"aisuite_{provider}"
+    return llm_call
 
 
 def resolve_blob_store(map_dir: str):

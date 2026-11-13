@@ -359,7 +359,7 @@ def execute_tests(
     if tests and llm_call is None and judge == "llm":
         raise ValueError(
             "llm_call must be provided to execute_tests(). "
-            "Use promptmap.llm.resolve_llm_call(map_dir) to auto-discover from client.py."
+            "Use promptmap.llm.resolve_llm_call(map_dir) to auto-discover from settings.yml or client.py."
         )
 
     from promptmap.executor.run_context import _files_hash

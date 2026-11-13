@@ -73,6 +73,49 @@ from promptmap.cli.pretty_print import console, err_console, format_duration
 # CLI group
 # ---------------------------------------------------------------------------
 
+def configure_llm_or_exit(map_dir: str, provider: str | None, model: str | None) -> None:
+    """Save --provider/--model to settings.yml; ask for them if no LLM is set up.
+
+    Flags are stored as given — no validation, like hand edits to the file.
+    With neither flag, client.py's llm_call or a complete settings.yml is
+    used as-is; only when both are missing does an interactive terminal get
+    asked (a non-interactive run falls through to the usual error).
+    """
+    from promptmap.llm import has_llm_backend
+    from promptmap import settings as _settings
+    from promptmap.settings import ask_model, ask_provider, load_settings, save_settings
+
+    root = Path(map_dir).resolve().parent
+    if provider or model:
+        try:
+            current = load_settings(map_dir)
+        except Exception as exc:
+            err_console.print(f"[red]Error:[/red] {escape(str(exc))}")
+            sys.exit(1)
+        provider = provider or current.get("provider")
+        if not provider:
+            if not _settings.is_interactive():
+                err_console.print("[red]Error:[/red] --model needs --provider (settings.yml has none).")
+                sys.exit(1)
+            provider = ask_provider()
+        model = model or current.get("model")
+        if not model or (model == current.get("model") and provider != current.get("provider")):
+            if not _settings.is_interactive():
+                err_console.print("[red]Error:[/red] pass --model along with a new --provider.")
+                sys.exit(1)
+            model = ask_model(provider)
+        path = save_settings(root, provider, model)
+        console.print(f"  [dim]{path.name}: {provider}:{model}[/dim]")
+        return
+    if has_llm_backend(map_dir) or not _settings.is_interactive():
+        return
+    console.print("[yellow]No LLM configured[/yellow] (no settings.yml or client.py). Pick one:")
+    provider = ask_provider()
+    model = ask_model(provider)
+    path = save_settings(root, provider, model)
+    console.print(f"  [green]wrote[/green]  {path}  [dim]({provider}:{model})[/dim]\n")
+
+
 def use_client_blob_store(map_dir: str) -> None:
     """Point the run database at the blob store client.py declares, if any."""
     try:
@@ -216,7 +259,12 @@ def main() -> None:
         "(e.g. two coding agents) run in parallel; 1 runs them one at a time."
     ),
 )
-def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple[str, ...], secret_flags: tuple[str, ...], promptfiles: tuple[str, ...], validation_dir: str, clear_cache: bool, global_instruction_path: str | None, wrap_refs: bool, threads: int) -> None:
+@click.option(
+    "--provider", default=None,
+    help="aisuite provider to call; saved to settings.yml. Not checked — any name aisuite accepts.",
+)
+@click.option("--model", default=None, help="Model to call; saved to settings.yml. Not checked.")
+def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple[str, ...], secret_flags: tuple[str, ...], promptfiles: tuple[str, ...], validation_dir: str, clear_cache: bool, global_instruction_path: str | None, wrap_refs: bool, threads: int, provider: str | None, model: str | None) -> None:
     """Execute all prompt models in dependency order.
 
     *.testprompt tests in the map dir are gates unless they set {{ config(gate=False) }}:
@@ -234,8 +282,10 @@ def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple
       promptmap run
       promptmap run -s summaries --promptdata topic=cats
       promptmap run --promptfile doc=report.pdf --secret OPENAI_API_KEY
+      promptmap run --provider openai --model gpt-4o-mini
     """
     c = Console(highlight=not no_color)
+    configure_llm_or_exit(map_dir, provider, model)
 
     if clear_cache:
         init_db_or_exit()

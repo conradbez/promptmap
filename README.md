@@ -13,15 +13,21 @@ A **data-engineering-inspired** prompt orchestration tool for LLMs (think `dbt` 
 ## Quick start
 
 ```bash
-uv tool install promptmap --with anthropic  # or: openai | gemini
-promptmap init --provider anthropic   # or: openai | gemini
-
+uv tool install promptmap --with 'aisuite[anthropic]'  # or: aisuite[openai] | aisuite[gemini] ...
+promptmap init my_project   # asks for provider + model, writes settings.yml
+# or: promptmap init my_project --provider anthropic --model claude-sonnet-4-5
 ```
+
+promptmap calls your LLM through [aisuite](https://github.com/andrewyng/aisuite). The provider and model
+live in `settings.yml` at the project root — change them with `promptmap run --provider X --model Y`
+or edit the file by hand (values aren't validated). Need full control over the call? Add a
+[`client.py`](docs/INTERMEDIATE_USAGE.md#customising-the-llm-backend-clientpy).
 
 Edit your `.prompt` files in `map/`, then run the pipeline, test expectations, and inspect the run:
 
 ```bash
-export ANTHROPIC_API_KEY=your_key_here
+cd my_project
+export ANTHROPIC_API_KEY=your_key_here   # or put it in .env
 
 promptmap run     # Execute the prompt DAG
 promptmap test    # Validate outputs against map/*.testprompt
@@ -89,4 +95,4 @@ Inspect prompt graph visually:
 | **Workflow & DAG** | [Grouping models in folders](docs/INTERMEDIATE_USAGE.md#grouping-models-in-folders) · [Map & reduce (`each=`)](docs/ADVANCED_USAGE.md#map-and-reduce-each) · [Dynamically skipping models](docs/INTERMEDIATE_USAGE.md#how-to-dynamically-skip-a-model) · [Models that produce files](docs/ADVANCED_USAGE.md#models-that-produce-files-promptmapfile-promptmapdir-promptmapoutput) · [Run IDs & iterating on the last answer (`previous`)](docs/ADVANCED_USAGE.md#run-ids-and-iterating-on-the-last-answer-previous) |
 | **Testing & Eval** | [Writing tests](docs/INTERMEDIATE_USAGE.md#promptmap-tests) · [Validation](docs/INTERMEDIATE_USAGE.md#validation-validation) · [Bulk YAML testing & `expect`](docs/ADVANCED_USAGE.md#bulk-testing-with-yaml-cases-promptmap-test) |
 | **CLI, UI & API** | [`promptmap docs` (HTML report)](docs/INTERMEDIATE_USAGE.md#promptmap-docs) · [`promptmap serve` & HTTP server](docs/ADVANCED_USAGE.md#promptmap-serve) · [`promptmap ls`](docs/ADVANCED_USAGE.md#promptmap-ls) · [Python API & callbacks](docs/ADVANCED_USAGE.md#python-api) · [Token usage](docs/ADVANCED_USAGE.md#token-usage-promptmapllmresult) |
-| **Customization** | [Custom LLM backend (`client.py`)](docs/INTERMEDIATE_USAGE.md#customising-the-llm-backend-clientpy) · [Output format & `config()`](docs/ADVANCED_USAGE.md#output-format-config-config) · [Agent models](docs/ADVANCED_USAGE.md#agent-models-model_typeagent) · [Custom model kinds](docs/ADVANCED_USAGE.md#writing-your-own-model-kind-model_type) · [Architecture](docs/ARCHITECTURE.md) |
+| **Customization** | [Provider/model (`settings.yml`) & custom backend (`client.py`)](docs/INTERMEDIATE_USAGE.md#customising-the-llm-backend-clientpy) · [Output format & `config()`](docs/ADVANCED_USAGE.md#output-format-config-config) · [Agent models](docs/ADVANCED_USAGE.md#agent-models-model_typeagent) · [Custom model kinds](docs/ADVANCED_USAGE.md#writing-your-own-model-kind-model_type) · [Architecture](docs/ARCHITECTURE.md) |

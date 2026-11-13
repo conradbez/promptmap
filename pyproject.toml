@@ -20,6 +20,7 @@ dependencies = [
     # sends tools) but only ships it in its [mcp] extra.
     "litellm[mcp]",
     "tree-sitter-language-pack>=1.23",
+    "aisuite>=0.2.0",
 ]
 
 [project.urls]
@@ -37,7 +38,7 @@ where = ["."]
 include = ["promptmap*"]
 
 [tool.setuptools.package-data]
-"promptmap" = ["html_templates/*.html"]
+"promptmap" = ["html_templates/*.html", "provider_models.json"]
 
 [dependency-groups]
 dev = [

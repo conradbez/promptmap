@@ -137,6 +137,8 @@ def choose(label: str, options: list[str], allow_custom: bool, accept=None) -> s
     """
     import click
 
+    if options and _live_terminal():
+        return _live_choose(label, options, allow_custom, accept)
     if not options:
         return click.prompt(f"{label} (Enter to leave blank)", default="", show_default=False).strip()
     shown = options
@@ -145,7 +147,7 @@ def choose(label: str, options: list[str], allow_custom: bool, accept=None) -> s
             click.echo(f"  {i:>3}. {option}")
         if len(shown) > _MAX_SHOWN:
             click.echo(f"  ... {len(shown) - _MAX_SHOWN} more — type text to filter")
-        hint = "number, name, or text to filter"
+        hint = "number, name, or words to filter"
         if allow_custom:
             hint += "; any other name is used as typed"
         answer = click.prompt(f"{label} ({hint}; Enter to leave blank)", default="", show_default=False).strip()
@@ -155,14 +157,89 @@ def choose(label: str, options: list[str], allow_custom: bool, accept=None) -> s
             return shown[int(answer) - 1]
         if answer in options or (accept is not None and accept(answer)):
             return answer
-        matches = [o for o in options if answer.lower() in o.lower()]
-        if matches:
+        matches = filter_options(options, answer)
+        if len(matches) == 1 and click.confirm(f"Use {matches[0]}?", default=True):
+            return matches[0]
+        if len(matches) > 1:
+            click.echo(f"{len(matches)} matches for '{answer}':")
             shown = matches
             continue
-        if allow_custom and click.confirm(f"'{answer}' isn't in the list. Use it anyway?", default=True):
+        if allow_custom and not matches and click.confirm(
+            f"No {label.lower()} in the list matches '{answer}'. Use '{answer}' as typed?", default=False,
+        ):
             return answer
-        click.echo(f"No {label.lower()} matches '{answer}'.")
+        click.echo(f"No {label.lower()} matches '{answer}' — showing the full list.")
         shown = options
+
+
+def _live_terminal() -> bool:
+    """True in a real terminal, where the live-filter prompt can draw itself.
+
+    Tests and pipes get the numbered click prompt instead.
+    """
+    import sys
+
+    return sys.stdin.isatty() and sys.stdout.isatty() and os.environ.get("TERM") != "dumb"
+
+
+def _live_choose(label: str, options: list[str], allow_custom: bool, accept=None) -> str:
+    """Type to filter: matches drop down as you type; arrows/Tab pick, Enter accepts.
+
+    Enter on an empty line returns "" (blank).  Enter on text matching one
+    option takes that option; on text matching several it is refused (pick
+    one); on text matching none it is a custom name if *allow_custom*.  A
+    custom name that happens to match listed options can still be set with
+    --model or by editing settings.yml.
+    """
+    import click
+    import questionary
+    from prompt_toolkit.completion import Completer, Completion
+
+    class _Words(Completer):
+        def get_completions(self, document, complete_event):
+            text = document.text_before_cursor
+            for option in filter_options(options, text)[:200]:
+                yield Completion(option, start_position=-len(text))
+
+    def validate(text: str):
+        text = text.strip()
+        if not text or text in options or (accept is not None and accept(text)):
+            return True
+        matches = filter_options(options, text)
+        if len(matches) == 1 or (allow_custom and not matches):
+            return True  # one match is taken; text matching nothing is a custom name
+        if matches:
+            return f"{len(matches)} matches — pick one with ↑↓/Tab"
+        return f"Not a known {label.lower()}: pick one from the list, or clear the line to leave it blank"
+
+    hint = "type to filter, ↑↓/Tab to pick, Enter to accept"
+    if allow_custom:
+        hint += "; any name works"
+    answer = questionary.autocomplete(
+        f"{label} ({hint}; empty = blank):",
+        choices=options,
+        completer=_Words(),
+        validate=validate,
+        validate_while_typing=False,
+        complete_while_typing=True,
+    ).ask()
+    if answer is None:  # Ctrl-C
+        raise click.Abort()
+    answer = answer.strip()
+    if answer and answer not in options:
+        matches = filter_options(options, answer)
+        if len(matches) == 1:
+            return matches[0]
+    return answer
+
+
+def filter_options(options: list[str], query: str) -> list[str]:
+    """Options containing every word of *query*, ignoring case and order.
+
+    'claude sonnet' finds 'anthropic/claude-sonnet-4.5'.
+    """
+    words = query.lower().split()
+    return [o for o in options if all(w in o.lower() for w in words)]
 
 
 def ask_provider() -> str:

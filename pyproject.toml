@@ -22,6 +22,7 @@ dependencies = [
     # Bump deliberately after checking the release.
     "litellm[mcp]==1.102.1",
     "tree-sitter-language-pack>=1.23",
+    "questionary>=2.1,<3",
 ]
 
 [project.urls]

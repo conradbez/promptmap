@@ -341,3 +341,107 @@ def test_run_keeps_current_model_when_only_api_key_given(tmp_path, monkeypatch, 
     assert result.exit_code == 0, result.output
     assert _settings_of(proj) == {"provider": "groq", "model": "llama"}
     assert (proj / ".env").read_text() == "GROQ_API_KEY=gsk-1\n"
+
+
+def test_filter_matches_every_word_in_any_order():
+    from promptmap.settings import filter_options
+
+    options = ["anthropic/claude-sonnet-4.5", "anthropic/claude-opus-4", "openai/gpt-4o"]
+    assert filter_options(options, "claude sonnet") == ["anthropic/claude-sonnet-4.5"]
+    assert filter_options(options, "SONNET claude") == ["anthropic/claude-sonnet-4.5"]
+    assert filter_options(options, "claude") == options[:2]
+    assert filter_options(options, "claude gpt") == []
+
+
+def test_multi_word_filter_then_pick_by_number(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("promptmap.settings.is_interactive", lambda: True)
+    result = CliRunner().invoke(main, ["init", "proj"], input="openrouter\nclaude sonnet\n1\n\n")
+    assert result.exit_code == 0, result.output
+    assert "matches for 'claude sonnet'" in result.output
+    model = _settings_of(tmp_path / "proj")["model"]
+    assert "claude" in model and "sonnet" in model
+
+
+def test_unmatched_text_is_not_used_on_enter(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("promptmap.settings.is_interactive", lambda: True)
+    # "zzzz" matches nothing; Enter declines using it; then Enter leaves model blank.
+    result = CliRunner().invoke(main, ["init", "proj"], input="openrouter\nzzzz\n\n\n\n")
+    assert result.exit_code == 0, result.output
+    assert _settings_of(tmp_path / "proj")["model"] == ""
+
+
+def test_single_match_is_offered_directly(tmp_path, monkeypatch):
+    from promptmap.settings import filter_options
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("promptmap.settings.is_interactive", lambda: True)
+    models = provider_models("anthropic")
+    unique = next(m for m in models if len(filter_options(models, m)) == 1)
+    # Upper-cased so it isn't an exact name: goes through the filter, one match, Enter accepts.
+    result = CliRunner().invoke(main, ["init", "proj", "--provider", "anthropic"], input=f"{unique.upper()}\n\n\n")
+    assert result.exit_code == 0, result.output
+    assert _settings_of(tmp_path / "proj")["model"] == unique
+
+
+# ---------------------------------------------------------------------------
+# Live filter prompt (real terminals) — driven with prompt_toolkit pipe input
+# ---------------------------------------------------------------------------
+
+def _live(monkeypatch, keys: str, label="Model", options=None, allow_custom=True, accept=None):
+    import questionary
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    from promptmap import settings
+
+    real = questionary.autocomplete
+    options = options or ["anthropic/claude-sonnet-4.5", "anthropic/claude-opus-4", "openai/gpt-4o"]
+    import threading
+    import time
+
+    def typist(pipe):
+        # One chunk per "|" with a pause, like a person: completions are
+        # computed in the background and need a moment to appear.
+        for chunk in keys.split("|"):
+            time.sleep(0.15)
+            pipe.send_text(chunk)
+
+    with create_pipe_input() as pipe:
+        threading.Thread(target=typist, args=(pipe,), daemon=True).start()
+        monkeypatch.setattr(questionary, "autocomplete",
+                            lambda *a, **k: real(*a, input=pipe, output=DummyOutput(), **k))
+        return settings._live_choose(label, options, allow_custom, accept)
+
+
+def test_live_filter_tab_picks_first_match(monkeypatch):
+    assert _live(monkeypatch, "sonnet claude|\t|\r") == "anthropic/claude-sonnet-4.5"
+
+
+def test_live_filter_second_tab_moves_to_next_match(monkeypatch):
+    assert _live(monkeypatch, "claude|\t|\t|\r") == "anthropic/claude-opus-4"
+
+
+def test_live_enter_on_empty_is_blank(monkeypatch):
+    assert _live(monkeypatch, "\r") == ""
+
+
+def test_live_custom_name_is_kept_as_typed(monkeypatch):
+    assert _live(monkeypatch, "my-future-model\r") == "my-future-model"
+
+
+def test_live_provider_rejects_unknown_then_takes_a_listed_one(monkeypatch):
+    # "zzz" + Enter is refused; Ctrl-U clears the line; "openai" is accepted.
+    got = _live(monkeypatch, "zzz|\r|\x15|openai|\r", label="Provider",
+                options=["anthropic", "openai"], allow_custom=False, accept=lambda p: False)
+    assert got == "openai"
+
+
+def test_live_enter_on_one_match_takes_it(monkeypatch):
+    assert _live(monkeypatch, "gpt|\r") == "openai/gpt-4o"
+
+
+def test_live_enter_on_several_matches_is_refused_until_picked(monkeypatch):
+    # "claude" matches two: Enter refused; Tab picks the first; Enter accepts.
+    assert _live(monkeypatch, "claude|\r|\t|\r") == "anthropic/claude-sonnet-4.5"

@@ -94,7 +94,7 @@ model: claude-sonnet-4-5
 
 Three ways to set it:
 
-1. `promptmap init my_project` asks for provider, model and API key. Pick a provider from LiteLLM's list, then a model from a numbered list (type text to filter it). A model name that isn't in the list is used as typed. **Enter at any prompt leaves that value blank** — Enter at every prompt writes a blank `settings.yml` (and no key) for you to fill in by hand.
+1. `promptmap init my_project` asks for provider, model and API key. Pick a provider, then a model: type and matches drop down live (every word counts, any order — `claude sonnet` finds `claude-sonnet-4-5`); ↑↓/Tab picks, Enter accepts. Enter on text with one match takes it; with several, pick one; with none, the text is used as a custom model name. (Without a full terminal you get a numbered list instead.) **Enter at any prompt leaves that value blank** — Enter at every prompt writes a blank `settings.yml` (and no key) for you to fill in by hand.
 2. Flags — every prompt has one, so nothing needs to be asked:
 
    ```bash

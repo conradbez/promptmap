@@ -220,7 +220,7 @@ def test_declining_leaves_a_blank_template_line(tmp_path, monkeypatch):
     monkeypatch.setattr("promptmap.settings.is_interactive", lambda: True)
     result = CliRunner().invoke(main, ["init", "proj", "--provider", "groq", "--model", "m"], input="n\n")
     assert result.exit_code == 0, result.output
-    assert "fill it in there yourself later" in result.output
+    assert "add it to .env later" in result.output
     assert (tmp_path / "proj" / ".env").read_text() == "GROQ_API_KEY=\n"
 
 

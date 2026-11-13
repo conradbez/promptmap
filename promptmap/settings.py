@@ -140,17 +140,14 @@ def choose(label: str, options: list[str], allow_custom: bool, accept=None) -> s
     if options and _live_terminal():
         return _live_choose(label, options, allow_custom, accept)
     if not options:
-        return click.prompt(f"{label} (Enter to leave blank)", default="", show_default=False).strip()
+        return click.prompt(label, default="", show_default=False).strip()
     shown = options
     while True:
         for i, option in enumerate(shown[:_MAX_SHOWN], 1):
             click.echo(f"  {i:>3}. {option}")
         if len(shown) > _MAX_SHOWN:
-            click.echo(f"  ... {len(shown) - _MAX_SHOWN} more — type text to filter")
-        hint = "number, name, or words to filter"
-        if allow_custom:
-            hint += "; any other name is used as typed"
-        answer = click.prompt(f"{label} ({hint}; Enter to leave blank)", default="", show_default=False).strip()
+            click.echo(f"  ... {len(shown) - _MAX_SHOWN} more")
+        answer = click.prompt(_prompt_text(label, options), default="", show_default=False).strip()
         if not answer:
             return ""
         if answer.isdigit() and 1 <= int(answer) <= min(len(shown), _MAX_SHOWN):
@@ -165,11 +162,33 @@ def choose(label: str, options: list[str], allow_custom: bool, accept=None) -> s
             shown = matches
             continue
         if allow_custom and not matches and click.confirm(
-            f"No {label.lower()} in the list matches '{answer}'. Use '{answer}' as typed?", default=False,
+            f"No match. Use '{answer}' anyway?", default=False,
         ):
             return answer
-        click.echo(f"No {label.lower()} matches '{answer}' — showing the full list.")
+        click.echo("No match.")
         shown = options
+
+
+def _example(options: list[str]) -> str:
+    """A short word that filters *options* well: their most common leading word.
+
+    'claude' for Anthropic's models, 'gpt' for OpenAI's.
+    """
+    import re
+    from collections import Counter
+
+    words = Counter()
+    for option in options:
+        word = re.match(r"[a-z]+", option.rsplit("/", 1)[-1].lower())
+        if word and len(word.group()) > 2:
+            words[word.group()] += 1
+    return words.most_common(1)[0][0] if words else ""
+
+
+def _prompt_text(label: str, options: list[str]) -> str:
+    """'Model (type to filter, e.g. claude)'."""
+    example = "anthropic" if label == "Provider" and "anthropic" in options else _example(options)
+    return f"{label} (type to filter, e.g. {example})" if example else f"{label} (type to filter)"
 
 
 def _live_terminal() -> bool:
@@ -209,14 +228,11 @@ def _live_choose(label: str, options: list[str], allow_custom: bool, accept=None
         if len(matches) == 1 or (allow_custom and not matches):
             return True  # one match is taken; text matching nothing is a custom name
         if matches:
-            return f"{len(matches)} matches — pick one with ↑↓/Tab"
-        return f"Not a known {label.lower()}: pick one from the list, or clear the line to leave it blank"
+            return f"{len(matches)} matches, pick one with ↑↓"
+        return f"Unknown {label.lower()}"
 
-    hint = "type to filter, ↑↓/Tab to pick, Enter to accept"
-    if allow_custom:
-        hint += "; any name works"
     answer = questionary.autocomplete(
-        f"{label} ({hint}; empty = blank):",
+        _prompt_text(label, options),
         choices=options,
         completer=_Words(),
         validate=validate,
@@ -247,12 +263,7 @@ def ask_provider() -> str:
 
 
 def ask_model(provider: str) -> str:
-    models = provider_models(provider)
-    if not models:
-        import click
-
-        click.echo(f"No known model list for {provider}; type the model name.")
-    return choose("Model", models, allow_custom=True)
+    return choose("Model", provider_models(provider), allow_custom=True)
 
 
 # ---------------------------------------------------------------------------
@@ -406,7 +417,7 @@ def ensure_env_keys(root: Path, provider: str, model: str, ask: bool) -> list[st
             import click
 
             if click.confirm(
-                f"Add your {name} to {path} now? (or fill it in there yourself later)",
+                f"Paste your {name} now? (or add it to .env later)",
                 default=False,
             ):
                 value = click.prompt(name, default="", show_default=False, hide_input=True).strip()

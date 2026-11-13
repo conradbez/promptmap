@@ -153,6 +153,23 @@ def _file_block(f) -> dict:
     return {"type": "file", "file": {"file_data": url, "filename": name}}
 
 
+def quiet_litellm():
+    """Import litellm with telemetry, message logging and debug output off.
+
+    Clears any success/failure callbacks (Langfuse, OpenTelemetry, ...) so the
+    default backend sends prompts to the provider and nowhere else.  A
+    client.py that wants callbacks can set them in its own ``llm_call``.
+    """
+    import litellm
+
+    litellm.telemetry = False
+    litellm.turn_off_message_logging = True
+    litellm.success_callback = []
+    litellm.failure_callback = []
+    litellm.suppress_debug_info = True
+    return litellm
+
+
 def litellm_model(provider: str, model: str) -> str:
     """LiteLLM's ``provider/model`` string; a model already prefixed is kept."""
     return model if model.startswith(provider + "/") else f"{provider}/{model}"
@@ -167,14 +184,12 @@ def litellm_llm_call(provider: str, model: str) -> Callable:
     target = litellm_model(provider, model)
 
     def llm_call(prompt: str, files: list | None = None):
-        import litellm
-
         from promptmap.tokens import LLMResult
 
         content: str | list = prompt
         if files:
             content = [{"type": "text", "text": prompt}] + [_file_block(f) for f in files]
-        response = litellm.completion(model=target, messages=[{"role": "user", "content": content}])
+        response = quiet_litellm().completion(model=target, messages=[{"role": "user", "content": content}])
         usage = getattr(response, "usage", None)
         return LLMResult(
             response.choices[0].message.content,

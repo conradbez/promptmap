@@ -35,11 +35,10 @@ def fake_litellm(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _no_provider_keys(monkeypatch):
-    from promptmap.settings import PROVIDER_ENV_VARS
-
-    for name, aliases in PROVIDER_ENV_VARS.values():
-        for n in (name, *aliases):
-            monkeypatch.delenv(n, raising=False)
+    for n in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
+              "GROQ_API_KEY", "HUGGINGFACE_API_KEY", "HF_TOKEN", "AZURE_API_KEY",
+              "AZURE_API_BASE", "AZURE_API_VERSION"):
+        monkeypatch.delenv(n, raising=False)
 
 
 def _project(tmp_path: Path) -> Path:
@@ -140,7 +139,7 @@ def test_init_asks_for_provider_and_model(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("promptmap.settings.is_interactive", lambda: True)
     # "anthropic" by name, then a model the snapshot doesn't know, confirmed.
-    result = CliRunner().invoke(main, ["init", "proj"], input="anthropic\nmy-custom-model\ny\nsk-test\n")
+    result = CliRunner().invoke(main, ["init", "proj"], input="anthropic\nmy-custom-model\ny\ny\nsk-test\n")
     assert result.exit_code == 0, result.output
     settings = yaml.safe_load((tmp_path / "proj" / "settings.yml").read_text())
     assert settings == {"provider": "anthropic", "model": "my-custom-model"}
@@ -151,7 +150,7 @@ def test_init_asks_for_provider_and_model(tmp_path, monkeypatch):
 def test_init_model_picked_by_number(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("promptmap.settings.is_interactive", lambda: True)
-    result = CliRunner().invoke(main, ["init", "proj", "--provider", "openai"], input="1\n\n")
+    result = CliRunner().invoke(main, ["init", "proj", "--provider", "openai"], input="1\nn\n")
     assert result.exit_code == 0, result.output
     settings = yaml.safe_load((tmp_path / "proj" / "settings.yml").read_text())
     assert settings["model"] == provider_models("openai")[0]
@@ -170,7 +169,7 @@ def test_run_asks_when_nothing_is_configured(tmp_path, monkeypatch, fake_litellm
     proj = _project(tmp_path)
     monkeypatch.chdir(proj)
     monkeypatch.setattr("promptmap.settings.is_interactive", lambda: True)
-    result = CliRunner().invoke(main, ["run"], input="gemini\nsome-model\ny\n\n")
+    result = CliRunner().invoke(main, ["run"], input="gemini\nsome-model\ny\nn\n")
     assert result.exit_code == 0, result.output
     assert yaml.safe_load((proj / "settings.yml").read_text()) == {"provider": "gemini", "model": "some-model"}
 
@@ -184,25 +183,65 @@ def test_init_appends_key_placeholder_to_existing_env(tmp_path, monkeypatch):
     assert (tmp_path / "proj" / ".env").read_text() == "OTHER=1\nGEMINI_API_KEY=\n"
 
 
-@pytest.mark.parametrize("existing", ["HF_TOKEN=abc\n", "export HUGGINGFACE_API_KEY=abc\n"])
-def test_existing_key_or_alias_is_left_alone(tmp_path, existing):
-    from promptmap.settings import ensure_env_key
+def test_env_vars_come_from_litellm():
+    from promptmap.settings import provider_env_vars
 
-    (tmp_path / ".env").write_text(existing, encoding="utf-8")
-    assert ensure_env_key(tmp_path, "huggingface", ask=False) is None
-    assert (tmp_path / ".env").read_text() == existing
+    assert provider_env_vars("groq", "llama-3.3-70b-versatile") == ["GROQ_API_KEY"]
+    assert provider_env_vars("gemini", "anything") == ["GEMINI_API_KEY"]
+    assert set(provider_env_vars("azure", "gpt")) == {"AZURE_API_KEY", "AZURE_API_BASE", "AZURE_API_VERSION"}
+    assert provider_env_vars("madeup", "x") == []
+
+
+def test_env_vars_listed_even_when_already_exported(monkeypatch):
+    from promptmap.settings import provider_env_vars
+
+    monkeypatch.setenv("GROQ_API_KEY", "x")
+    assert provider_env_vars("groq", "m") == ["GROQ_API_KEY"]
+
+
+def test_existing_value_in_env_file_is_left_alone(tmp_path):
+    from promptmap.settings import ensure_env_keys
+
+    (tmp_path / ".env").write_text("export ANTHROPIC_API_KEY=abc\n", encoding="utf-8")
+    assert ensure_env_keys(tmp_path, "anthropic", "m", ask=False) == []
+    assert (tmp_path / ".env").read_text() == "export ANTHROPIC_API_KEY=abc\n"
 
 
 def test_key_already_in_environment_is_not_written(tmp_path, monkeypatch):
-    from promptmap.settings import ensure_env_key
+    from promptmap.settings import ensure_env_keys
 
     monkeypatch.setenv("OPENAI_API_KEY", "x")
-    assert ensure_env_key(tmp_path, "openai", ask=False) is None
+    assert ensure_env_keys(tmp_path, "openai", "m", ask=False) == []
     assert not (tmp_path / ".env").exists()
 
 
-def test_provider_without_known_key_writes_no_env(tmp_path):
-    from promptmap.settings import ensure_env_key
+def test_declining_leaves_a_blank_template_line(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("promptmap.settings.is_interactive", lambda: True)
+    result = CliRunner().invoke(main, ["init", "proj", "--provider", "groq", "--model", "m"], input="n\n")
+    assert result.exit_code == 0, result.output
+    assert "fill it in there yourself later" in result.output
+    assert (tmp_path / "proj" / ".env").read_text() == "GROQ_API_KEY=\n"
 
-    assert ensure_env_key(tmp_path, "ollama", ask=False) is None
-    assert not (tmp_path / ".env").exists()
+
+def test_blank_template_line_is_filled_in_later(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "proj").mkdir()
+    (tmp_path / "proj" / ".env").write_text("A=1\nGROQ_API_KEY=\nB=2\n", encoding="utf-8")
+    monkeypatch.setattr("promptmap.settings.is_interactive", lambda: True)
+    result = CliRunner().invoke(main, ["init", "proj", "--provider", "groq", "--model", "m"], input="y\ngsk-1\n")
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "proj" / ".env").read_text() == "A=1\nGROQ_API_KEY=gsk-1\nB=2\n"
+
+
+def test_default_backend_turns_litellm_logging_off(tmp_path, monkeypatch, fake_litellm):
+    import litellm
+
+    monkeypatch.setattr(litellm, "success_callback", ["langfuse"])
+    monkeypatch.setattr(litellm, "failure_callback", ["langfuse"])
+    monkeypatch.setattr(litellm, "turn_off_message_logging", False)
+    proj = _project(tmp_path)
+    save_settings(proj, "openai", "m")
+    resolve_llm_call(str(proj / "map"))("hi")
+    assert litellm.success_callback == [] and litellm.failure_callback == []
+    assert litellm.turn_off_message_logging is True and litellm.telemetry is False

@@ -106,7 +106,7 @@ def configure_llm_or_exit(map_dir: str, provider: str | None, model: str | None)
             model = ask_model(provider)
         path = save_settings(root, provider, model)
         console.print(f"  [dim]{path.name}: {provider}:{model}[/dim]")
-        _note_env_key(root, provider, _settings.is_interactive())
+        _note_env_keys(root, provider, model, _settings.is_interactive())
         return
     if has_llm_backend(map_dir) or not _settings.is_interactive():
         return
@@ -115,19 +115,20 @@ def configure_llm_or_exit(map_dir: str, provider: str | None, model: str | None)
     model = ask_model(provider)
     path = save_settings(root, provider, model)
     console.print(f"  [green]wrote[/green]  {path}  [dim]({provider}:{model})[/dim]")
-    _note_env_key(root, provider, ask=True)
+    _note_env_keys(root, provider, model, ask=True)
     console.print()
 
 
-def _note_env_key(root: Path, provider: str, ask: bool) -> None:
-    """Add the provider's API key var to .env and load it for this run."""
+def _note_env_keys(root: Path, provider: str, model: str, ask: bool) -> None:
+    """Add the variables the provider needs to .env and load them for this run."""
     from dotenv import load_dotenv
 
-    from promptmap.settings import ensure_env_key
+    from promptmap.settings import ensure_env_keys
 
-    note = ensure_env_key(root, provider, ask=ask)
-    if note:
+    notes = ensure_env_keys(root, provider, model, ask=ask)
+    for note in notes:
         console.print(f"  [dim]{note}[/dim]")
+    if notes:
         load_dotenv(root / ".env")
 
 

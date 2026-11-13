@@ -180,58 +180,92 @@ def ask_model(provider: str) -> str:
 # .env — the provider's API key
 # ---------------------------------------------------------------------------
 
-#: provider -> (env var written to .env, other names that also count as set)
-PROVIDER_ENV_VARS: dict[str, tuple[str, tuple[str, ...]]] = {
-    "openai": ("OPENAI_API_KEY", ()),
-    "anthropic": ("ANTHROPIC_API_KEY", ()),
-    "gemini": ("GEMINI_API_KEY", ("GOOGLE_API_KEY",)),
-    "groq": ("GROQ_API_KEY", ()),
-    "mistral": ("MISTRAL_API_KEY", ()),
-    "deepseek": ("DEEPSEEK_API_KEY", ()),
-    "cohere": ("COHERE_API_KEY", ()),
-    "cohere_chat": ("COHERE_API_KEY", ()),
-    "huggingface": ("HUGGINGFACE_API_KEY", ("HF_TOKEN",)),
+#: Variables LiteLLM lists as alternatives (either one works) -> the one to write.
+_ALTERNATIVES: dict[frozenset[str], str] = {
+    frozenset({"GOOGLE_API_KEY", "GEMINI_API_KEY"}): "GEMINI_API_KEY",
 }
 
 
-def _env_names(path: Path) -> set[str]:
+def provider_env_vars(provider: str, model: str) -> list[str]:
+    """The variables LiteLLM needs to call *provider*/*model* (keys, bases, ...).
+
+    Asked of ``litellm.validate_environment`` with the environment hidden, so
+    the answer is the full list whatever is already set.  Empty for a provider
+    LiteLLM doesn't recognise or needs nothing for.
+    """
+    from unittest import mock
+
+    from promptmap.llm import litellm_model, quiet_litellm
+
+    litellm = quiet_litellm()
+    try:
+        with mock.patch.dict(os.environ, clear=True):
+            names = litellm.validate_environment(litellm_model(provider, model))["missing_keys"]
+    except Exception:
+        return []
+    for group, keep in _ALTERNATIVES.items():
+        if group <= set(names):
+            names = [n for n in names if n not in group or n == keep]
+    return list(dict.fromkeys(names))
+
+
+def _read_env(path: Path) -> dict[str, str]:
+    """NAME -> value for each assignment in a .env file."""
     if not path.is_file():
-        return set()
-    names = set()
+        return {}
+    values = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip().removeprefix("export ").strip()
         if line and not line.startswith("#") and "=" in line:
-            names.add(line.split("=", 1)[0].strip())
-    return names
+            name, value = line.split("=", 1)
+            values[name.strip()] = value.strip().strip("'\"")
+    return values
 
 
-def ensure_env_key(root: Path, provider: str, ask: bool) -> str | None:
-    """Append *provider*'s API key variable to *root*/.env unless it's already there.
-
-    With *ask*, the value is asked for (hidden; Enter leaves it blank).  A key
-    already in .env or the environment, under any of its names, is left alone.
-    Also gitignores .env.  Returns a line describing what happened, or None.
-    """
-    if provider not in PROVIDER_ENV_VARS:
-        return None
-    name, aliases = PROVIDER_ENV_VARS[provider]
-    path = Path(root) / ".env"
-    present = _env_names(path)
-    if any(n in present or os.environ.get(n) for n in (name, *aliases)):
-        return None
-    value = ""
-    if ask:
-        import click
-
-        value = click.prompt(
-            f"{name} (Enter to fill in later)", default="", show_default=False, hide_input=True
-        ).strip()
+def _set_env_line(path: Path, name: str, value: str) -> None:
+    """Fill *name*'s blank line in .env, or append ``NAME=value``."""
     text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        bare = line.strip().removeprefix("export ").strip()
+        if bare.split("=", 1)[0].strip() == name and "=" in bare:
+            lines[i] = f"{name}={value}"
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            return
     sep = "" if not text or text.endswith("\n") else "\n"
     path.write_text(f"{text}{sep}{name}={value}\n", encoding="utf-8")
-    _gitignore_env(Path(root))
-    action = "added" if text else "created"
-    return f"{action} {path} ({name}{'' if value else ' — fill in the value'})"
+
+
+def ensure_env_keys(root: Path, provider: str, model: str, ask: bool) -> list[str]:
+    """Make sure *root*/.env lists the variables *provider*/*model* needs.
+
+    Missing names are appended as ``NAME=`` (a template to fill in).  With
+    *ask*, the user is offered to paste each value now (hidden) — or leave it
+    and edit .env later.  A variable that already has a value in .env or the
+    environment is left alone.  Also gitignores .env.  Returns one line per
+    change, for the caller to print.
+    """
+    path = Path(root) / ".env"
+    notes: list[str] = []
+    for name in provider_env_vars(provider, model):
+        existing = _read_env(path)
+        if existing.get(name) or os.environ.get(name):
+            continue
+        value = ""
+        if ask:
+            import click
+
+            if click.confirm(
+                f"Add your {name} to {path} now? (or fill it in there yourself later)",
+                default=True,
+            ):
+                value = click.prompt(name, default="", show_default=False, hide_input=True).strip()
+        if value or name not in existing:
+            _set_env_line(path, name, value)
+            notes.append(f"{path}: {name}" + ("" if value else " (blank — fill it in before running)"))
+    if notes:
+        _gitignore_env(Path(root))
+    return notes
 
 
 def _gitignore_env(root: Path) -> None:

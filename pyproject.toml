@@ -18,7 +18,9 @@ dependencies = [
     "mini-swe-agent>=2.0",
     # litellm imports mcp on any tool-calling request (mini-swe-agent always
     # sends tools) but only ships it in its [mcp] extra.
-    "litellm[mcp]",
+    # Pinned: two litellm releases on PyPI were compromised (March 2026).
+    # Bump deliberately after checking the release.
+    "litellm[mcp]==1.102.1",
     "tree-sitter-language-pack>=1.23",
 ]
 

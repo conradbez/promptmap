@@ -2292,7 +2292,7 @@ dev = [
 requires-dist = [
     { name = "click", specifier = ">=8.1" },
     { name = "jinja2", specifier = ">=3.1" },
-    { name = "litellm", extras = ["mcp"] },
+    { name = "litellm", extras = ["mcp"], specifier = "==1.102.1" },
     { name = "mini-swe-agent", specifier = ">=2.0" },
     { name = "networkx", specifier = ">=3.0" },
     { name = "promptmap-extra-model-kinds", marker = "python_full_version >= '3.11' and extra == 'extras'", editable = "promptmap-extra-model-kinds" },

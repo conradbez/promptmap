@@ -100,20 +100,11 @@ Three ways to set it:
 
 The provider and model lists `init` offers come from the model list bundled with the installed litellm package (no network call); upgrading litellm updates them. If `promptmap run` finds neither `settings.yml` nor a `client.py` and is run in a terminal, it asks for provider and model and saves them.
 
-API keys come from the environment or `.env`. When `init` or `run` saves a provider, it adds that provider's key variable to `.env` (creating it, or appending if it exists) and gitignores `.env`. In a terminal it asks for the value (hidden; Enter leaves it blank to fill in later). A key already set in `.env` or the environment is left alone.
+API keys come from the environment or `.env`. When `init` or `run` saves a provider and model, promptmap asks LiteLLM which variables that model needs (`litellm.validate_environment`) and adds each one missing from `.env` as `NAME=` (creating `.env` if needed and gitignoring it). In a terminal it offers to take each value now (hidden input); say no and fill in `.env` yourself later. A variable that already has a value in `.env` or your environment is left alone.
 
-| Provider | Variable |
-| --- | --- |
-| openai | `OPENAI_API_KEY` |
-| anthropic | `ANTHROPIC_API_KEY` |
-| gemini | `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) |
-| groq | `GROQ_API_KEY` |
-| mistral | `MISTRAL_API_KEY` |
-| deepseek | `DEEPSEEK_API_KEY` |
-| cohere | `COHERE_API_KEY` |
-| huggingface | `HUGGINGFACE_API_KEY` (or `HF_TOKEN`) |
+Examples: `groq` → `GROQ_API_KEY`; `gemini` → `GEMINI_API_KEY` (`GOOGLE_API_KEY` also works); `azure` → `AZURE_API_KEY`, `AZURE_API_BASE`, `AZURE_API_VERSION`; `bedrock` → `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`.
 
-Other providers: set the variable [LiteLLM's provider docs](https://docs.litellm.ai/docs/providers) name.
+The default backend switches LiteLLM's telemetry, message logging, callbacks and debug output off, so prompts go to the provider only. litellm is pinned to an exact version in promptmap's dependencies.
 
 Attached files (`promptfiles`) go in the same message: text inline, images and PDFs as base64 content blocks (the model must accept them).
 

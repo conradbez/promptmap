@@ -1,4 +1,4 @@
-"""settings.yml + the default aisuite backend + `promptmap init/run --provider/--model`."""
+"""settings.yml + the default LiteLLM backend + `promptmap init/run --provider/--model`."""
 
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ from promptmap.settings import provider_models, save_settings, supported_provide
 
 
 @pytest.fixture
-def fake_aisuite(monkeypatch):
-    """Replace aisuite.Client with one that records calls and answers 'ok'."""
+def fake_litellm(monkeypatch):
+    """Replace litellm.completion with one that records calls and answers 'ok'."""
     calls: list[dict] = []
 
     def create(**kwargs):
@@ -27,10 +27,9 @@ def fake_aisuite(monkeypatch):
             usage=types.SimpleNamespace(total_tokens=7),
         )
 
-    import aisuite
+    import litellm
 
-    client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
-    monkeypatch.setattr(aisuite, "Client", lambda *a, **k: client)
+    monkeypatch.setattr(litellm, "completion", create)
     return calls
 
 
@@ -55,27 +54,27 @@ def test_snapshot_has_models_for_common_providers():
         assert provider_models(provider), provider
 
 
-def test_settings_drive_the_default_backend(tmp_path, fake_aisuite):
+def test_settings_drive_the_default_backend(tmp_path, fake_litellm):
     proj = _project(tmp_path)
     save_settings(proj, "anthropic", "claude-whatever")
     result = resolve_llm_call(str(proj / "map"))("hi")
     assert result.output == "ok" and result.spent_tokens == 7
-    assert fake_aisuite[0]["model"] == "anthropic:claude-whatever"
+    assert fake_litellm[0]["model"] == "anthropic/claude-whatever"
 
 
-def test_hand_edited_settings_are_not_validated(tmp_path, fake_aisuite):
+def test_hand_edited_settings_are_not_validated(tmp_path, fake_litellm):
     proj = _project(tmp_path)
     (proj / "settings.yml").write_text("provider: madeup\nmodel: not-a-model\n", encoding="utf-8")
     resolve_llm_call(str(proj / "map"))("hi")
-    assert fake_aisuite[0]["model"] == "madeup:not-a-model"
+    assert fake_litellm[0]["model"] == "madeup/not-a-model"
 
 
-def test_client_py_llm_call_overrides_settings(tmp_path, fake_aisuite):
+def test_client_py_llm_call_overrides_settings(tmp_path, fake_litellm):
     proj = _project(tmp_path)
     save_settings(proj, "openai", "gpt-4o-mini")
     (proj / "client.py").write_text("def llm_call(prompt):\n    return 'from client'\n", encoding="utf-8")
     assert resolve_llm_call(str(proj / "map"))("hi") == "from client"
-    assert not fake_aisuite
+    assert not fake_litellm
 
 
 def test_no_backend_error_points_at_init(tmp_path):
@@ -83,15 +82,41 @@ def test_no_backend_error_points_at_init(tmp_path):
         resolve_llm_call(str(_project(tmp_path) / "map"))
 
 
-def test_text_files_are_appended_to_the_prompt(tmp_path, fake_aisuite):
+def test_text_files_are_appended_to_the_prompt(tmp_path, fake_litellm):
     proj = _project(tmp_path)
     save_settings(proj, "openai", "m")
     doc = tmp_path / "notes.txt"
     doc.write_text("the notes", encoding="utf-8")
     with open(doc, "rb") as f:
         resolve_llm_call(str(proj / "map"))("Summarise", files=[f])
-    content = fake_aisuite[0]["messages"][0]["content"]
-    assert content.startswith("Summarise") and "notes.txt" in content and "the notes" in content
+    blocks = fake_litellm[0]["messages"][0]["content"]
+    assert blocks[0] == {"type": "text", "text": "Summarise"}
+    assert blocks[1] == {"type": "text", "text": "--- notes.txt ---\nthe notes"}
+
+
+def test_binary_files_become_data_blocks(tmp_path, fake_litellm):
+    proj = _project(tmp_path)
+    save_settings(proj, "openai", "m")
+    (tmp_path / "pic.png").write_bytes(b"\x89PNG\r\n\x1a\n\xff")
+    (tmp_path / "doc.pdf").write_bytes(b"%PDF-1.4\n\xff\xfe")
+    with open(tmp_path / "pic.png", "rb") as png, open(tmp_path / "doc.pdf", "rb") as pdf:
+        resolve_llm_call(str(proj / "map"))("Describe", files=[png, pdf])
+    _, image, document = fake_litellm[0]["messages"][0]["content"]
+    assert image["type"] == "image_url" and image["image_url"]["url"].startswith("data:image/png;base64,")
+    assert document["type"] == "file" and document["file"]["file_data"].startswith("data:application/pdf;base64,")
+
+
+def test_prefixed_model_is_not_double_prefixed(tmp_path, fake_litellm):
+    proj = _project(tmp_path)
+    save_settings(proj, "openrouter", "openrouter/anthropic/claude-x")
+    resolve_llm_call(str(proj / "map"))("hi")
+    assert fake_litellm[0]["model"] == "openrouter/anthropic/claude-x"
+
+
+def test_init_accepts_litellm_provider_outside_the_menu(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(main, ["init", "proj", "--provider", "litellm_proxy", "--model", "m"])
+    assert result.exit_code == 0, result.output
 
 
 def test_init_writes_settings_without_client_py(tmp_path, monkeypatch):
@@ -132,16 +157,16 @@ def test_init_model_picked_by_number(tmp_path, monkeypatch):
     assert settings["model"] == provider_models("openai")[0]
 
 
-def test_run_provider_and_model_flags_save_settings(tmp_path, monkeypatch, fake_aisuite):
+def test_run_provider_and_model_flags_save_settings(tmp_path, monkeypatch, fake_litellm):
     proj = _project(tmp_path)
     monkeypatch.chdir(proj)
     result = CliRunner().invoke(main, ["run", "--provider", "anything", "--model", "goes"])
     assert result.exit_code == 0, result.output
     assert yaml.safe_load((proj / "settings.yml").read_text()) == {"provider": "anything", "model": "goes"}
-    assert fake_aisuite[0]["model"] == "anything:goes"
+    assert fake_litellm[0]["model"] == "anything/goes"
 
 
-def test_run_asks_when_nothing_is_configured(tmp_path, monkeypatch, fake_aisuite):
+def test_run_asks_when_nothing_is_configured(tmp_path, monkeypatch, fake_litellm):
     proj = _project(tmp_path)
     monkeypatch.chdir(proj)
     monkeypatch.setattr("promptmap.settings.is_interactive", lambda: True)

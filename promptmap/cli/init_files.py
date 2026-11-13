@@ -105,17 +105,17 @@ Example with post-processing — parse and return a cleaned dict:
 
 ## settings.yml
 
-Which LLM `promptmap run` calls, through [aisuite](https://github.com/andrewyng/aisuite):
+Which LLM `promptmap run` calls, through [LiteLLM](https://github.com/BerriAI/litellm):
 
     provider: anthropic
     model: claude-sonnet-4-5
 
 Set it with `promptmap init --provider <name> --model <name>`, or edit it by hand —
 values are not validated. API keys come from the environment or `.env`
-(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...). Install the provider SDK
-with `pip install 'aisuite[<provider>]'`.
+(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...); `promptmap init` adds the
+right one to `.env`.
 
-For full control over the call (file uploads, retries, a custom API), add a
+For full control over the call (retries, system prompts, a custom API), add a
 `client.py` with `llm_call(prompt: str) -> str`; it replaces settings.yml.
 See docs/INTERMEDIATE_USAGE.md.
 """,
@@ -212,7 +212,7 @@ def register_command(main) -> None:
     )
     @click.option(
         "--provider", default=None,
-        help="aisuite provider (e.g. anthropic, openai, gemini). Asked interactively if omitted.",
+        help="LiteLLM provider (e.g. anthropic, openai, gemini). Asked interactively if omitted.",
     )
     @click.option("--model", default=None, help="Model name. Asked interactively if omitted.")
     def init(
@@ -222,7 +222,7 @@ def register_command(main) -> None:
         """Scaffold a starter promptmap project inside PROJECT_NAME/.
 
         Writes settings.yml with the provider and model `promptmap run` calls
-        through aisuite.  Without --provider / --model they are asked for.
+        through LiteLLM.  Without --provider / --model they are asked for.
 
         --secrets, --data and --files also write secrets.yml (+ secrets-template.yml),
         promptdata.yml and promptfiles.yml, listing the keys the project's
@@ -313,19 +313,19 @@ def validate(prompt: str, result: str):
 
 
 # ---------------------------------------------------------------------------
-# settings.yml — provider + model for the default aisuite backend
+# settings.yml — provider + model for the default LiteLLM backend
 # ---------------------------------------------------------------------------
 
 def write_settings(console, root: Path, provider: str | None, model: str | None) -> None:
     """Write *root*/settings.yml, asking for whichever of provider/model is missing.
 
-    --provider must be an aisuite provider; --model is taken as given (the
-    snapshot of known models is a menu, not a whitelist).
+    --provider must be a LiteLLM provider; --model is taken as given (the
+    list of known models is a menu, not a whitelist).
     """
     import sys
 
     from promptmap import settings as _settings
-    from promptmap.settings import ask_model, ask_provider, save_settings, supported_providers
+    from promptmap.settings import ask_model, ask_provider, is_known_provider, save_settings
 
     if (provider is None or model is None) and not _settings.is_interactive():
         console.print(
@@ -335,10 +335,10 @@ def write_settings(console, root: Path, provider: str | None, model: str | None)
         return
     if provider is not None:
         provider = provider.lower()
-        if provider not in supported_providers():
+        if not is_known_provider(provider):
             console.print(
                 f"[red]Error:[/red] unknown provider '{provider}'. "
-                f"Choose one of: {', '.join(supported_providers())}"
+                f"Choose one of: {', '.join(_settings.supported_providers())}"
             )
             sys.exit(1)
     else:

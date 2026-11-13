@@ -13,12 +13,12 @@ A **data-engineering-inspired** prompt orchestration tool for LLMs (think `dbt` 
 ## Quick start
 
 ```bash
-uv tool install promptmap --with 'aisuite[anthropic]'  # or: aisuite[openai] | aisuite[gemini] ...
+uv tool install promptmap
 promptmap init my_project   # asks for provider, model + API key; writes settings.yml and .env
 # or: promptmap init my_project --provider anthropic --model claude-sonnet-4-5
 ```
 
-promptmap calls your LLM through [aisuite](https://github.com/andrewyng/aisuite). The provider and model
+promptmap calls your LLM through [LiteLLM](https://github.com/BerriAI/litellm) (100+ providers). The provider and model
 live in `settings.yml` at the project root — change them with `promptmap run --provider X --model Y`
 or edit the file by hand (values aren't validated). Need full control over the call? Add a
 [`client.py`](docs/INTERMEDIATE_USAGE.md#customising-the-llm-backend-clientpy).

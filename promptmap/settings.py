@@ -1,7 +1,7 @@
 """
 Project settings: which provider and model the default LLM backend calls.
 
-A project without a client.py runs its prompts through aisuite, using the
+A project without a client.py runs its prompts through LiteLLM, using the
 ``provider`` and ``model`` in ``settings.yml`` at the project root (next to
 ``map/``)::
 
@@ -10,12 +10,13 @@ A project without a client.py runs its prompts through aisuite, using the
 
 ``promptmap init`` writes it (``--provider`` / ``--model``, or asked
 interactively).  The values are not checked when a run reads them, so the file
-can be edited by hand to any provider/model aisuite accepts.  The model choices
-``init`` offers come from ``provider_models.json``, a snapshot of LiteLLM's model
-list taken at release time by ``scripts/update_provider_models.py``.
+can be edited by hand to any provider/model LiteLLM accepts.  The provider and
+model choices ``init`` offers come from the model list bundled inside the
+installed litellm package — read as a file, so no network call and no litellm
+import just to show a menu.
 
-API keys come from the environment (or ``.env``), named the way each provider's
-SDK expects: ``ANTHROPIC_API_KEY``, ``OPENAI_API_KEY``, ``GEMINI_API_KEY``, ...
+API keys come from the environment (or ``.env``), named the way LiteLLM
+expects: ``ANTHROPIC_API_KEY``, ``OPENAI_API_KEY``, ``GEMINI_API_KEY``, ...
 """
 
 from __future__ import annotations
@@ -26,7 +27,8 @@ from functools import cache
 from pathlib import Path
 
 SETTINGS_FILE = "settings.yml"
-_MODELS_FILE = Path(__file__).with_name("provider_models.json")
+_LITELLM_MODELS_FILE = "model_prices_and_context_window_backup.json"
+_CHAT_MODES = {"chat", "responses"}
 
 
 def settings_path(map_dir: str) -> str:
@@ -57,31 +59,58 @@ def save_settings(root: Path, provider: str, model: str) -> Path:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     data.update(provider=provider, model=model)
     header = (
-        "# LLM used by `promptmap run` when there is no client.py.\n"
-        "# provider: any aisuite provider; model: any model that provider serves.\n"
-        "# Edit freely — values are not validated. API keys come from the environment.\n"
+        "# LLM used by `promptmap run` when there is no client.py (called via LiteLLM).\n"
+        "# provider: any LiteLLM provider; model: any model that provider serves.\n"
+        "# Edit freely — values are not validated. API keys come from .env / the environment.\n"
     )
     path.write_text(header + yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     return path
 
 
-def supported_providers() -> list[str]:
-    """Provider names aisuite can call."""
-    from aisuite.provider import ProviderFactory
-
-    return sorted(ProviderFactory.get_supported_providers())
+def _strip_prefix(name: str, provider: str) -> str:
+    """'groq/llama-3' -> 'llama-3': settings.yml keeps the bare model name."""
+    return name[len(provider) + 1:] if name.startswith(provider + "/") else name
 
 
 @cache
 def _provider_models() -> dict[str, list[str]]:
+    """Chat models per LiteLLM provider, from litellm's bundled model list."""
+    import importlib.util
+
+    spec = importlib.util.find_spec("litellm")
+    if spec is None or not spec.submodule_search_locations:
+        return {}
+    path = Path(next(iter(spec.submodule_search_locations))) / _LITELLM_MODELS_FILE
     try:
-        return json.loads(_MODELS_FILE.read_text(encoding="utf-8"))
+        prices = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
+    models: dict[str, set[str]] = {}
+    for name, info in prices.items():
+        if not isinstance(info, dict) or info.get("mode") not in _CHAT_MODES or "*" in name:
+            continue
+        provider = info.get("litellm_provider")
+        if provider:
+            models.setdefault(provider, set()).add(_strip_prefix(name, provider))
+    return {p: sorted(names) for p, names in sorted(models.items())}
+
+
+def supported_providers() -> list[str]:
+    """Providers offered in the menu: those with chat models in LiteLLM's list."""
+    return list(_provider_models())
+
+
+def is_known_provider(provider: str) -> bool:
+    """True for a menu provider or any other provider name LiteLLM knows."""
+    if provider in _provider_models():
+        return True
+    import litellm
+
+    return provider in litellm.provider_list
 
 
 def provider_models(provider: str) -> list[str]:
-    """Known chat models for *provider*; empty when the snapshot has none."""
+    """Known chat models for *provider*; empty when LiteLLM lists none."""
     return list(_provider_models().get(provider, []))
 
 
@@ -99,11 +128,12 @@ def is_interactive() -> bool:
 _MAX_SHOWN = 30
 
 
-def choose(label: str, options: list[str], allow_custom: bool) -> str:
+def choose(label: str, options: list[str], allow_custom: bool, accept=None) -> str:
     """Ask for one of *options* by number or name; other text filters the list.
 
     With *allow_custom*, text matching nothing can be used as-is — for a model
-    the snapshot doesn't know about.
+    the list doesn't know about.  *accept* (name -> bool) lets other names
+    through without a confirmation.
     """
     import click
 
@@ -121,7 +151,7 @@ def choose(label: str, options: list[str], allow_custom: bool) -> str:
         answer = click.prompt(f"{label} ({hint})").strip()
         if answer.isdigit() and 1 <= int(answer) <= min(len(shown), _MAX_SHOWN):
             return shown[int(answer) - 1]
-        if answer in options:
+        if answer in options or (accept is not None and answer and accept(answer)):
             return answer
         matches = [o for o in options if answer.lower() in o.lower()]
         if matches:
@@ -134,7 +164,7 @@ def choose(label: str, options: list[str], allow_custom: bool) -> str:
 
 
 def ask_provider() -> str:
-    return choose("Provider", supported_providers(), allow_custom=False)
+    return choose("Provider", supported_providers(), allow_custom=False, accept=is_known_provider)
 
 
 def ask_model(provider: str) -> str:
@@ -159,6 +189,7 @@ PROVIDER_ENV_VARS: dict[str, tuple[str, tuple[str, ...]]] = {
     "mistral": ("MISTRAL_API_KEY", ()),
     "deepseek": ("DEEPSEEK_API_KEY", ()),
     "cohere": ("COHERE_API_KEY", ()),
+    "cohere_chat": ("COHERE_API_KEY", ()),
     "huggingface": ("HUGGINGFACE_API_KEY", ("HF_TOKEN",)),
 }
 

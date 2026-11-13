@@ -276,7 +276,7 @@ def main() -> None:
 )
 @click.option(
     "--provider", default=None,
-    help="aisuite provider to call; saved to settings.yml. Not checked — any name aisuite accepts.",
+    help="LiteLLM provider to call; saved to settings.yml. Not checked — any name LiteLLM accepts.",
 )
 @click.option("--model", default=None, help="Model to call; saved to settings.yml. Not checked.")
 def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple[str, ...], secret_flags: tuple[str, ...], promptfiles: tuple[str, ...], validation_dir: str, clear_cache: bool, global_instruction_path: str | None, wrap_refs: bool, threads: int, provider: str | None, model: str | None) -> None:

@@ -45,7 +45,7 @@ What this means for you as the agent:
 ## Workflow
 
 ```bash
-uv tool install promptmap --with 'aisuite[anthropic]'   # or aisuite[openai] | aisuite[gemini]
+uv tool install promptmap
 promptmap init --provider anthropic --model claude-sonnet-4-5   # writes settings.yml
 promptmap run        # run the DAG (add -s <model> to run one model + upstream)
 promptmap test       # run tests against the latest run

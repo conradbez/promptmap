@@ -1,7 +1,7 @@
 """
 LLM call resolution.
 
-The default backend is aisuite, calling the provider/model named in the
+The default backend is LiteLLM, calling the provider/model named in the
 project's settings.yml (see :mod:`promptmap.settings`).  A client.py exposing
 ``llm_call(prompt: str) -> str`` replaces it, for full control over the call.
 
@@ -88,7 +88,7 @@ def resolve_llm_call(map_dir: str) -> Callable[[str], str]:
     """Return the project's ``llm_call``.
 
     client.py's ``llm_call`` wins when it defines one.  Otherwise the default
-    backend is aisuite, calling the provider/model in settings.yml.  Raises
+    backend is LiteLLM, calling the provider/model in settings.yml.  Raises
     with a helpful message when neither is set up.
     """
     module = load_client_module(map_dir)
@@ -99,7 +99,7 @@ def resolve_llm_call(map_dir: str) -> Callable[[str], str]:
 
     settings = load_settings(map_dir)
     if settings.get("provider") and settings.get("model"):
-        return aisuite_llm_call(str(settings["provider"]), str(settings["model"]))
+        return litellm_llm_call(str(settings["provider"]), str(settings["model"]))
 
     if module is not None:
         raise AttributeError(
@@ -128,51 +128,60 @@ def has_llm_backend(map_dir: str) -> bool:
     return bool(settings.get("provider") and settings.get("model"))
 
 
-def _file_text(f) -> str:
-    """A prompt-attached file as text, for providers aisuite can only send text to."""
+def _file_block(f) -> dict:
+    """A prompt-attached file as a chat content block LiteLLM can send.
+
+    UTF-8 text goes inline; images become ``image_url`` blocks and anything
+    else (PDFs, ...) a ``file`` block, both as base64 data URLs.
+    """
+    import base64
+    import mimetypes
+
+    name = os.path.basename(getattr(f, "name", "file"))
     data = f.read()
-    if isinstance(data, bytes):
+    if isinstance(data, str):
+        return {"type": "text", "text": f"--- {name} ---\n{data}"}
+    mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    if mime.startswith("text/") or mime in ("application/json", "application/octet-stream"):
         try:
-            data = data.decode("utf-8")
+            return {"type": "text", "text": f"--- {name} ---\n{data.decode('utf-8')}"}
         except UnicodeDecodeError:
-            raise ValueError(
-                f"{getattr(f, 'name', 'file')} is binary; the default aisuite backend "
-                "sends text only. Write a client.py llm_call to upload files."
-            ) from None
-    return data
+            pass
+    url = f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
+    if mime.startswith("image/"):
+        return {"type": "image_url", "image_url": {"url": url}}
+    return {"type": "file", "file": {"file_data": url, "filename": name}}
 
 
-def aisuite_llm_call(provider: str, model: str) -> Callable:
-    """The default ``llm_call``: one user message to *provider*:*model* via aisuite.
+def litellm_model(provider: str, model: str) -> str:
+    """LiteLLM's ``provider/model`` string; a model already prefixed is kept."""
+    return model if model.startswith(provider + "/") else f"{provider}/{model}"
+
+
+def litellm_llm_call(provider: str, model: str) -> Callable:
+    """The default ``llm_call``: one user message to *provider*/*model* via LiteLLM.
 
     Values are passed through unchecked, so settings.yml can name any model
-    aisuite accepts.  Text files attached to a prompt are appended to it.
+    LiteLLM accepts.  Files attached to a prompt go in the same message.
     """
+    target = litellm_model(provider, model)
 
     def llm_call(prompt: str, files: list | None = None):
-        import aisuite
+        import litellm
 
         from promptmap.tokens import LLMResult
 
-        for f in files or []:
-            name = os.path.basename(getattr(f, "name", "file"))
-            prompt += f"\n\n--- {name} ---\n{_file_text(f)}"
-        try:
-            response = aisuite.Client().chat.completions.create(
-                model=f"{provider}:{model}",
-                messages=[{"role": "user", "content": prompt}],
-            )
-        except ImportError as exc:
-            raise ImportError(
-                f"{exc}\nInstall the SDK for {provider}: pip install 'aisuite[{provider}]'"
-            ) from exc
+        content: str | list = prompt
+        if files:
+            content = [{"type": "text", "text": prompt}] + [_file_block(f) for f in files]
+        response = litellm.completion(model=target, messages=[{"role": "user", "content": content}])
         usage = getattr(response, "usage", None)
         return LLMResult(
             response.choices[0].message.content,
             spent_tokens=getattr(usage, "total_tokens", None),
         )
 
-    llm_call.__name__ = f"aisuite_{provider}"
+    llm_call.__name__ = f"litellm_{provider}"
     return llm_call
 
 

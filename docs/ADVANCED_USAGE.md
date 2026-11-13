@@ -125,7 +125,7 @@ A custom kind with its own reuse logic reports its verdict with
 
 ## Token usage (`promptmap.LLMResult`)
 
-Return `promptmap.LLMResult(text, spent_tokens=...)` instead of the bare text and promptmap records the tokens each model spent — `promptmap docs` then shows, per run, tokens used, tokens served from cache, and an estimated cold-start total (used + cached). How you count `spent_tokens` is up to you; a sane default is input + output + thinking, or the provider's own total when it reports one. The default aisuite backend (`settings.yml`) already does this; a plain string still works, tokens just show as `—`.
+Return `promptmap.LLMResult(text, spent_tokens=...)` instead of the bare text and promptmap records the tokens each model spent — `promptmap docs` then shows, per run, tokens used, tokens served from cache, and an estimated cold-start total (used + cached). How you count `spent_tokens` is up to you; a sane default is input + output + thinking, or the provider's own total when it reports one. The default LiteLLM backend (`settings.yml`) already does this; a plain string still works, tokens just show as `—`.
 
 ```python
 import promptmap

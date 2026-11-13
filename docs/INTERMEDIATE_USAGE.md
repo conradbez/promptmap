@@ -85,7 +85,7 @@ Re-running keeps existing values and appends any new keys (`--force` rewrites th
 
 ## Choosing the provider and model (`settings.yml`)
 
-By default promptmap sends each prompt through [aisuite](https://github.com/andrewyng/aisuite), using the provider and model in `settings.yml` at the project root (next to `map/`):
+By default promptmap sends each prompt through [LiteLLM](https://github.com/BerriAI/litellm), using the provider and model in `settings.yml` at the project root (next to `map/`):
 
 ```yaml
 provider: anthropic
@@ -94,11 +94,11 @@ model: claude-sonnet-4-5
 
 Three ways to set it:
 
-1. `promptmap init my_project` asks for both. Pick a provider from aisuite's list, then a model from a numbered list (type text to filter it). A model name that isn't in the list is used as typed.
+1. `promptmap init my_project` asks for both. Pick a provider from LiteLLM's list, then a model from a numbered list (type text to filter it). A model name that isn't in the list is used as typed.
 2. `promptmap init --provider openai --model gpt-4o-mini` (or the same flags on `promptmap run`) writes them directly.
-3. Edit `settings.yml` by hand. `promptmap run` does not validate the values, so any `provider:model` aisuite accepts works.
+3. Edit `settings.yml` by hand. `promptmap run` does not validate the values, so any provider/model LiteLLM accepts works (a model already written as `provider/model` is used as-is).
 
-The model list `init` offers is a snapshot of [LiteLLM's model list](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json), refreshed at release time by `scripts/deploy.sh`. If `promptmap run` finds neither `settings.yml` nor a `client.py` and is run in a terminal, it asks for provider and model and saves them.
+The provider and model lists `init` offers come from the model list bundled with the installed litellm package (no network call); upgrading litellm updates them. If `promptmap run` finds neither `settings.yml` nor a `client.py` and is run in a terminal, it asks for provider and model and saves them.
 
 API keys come from the environment or `.env`. When `init` or `run` saves a provider, it adds that provider's key variable to `.env` (creating it, or appending if it exists) and gitignores `.env`. In a terminal it asks for the value (hidden; Enter leaves it blank to fill in later). A key already set in `.env` or the environment is left alone.
 
@@ -113,9 +113,9 @@ API keys come from the environment or `.env`. When `init` or `run` saves a provi
 | cohere | `COHERE_API_KEY` |
 | huggingface | `HUGGINGFACE_API_KEY` (or `HF_TOKEN`) |
 
-Other providers: set whatever their SDK expects. Install the SDK with `pip install 'aisuite[<provider>]'`.
+Other providers: set the variable [LiteLLM's provider docs](https://docs.litellm.ai/docs/providers) name.
 
-Attached text files (`promptfiles`) are appended to the prompt. For binary files (PDFs, images) write a `client.py`.
+Attached files (`promptfiles`) go in the same message: text inline, images and PDFs as base64 content blocks (the model must accept them).
 
 ---
 

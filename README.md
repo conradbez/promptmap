@@ -70,7 +70,7 @@ Not every node in your pipeline needs to be a standard LLM call. Override `model
 | **`agent`** | Hands the prompt to [mini-swe-agent](https://mini-swe-agent.com), which can run shell commands in a scratch folder before replying. Text in, text out. Upstream `promptfiles` are copied in, and files it writes become the model's files. Pure Python, no Node needed. | `{{ config(model_type="agent") }}` |
 | **`coding_agent`** | mini-swe-agent as a pure function: an upstream folder in (or empty), the patched folder plus a diff out. Unchanged inputs are reused without re-running the agent; a run cut off mid-way replays its finished steps on restart instead of paying for them again. | `{{ config(model_type="coding_agent", promptfiles="repo") }}` |
 
-*(More model kinds, such as `execute_python`, `agent_multi_harness` (mini-swe-agent / opencode / pi), `browser_use` ([browser-use](https://github.com/browser-use/browser-use) in a local or cloud browser), `python_modal`, `agent_modal` and `agent37`, come with `pip install "promptmap[extras]"`.)*
+*(More model kinds, such as `execute_python`, `agent_multi_harness` (mini-swe-agent / opencode / pi), `browser_use` ([browser-use](https://github.com/browser-use/browser-use) in a local or cloud browser; `pip install "promptmap[browser]"`), `python_modal`, `agent_modal` and `agent37`, come with `pip install "promptmap[extras]"`.)*
 
 ### 3. Tests (`map/*.testprompt`)
 

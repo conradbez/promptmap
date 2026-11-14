@@ -39,10 +39,8 @@ Anything the browser downloads becomes this model's files.  Results go
 through the prompt cache, keyed on the task and the resolved model and
 browser, so an unchanged task does not re-run.
 
-browser-use runs in its own environment, not promptmap's (its 1.0 release
-needs openai 3.x, which litellm 1.102.1 can't use): ``uv`` builds and caches one with the
-pinned browser-use on first use, or set ``PROMPTMAP_BROWSER_USE_PYTHON`` to a
-Python that has it.  A local browser needs Chrome, Chromium or Edge installed.
+Needs ``pip install "promptmap[browser]"`` (browser-use, pinned exactly) and,
+for a local browser, Chrome, Chromium or Edge installed.
 """
 
 from __future__ import annotations
@@ -56,9 +54,6 @@ from typing import Any
 from promptmap.model_types import ModelCall, ModelKind, register_model_kind
 
 NAME = "browser_use"
-
-#: Pinned exactly, as browser-use asks: its releases move fast and break APIs.
-BROWSER_USE_VERSION = "1.0.4"
 
 CONFIG_KEYS = frozenset({
     "browser_model",
@@ -208,61 +203,68 @@ async def _work(rendered: str, call: ModelCall, options: dict) -> Any:
 
 
 async def _exec_agent(task: str, options: dict, workspace: Path, secrets=None) -> dict:
-    """Run browser-use in its own environment and return its answer — a seam for tests."""
-    import asyncio
-    import json
-
-    from .browser_use_runner import MARKER
-
-    request = dict(options, task=task, workspace=str(workspace))
-    env = dict(os.environ)
+    """Run browser-use and return its answer — a seam for tests."""
     # Same hygiene as the default LiteLLM backend: no telemetry (browser-use's
-    # includes the URLs visited) unless the user turned it on themselves.
-    env.setdefault("ANONYMIZED_TELEMETRY", "false")
-    for name in secrets or ():  # run(secrets=...) API keys reach the provider SDKs
-        env[name] = secrets[name]
-    proc = await asyncio.create_subprocess_exec(
-        *runner_command(),
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=env,
-    )
-    out, err = await proc.communicate(json.dumps(request).encode())
-    for line in out.decode(errors="replace").splitlines():
-        if line.startswith(MARKER):
-            return json.loads(line[len(MARKER):])
-    tail = "\n".join(err.decode(errors="replace").strip().splitlines()[-20:])
-    raise RuntimeError(f"browser-use exited ({proc.returncode}) without an answer:\n{tail}")
+    # includes the URLs visited) and no logging setup of its own, unless the
+    # user asked for them.
+    os.environ.setdefault("ANONYMIZED_TELEMETRY", "false")
+    os.environ.setdefault("BROWSER_USE_SETUP_LOGGING", "false")
+    try:
+        from browser_use import Agent, Browser
+    except ImportError as exc:
+        raise ImportError(
+            "model_type='browser_use' needs browser-use: "
+            "pip install 'promptmap[browser]' (or 'promptmap-extra-model-kinds[browser]')."
+        ) from exc
+
+    browser_kwargs: dict[str, Any] = {}
+    if options["allowed_domains"]:
+        browser_kwargs["allowed_domains"] = options["allowed_domains"]
+    if options["cloud"]:
+        browser = Browser("cloud", **browser_kwargs)
+    else:
+        browser = Browser("chromium", headless=bool(options["headless"]), **browser_kwargs)
+    agent_kwargs: dict[str, Any] = {"browser": browser, "workspace": workspace}
+    if options["llm"]:
+        agent_kwargs["llm"] = _chat_model(options["llm"], secrets)
+    agent = Agent(task, **agent_kwargs)
+    try:
+        history = await agent.run(max_steps=options["max_steps"])
+    finally:
+        try:
+            await agent.close()
+        except Exception:
+            pass
+    return {
+        "text": history.final_result(),
+        "status": getattr(history, "status", None),
+        "error": getattr(history, "error", None),
+    }
 
 
-def runner_command() -> list[str]:
-    """How to start browser_use_runner.py in a Python that has browser-use.
+#: Pydantic AI provider prefix -> (browser-use Chat class, key variables it reads).
+_KEYED_CHAT = {
+    "openai": ("ChatOpenAI", ("OPENAI_API_KEY",)),
+    "anthropic": ("ChatAnthropic", ("ANTHROPIC_API_KEY",)),
+    "google-gla": ("ChatGoogle", ("GEMINI_API_KEY", "GOOGLE_API_KEY")),
+}
 
-    ``PROMPTMAP_BROWSER_USE_PYTHON`` names one (a venv with browser-use
-    installed); otherwise ``uv`` builds a cached, isolated one with the pinned
-    browser-use.  It can't be promptmap's own environment: browser-use 1.0
-    needs openai 3.x, which litellm 1.102.1 can't use.
+
+def _chat_model(llm: str, secrets) -> Any:
+    """*llm* as browser-use takes it, carrying a key from run(secrets=...) when one is given.
+
+    Otherwise the model string itself: browser-use reads the provider's key
+    from the environment (or .env), as LiteLLM does.
     """
-    import shutil
+    provider, _, model = llm.partition(":")
+    if provider in _KEYED_CHAT and secrets:
+        cls_name, names = _KEYED_CHAT[provider]
+        key = next((secrets[n] for n in names if n in secrets), None)
+        if key:
+            import browser_use
 
-    # -P: the runner's folder is not put on sys.path, so this package's
-    # modules can't shadow browser-use's imports.
-    runner = [str(Path(__file__).with_name("browser_use_runner.py"))]
-    python = os.environ.get("PROMPTMAP_BROWSER_USE_PYTHON")
-    if python:
-        return [python, "-P", *runner]
-    uv = shutil.which("uv")
-    if uv is None:
-        raise RuntimeError(
-            "model_type='browser_use' runs browser-use in its own environment and needs uv "
-            "(https://docs.astral.sh/uv/), or PROMPTMAP_BROWSER_USE_PYTHON set to a Python "
-            f"with browser-use=={BROWSER_USE_VERSION} installed."
-        )
-    return [
-        uv, "run", "--quiet", "--no-project", "--python", ">=3.11",
-        "--with", f"browser-use=={BROWSER_USE_VERSION}", "python", "-P", *runner,
-    ]
+            return getattr(browser_use, cls_name)(model, api_key=key)
+    return llm
 
 
 #: A browser agent, text in, text out.

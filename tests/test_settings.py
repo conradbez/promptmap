@@ -356,7 +356,7 @@ def test_filter_matches_every_word_in_any_order():
 def test_multi_word_filter_then_pick_by_number(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("promptmap.settings.is_interactive", lambda: True)
-    result = CliRunner().invoke(main, ["init", "proj"], input="openrouter\nclaude sonnet\n1\n\n")
+    result = CliRunner().invoke(main, ["init", "proj"], input="anthropic\nclaude sonnet\n1\n\n")
     assert result.exit_code == 0, result.output
     assert "matches for 'claude sonnet'" in result.output
     model = _settings_of(tmp_path / "proj")["model"]
@@ -367,7 +367,7 @@ def test_unmatched_text_is_not_used_on_enter(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("promptmap.settings.is_interactive", lambda: True)
     # "zzzz" matches nothing; Enter declines using it; then Enter leaves model blank.
-    result = CliRunner().invoke(main, ["init", "proj"], input="openrouter\nzzzz\n\n\n\n")
+    result = CliRunner().invoke(main, ["init", "proj"], input="anthropic\nzzzz\n\n\n\n")
     assert result.exit_code == 0, result.output
     assert _settings_of(tmp_path / "proj")["model"] == ""
 

@@ -74,12 +74,13 @@ browser_use:
 `PROMPTMAP_BROWSER_HEADLESS=1` / `PROMPTMAP_BROWSER_CLOUD=1` set the defaults
 from the environment (e.g. CI). Results are cached like any prompt.
 
-browser-use runs in **its own environment**, not promptmap's: browser-use 1.0
-needs `openai` 3.x (via pydantic-ai), which promptmap's litellm (`openai<3`) can't share. On first use `uv` builds
-and caches one with the pinned `browser-use==1.0.4` (so `uv` must be on PATH),
-or point `PROMPTMAP_BROWSER_USE_PYTHON` at a Python that has it installed. A
-local browser needs Chrome, Chromium or Edge. browser-use's telemetry is off
-unless you set `ANONYMIZED_TELEMETRY` yourself.
+Install with `pip install "promptmap[browser]"` (or
+`"promptmap-extra-model-kinds[browser]"`): browser-use is pinned exactly,
+as it asks, and like promptmap's litellm pin. A local browser needs Chrome,
+Chromium or Edge. browser-use's telemetry is off unless you set
+`ANONYMIZED_TELEMETRY` yourself. A provider key passed as
+`run(secrets={"OPENAI_API_KEY": ...})` reaches openai / anthropic / gemini
+models; otherwise keys come from the environment or `.env`.
 
 ## Moved here from promptmap core (promptmap ≥ 0.6)
 

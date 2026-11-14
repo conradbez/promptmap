@@ -57,7 +57,8 @@ promptmap serve      # local UI to explore and trigger runs
 agent, always pass `--no-interactive` (the prompts need a human) plus the
 flags you know; run `promptmap init --help` for the valid options. Never
 paste a user's key into a command — leave it blank in `.env` for them.
-One prompt can use another model: `{{ config(model="...") }}`.
+One prompt can use another model: `{{ config(model="...") }}` — a model name or
+an alias from settings.yml's `aliases:` block (`low: openai/gpt-4o-mini`).
 
 Loop: edit one node → `promptmap run -s <model>` → read the output (or
 `promptmap docs`) → `promptmap test` → repeat.
@@ -222,7 +223,7 @@ Intermediate — `docs/INTERMEDIATE_USAGE.md`:
 | Pull search/RAG results into a prompt | `rag.py`, `rag_*()` kinds | `#rag-inside-prompts-ragpy` |
 | Organise many models | subfolders in `map/` | `#grouping-models-in-folders` |
 | Skip a model conditionally | `skip_and_set_to_value()` | `#how-to-dynamically-skip-a-model` |
-| Change provider / model | `settings.yml`, `config(model=...)` | `#choosing-the-provider-and-model-settingsyml` |
+| Change provider / model, model aliases | `settings.yml` (`aliases:`), `config(model=...)` | `#choosing-the-provider-and-model-settingsyml` |
 | Fully custom LLM call | `client.py` | `#customising-the-llm-backend-clientpy` |
 | Schema-check an output in Python | `validation/<model>.py` | `#validation-validation` |
 | Yes/no classifier judge, gate tests | `.testprompt` options | `#promptmap-tests` |

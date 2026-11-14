@@ -49,6 +49,94 @@ def load_settings(map_dir: str) -> dict:
     return data
 
 
+def settings_for(model_path: Path) -> dict:
+    """settings.yml governing the .prompt file at *model_path*, or {}.
+
+    The nearest settings.yml in a directory above the file — the project
+    root for ``map/x.prompt`` and for models in subfolders alike.  For a kind
+    that is handed only its model, not the map directory.
+    """
+    import yaml
+
+    model_path = Path(model_path)
+    if not model_path.is_file():
+        return {}  # an inline model has no project
+    for parent in model_path.resolve().parents:
+        candidate = parent / SETTINGS_FILE
+        if candidate.is_file():
+            data = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
+            return data if isinstance(data, dict) else {}
+    return {}
+
+
+# ---------------------------------------------------------------------------
+# Model aliases
+# ---------------------------------------------------------------------------
+#
+#     provider: anthropic
+#     model: claude-sonnet-4-5      # or an alias: `model: low`
+#     aliases:
+#       low: openai/gpt-4o-mini     # provider/model in one string
+#       high:                       # or as a mapping
+#         provider: anthropic
+#         model: claude-opus-4-1
+#
+# A .prompt picks one with {{ config(model="low") }} (also agent_model= and
+# browser_model= for the agent kinds).  A name that isn't an alias is a plain
+# model name, as before.
+
+ALIASES_KEY = "aliases"
+
+
+def model_aliases(settings: dict) -> dict[str, tuple[str, str]]:
+    """alias -> (provider, model) from settings.yml's ``aliases:`` block.
+
+    Each entry is ``provider/model`` or ``{provider: ..., model: ...}``.
+    Raises ValueError for an entry that names no provider.
+    """
+    raw = settings.get(ALIASES_KEY) or {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"{SETTINGS_FILE}: '{ALIASES_KEY}' must be a mapping like 'low: openai/gpt-4o-mini'.")
+    aliases: dict[str, tuple[str, str]] = {}
+    for name, value in raw.items():
+        if isinstance(value, dict):
+            provider, model = str(value.get("provider") or ""), str(value.get("model") or "")
+        elif isinstance(value, str) and "/" in value:
+            provider, model = value.split("/", 1)
+        else:
+            provider, model = "", ""
+        if not provider.strip() or not model.strip():
+            raise ValueError(
+                f"{SETTINGS_FILE}: alias '{name}' needs a provider and a model, e.g. "
+                f"'{name}: openai/gpt-4o-mini' or '{name}: {{provider: openai, model: gpt-4o-mini}}'."
+            )
+        aliases[str(name)] = (provider.strip(), model.strip())
+    return aliases
+
+
+def resolve_model(
+    settings: dict, provider: str | None = None, model: str | None = None,
+) -> tuple[str, str] | None:
+    """The (provider, model) to call for *provider*/*model*, aliases applied.
+
+    *model* may be an alias from settings.yml (its provider wins over
+    *provider*); missing values fall back to settings.yml's own ``provider``
+    and ``model`` (which may itself be an alias).  None when no provider and
+    model can be told.
+    """
+    aliases = model_aliases(settings)
+    if model and str(model) in aliases:
+        return aliases[str(model)]
+    default_model = str(settings.get("model") or "")
+    default_provider = str(settings.get("provider") or "")
+    if not model and default_model in aliases:
+        alias_provider, alias_model = aliases[default_model]
+        return (str(provider) if provider else alias_provider), alias_model
+    provider = str(provider or default_provider)
+    model = str(model or default_model)
+    return (provider, model) if provider and model else None
+
+
 def save_settings(root: Path, provider: str, model: str) -> Path:
     """Write provider/model into *root*/settings.yml, keeping any other keys."""
     import yaml
@@ -62,6 +150,10 @@ def save_settings(root: Path, provider: str, model: str) -> Path:
         "# LLM used by `promptmap run` when there is no client.py (called via LiteLLM).\n"
         "# provider: any LiteLLM provider; model: any model that provider serves.\n"
         "# Edit freely — values are not validated. API keys come from .env / the environment.\n"
+        "# Optional aliases, picked in a .prompt with {{ config(model=\"low\") }}:\n"
+        "#   aliases:\n"
+        "#     low: openai/gpt-4o-mini\n"
+        "#     high: {provider: anthropic, model: claude-opus-4-1}\n"
     )
     path.write_text(header + yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     return path

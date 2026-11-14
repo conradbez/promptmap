@@ -95,11 +95,12 @@ def resolve_llm_call(map_dir: str) -> Callable[[str], str]:
     if module is not None and hasattr(module, "llm_call"):
         return module.llm_call
 
-    from promptmap.settings import SETTINGS_FILE, load_settings
+    from promptmap.settings import SETTINGS_FILE, load_settings, model_aliases, resolve_model
 
     settings = load_settings(map_dir)
-    if settings.get("provider") and settings.get("model"):
-        return litellm_llm_call(str(settings["provider"]), str(settings["model"]))
+    target = resolve_model(settings)
+    if target:
+        return litellm_llm_call(*target, aliases=model_aliases(settings))
 
     if module is not None:
         raise AttributeError(
@@ -119,13 +120,12 @@ def has_llm_backend(map_dir: str) -> bool:
     module = try_load_client_module(map_dir)
     if module is not None and hasattr(module, "llm_call"):
         return True
-    from promptmap.settings import load_settings
+    from promptmap.settings import load_settings, resolve_model
 
     try:
-        settings = load_settings(map_dir)
+        return resolve_model(load_settings(map_dir)) is not None
     except Exception:
         return True  # a broken file is reported by resolve_llm_call, not hidden by a prompt
-    return bool(settings.get("provider") and settings.get("model"))
 
 
 def _file_block(f) -> dict:
@@ -175,23 +175,35 @@ def litellm_model(provider: str, model: str) -> str:
     return model if model.startswith(provider + "/") else f"{provider}/{model}"
 
 
-def litellm_llm_call(provider: str, model: str) -> Callable:
+def litellm_llm_call(
+    provider: str, model: str, aliases: dict[str, tuple[str, str]] | None = None,
+) -> Callable:
     """The default ``llm_call``: one user message to *provider*/*model* via LiteLLM.
 
     Values are passed through unchecked, so settings.yml can name any model
     LiteLLM accepts.  A .prompt file can override either for itself with
-    ``{{ config(provider="openai", model="gpt-4o-mini") }}``.  Files attached
-    to a prompt go in the same message.
+    ``{{ config(provider="openai", model="gpt-4o-mini") }}``, or name one of
+    settings.yml's *aliases* (alias -> (provider, model)):
+    ``{{ config(model="low") }}``.  Files attached to a prompt go in the same
+    message.
     """
     default_target = litellm_model(provider, model)
+    aliases = dict(aliases or {})
+
+    def target_for(config: dict | None) -> str:
+        """The litellm model string a prompt with *config* is sent to."""
+        config = config or {}
+        chosen = str(config.get("model") or "")
+        if chosen in aliases:
+            return litellm_model(*aliases[chosen])
+        if config.get("provider") or chosen:
+            return litellm_model(str(config.get("provider") or provider), chosen or model)
+        return default_target
 
     def llm_call(prompt: str, files: list | None = None, config: dict | None = None):
         from promptmap.tokens import LLMResult
 
-        config = config or {}
-        target = default_target
-        if config.get("provider") or config.get("model"):
-            target = litellm_model(str(config.get("provider") or provider), str(config.get("model") or model))
+        target = target_for(config)
         content: str | list = prompt
         if files:
             content = [{"type": "text", "text": prompt}] + [_file_block(f) for f in files]
@@ -206,6 +218,12 @@ def litellm_llm_call(provider: str, model: str) -> Callable:
     # Part of the prompt cache key: switching model in settings.yml must not
     # serve answers cached from the old one.
     llm_call.cache_identity = default_target
+    # Per prompt: config(model="low") is keyed on what "low" points at, so
+    # repointing an alias in settings.yml is a cache miss too.
+    # Other prompts keep the old key (their config() is in the key already).
+    llm_call.cache_identity_for = lambda config: (
+        target_for(config) if str((config or {}).get("model") or "") in aliases else default_target
+    )
     return llm_call
 
 

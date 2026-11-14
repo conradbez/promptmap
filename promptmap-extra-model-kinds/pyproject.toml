@@ -1,11 +1,11 @@
 [project]
 name = "promptmap-extra-model-kinds"
-version = "0.7.1"
-description = "Extra promptmap model kinds (execute_python, agent_multi_harness (mini-swe-agent / opencode / pi), python_modal, agent_modal, agent37) and RAG kinds (brave_search, gemini_search, openai_search, anthropic_search)."
+version = "0.7.2"
+description = "Extra promptmap model kinds (execute_python, agent_multi_harness (mini-swe-agent / opencode / pi), python_modal, agent_modal, agent37, browser_use) and RAG kinds (brave_search, gemini_search, openai_search, anthropic_search)."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "promptmap>=0.7.0",
+    "promptmap>=0.7.15",
     "modal>=1.0",
     "httpx>=0.27",
     "python-dotenv>=1.0",
@@ -22,6 +22,7 @@ agent_modal = "promptmap_extra_model_kinds.agent_exec"
 agent37 = "promptmap_extra_model_kinds.agent37_exec"
 execute_python = "promptmap_extra_model_kinds.python_exec"
 agent_multi_harness = "promptmap_extra_model_kinds.agent_multi_harness_exec"
+browser_use = "promptmap_extra_model_kinds.browser_use_exec"
 
 [project.entry-points."promptmap.rag_kinds"]
 brave_search = "promptmap_extra_model_kinds.brave_search"

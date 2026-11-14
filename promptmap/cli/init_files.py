@@ -110,6 +110,12 @@ Which LLM `promptmap run` calls, through [LiteLLM](https://github.com/BerriAI/li
     provider: anthropic
     model: claude-sonnet-4-5
 
+Name models once and pick them per prompt with `{{ config(model="low") }}`:
+
+    aliases:
+      low: openai/gpt-4o-mini
+      high: {provider: anthropic, model: claude-opus-4-6}
+
 Set it with `promptmap init --provider <name> --model <name>`, or edit it by hand —
 values are not validated. API keys come from the environment or `.env`
 (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, ...); `promptmap init` adds the

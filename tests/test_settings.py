@@ -486,3 +486,93 @@ def test_switching_model_in_settings_misses_the_cache(tmp_path, monkeypatch, fak
     save_settings(proj, "openai", "gpt-5")
     assert CliRunner().invoke(main, ["run"]).exit_code == 0
     assert [c["model"] for c in fake_litellm] == ["openai/gpt-4o-mini", "openai/gpt-5"]
+
+
+# ---------------------------------------------------------------------------
+# Model aliases (settings.yml `aliases:`)
+# ---------------------------------------------------------------------------
+
+def _with_aliases(proj: Path, **top) -> None:
+    data = {"provider": "openai", "model": "gpt-4o-mini", **top, "aliases": {
+        "low": "groq/llama-x",
+        "high": {"provider": "anthropic", "model": "claude-opus-x"},
+    }}
+    (proj / "settings.yml").write_text(yaml.safe_dump(data), encoding="utf-8")
+
+
+def test_config_model_alias_picks_provider_and_model(tmp_path, fake_litellm):
+    proj = _project(tmp_path)
+    _with_aliases(proj)
+    call = resolve_llm_call(str(proj / "map"))
+    call("hi", config={"model": "low"})
+    call("hi", config={"model": "high", "provider": "openai"})  # the alias's provider wins
+    call("hi", config={"model": "gpt-5"})                        # not an alias: a model name
+    call("hi", config={})
+    assert [c["model"] for c in fake_litellm] == [
+        "groq/llama-x", "anthropic/claude-opus-x", "openai/gpt-5", "openai/gpt-4o-mini",
+    ]
+
+
+def test_settings_model_can_be_an_alias(tmp_path, fake_litellm):
+    proj = _project(tmp_path)
+    data = {"model": "high", "aliases": {"high": "anthropic/claude-opus-x"}}
+    (proj / "settings.yml").write_text(yaml.safe_dump(data), encoding="utf-8")
+    resolve_llm_call(str(proj / "map"))("hi")
+    assert fake_litellm[0]["model"] == "anthropic/claude-opus-x"
+
+
+def test_alias_without_provider_is_an_error(tmp_path):
+    proj = _project(tmp_path)
+    data = {"provider": "openai", "model": "gpt-4o-mini", "aliases": {"low": "gpt-4o-mini"}}
+    (proj / "settings.yml").write_text(yaml.safe_dump(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="alias 'low' needs a provider"):
+        resolve_llm_call(str(proj / "map"))
+
+
+def test_alias_in_prompt_config_runs_without_warning(tmp_path, monkeypatch, fake_litellm):
+    import warnings
+
+    proj = _project(tmp_path)
+    (proj / "map" / "hello.prompt").write_text('{{ config(model="high") }}\nSay hi', encoding="utf-8")
+    _with_aliases(proj)
+    monkeypatch.chdir(proj)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        result = CliRunner().invoke(main, ["run"])
+    assert result.exit_code == 0, result.output
+    assert fake_litellm[0]["model"] == "anthropic/claude-opus-x"
+
+
+def test_repointing_an_alias_misses_the_cache(tmp_path, monkeypatch, fake_litellm):
+    proj = _project(tmp_path)
+    (proj / "map" / "hello.prompt").write_text('{{ config(model="low") }}\nSay hi', encoding="utf-8")
+    monkeypatch.chdir(proj)
+    _with_aliases(proj)
+    assert CliRunner().invoke(main, ["run"]).exit_code == 0
+    assert CliRunner().invoke(main, ["run"]).exit_code == 0  # same alias target: cached
+    assert len(fake_litellm) == 1
+    data = yaml.safe_load((proj / "settings.yml").read_text())
+    data["aliases"]["low"] = "groq/llama-y"
+    (proj / "settings.yml").write_text(yaml.safe_dump(data), encoding="utf-8")
+    assert CliRunner().invoke(main, ["run"]).exit_code == 0
+    assert [c["model"] for c in fake_litellm] == ["groq/llama-x", "groq/llama-y"]
+
+
+def test_save_settings_keeps_aliases(tmp_path):
+    _with_aliases(tmp_path)
+    save_settings(tmp_path, "openai", "gpt-5")
+    data = yaml.safe_load((tmp_path / "settings.yml").read_text())
+    assert data["model"] == "gpt-5" and data["aliases"]["low"] == "groq/llama-x"
+
+
+def test_agent_model_alias_becomes_litellm_name(tmp_path):
+    from promptmap.executor.mini_swe import agent_model_name
+    from promptmap.model_spec import ModelSpec
+
+    proj = _project(tmp_path)
+    _with_aliases(proj)
+    path = proj / "map" / "hello.prompt"
+    assert agent_model_name(ModelSpec(name="a", source="", path=path, config={"agent_model": "high"})) \
+        == "anthropic/claude-opus-x"
+    assert agent_model_name(ModelSpec(name="a", source="", path=path, config={"agent_model": "openai/gpt-5"})) \
+        == "openai/gpt-5"

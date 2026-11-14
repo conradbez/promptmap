@@ -107,14 +107,31 @@ _BUDGET_TEMPLATE = """
 
 
 def agent_model_name(spec) -> str | None:
-    """config(agent_model=...), else client.py's ``agent_model``, else MSWEA_MODEL_NAME."""
-    if spec.config.get("agent_model"):
-        return str(spec.config["agent_model"])
-    from promptmap.llm import client_module_for
+    """config(agent_model=...), else client.py's ``agent_model``, else MSWEA_MODEL_NAME.
 
-    module = client_module_for(spec.path)
-    name = getattr(module, "agent_model", None) if module is not None else None
-    return str(name) if name else os.getenv("MSWEA_MODEL_NAME")
+    A name that is a settings.yml alias (``agent_model="high"``) becomes the
+    litellm ``provider/model`` it points at.
+    """
+    if spec.config.get("agent_model"):
+        name = str(spec.config["agent_model"])
+    else:
+        from promptmap.llm import client_module_for
+
+        module = client_module_for(spec.path)
+        name = getattr(module, "agent_model", None) if module is not None else None
+        name = str(name) if name else os.getenv("MSWEA_MODEL_NAME")
+    return resolve_alias(spec, name)
+
+
+def resolve_alias(spec, name: str | None) -> str | None:
+    """*name* as a litellm model string when it is a settings.yml alias, else unchanged."""
+    if not name:
+        return name
+    from promptmap.llm import litellm_model
+    from promptmap.settings import model_aliases, settings_for
+
+    aliases = model_aliases(settings_for(spec.path))
+    return litellm_model(*aliases[name]) if name in aliases else name
 
 
 def _agent_model(name: str | None, model_cfg: dict):

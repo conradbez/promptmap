@@ -351,8 +351,14 @@ class RunContext:
         An ``llm_call`` with a ``cache_identity`` (the default backend's
         provider/model from settings.yml) adds it, so switching model there
         is a cache miss; a client.py llm_call without one keeps its old keys.
+        ``cache_identity_for(config)`` (the default backend) names the target
+        per prompt, so repointing a settings.yml alias is a miss as well.
         """
-        identity = getattr(self.llm_call, "cache_identity", None)
+        identity_for = getattr(self.llm_call, "cache_identity_for", None)
+        identity = (
+            identity_for(spec.config) if identity_for is not None
+            else getattr(self.llm_call, "cache_identity", None)
+        )
         return (
             (f"{identity}\x00" if identity else "")
             + rendered

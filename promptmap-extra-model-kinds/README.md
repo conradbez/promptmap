@@ -9,6 +9,7 @@ Extra model kinds for [promptmap](https://pypi.org/project/promptmap/):
 | `agent37`      | `agent37_exec`  | a Hermes agent on an Agent37 workspace (`agent37.md`)  |
 | `execute_python` | `python_exec` | the rendered template as Python, in-process; output is `stdout` or an `output` variable |
 | `agent_multi_harness` | `agent_multi_harness_exec` | a coding agent in place in `agent_dir`: mini-swe-agent (default), opencode with MCP servers, or pi (`agent_backend`) |
+| `browser_use` | `browser_use_exec` | a [browser-use](https://github.com/browser-use/browser-use) agent doing the task in a real browser — local and visible by default, cloud / headless on request (see below) |
 
 And RAG kinds, called from any template:
 
@@ -34,6 +35,51 @@ Installing the package is enough: promptmap finds the kinds through the
 groups and loads them on first use. Nothing has to import it.
 
 Configuration is read from the environment — see each module's docstring.
+
+## `browser_use` — a browser agent
+
+The rendered prompt is the task; the agent's answer is the output, and anything
+the browser downloads becomes the model's files.
+
+```jinja
+{{ config(model_type="browser_use") }}
+Find the cheapest direct flight from London to Lisbon next Friday. Reply with airline, time and price.
+```
+
+By default it drives a **local** Chromium (fresh temporary profile) in a
+**visible window**, so you can watch it. Change that per model or per project:
+
+```jinja
+{{ config(model_type="browser_use", browser_headless=True) }}   {# no window #}
+{{ config(model_type="browser_use", browser_cloud=True) }}      {# Browser Use Cloud, BROWSER_USE_API_KEY #}
+```
+
+```yaml
+# settings.yml — project defaults; config() wins over these
+browser_use:
+  headless: true
+  cloud: false
+  model: low          # a settings.yml alias, provider/model, or a Pydantic AI string
+  max_steps: 50
+```
+
+| Config key | Default | |
+|---|---|---|
+| `browser_model` | settings.yml's provider/model | alias (`"low"`), `provider/model`, or `"openai:gpt-4o"`; with no model anywhere, browser-use's `bu-fast` (`BROWSER_USE_API_KEY`) |
+| `browser_cloud` | `False` | `True`: a Browser Use Cloud browser instead of a local one |
+| `browser_headless` | `False` | `True`: no window. On Linux with no display it runs headless anyway |
+| `browser_max_steps` | `100` | step cap |
+| `browser_allowed_domains` | — | `["example.com", "*.example.org"]` |
+
+`PROMPTMAP_BROWSER_HEADLESS=1` / `PROMPTMAP_BROWSER_CLOUD=1` set the defaults
+from the environment (e.g. CI). Results are cached like any prompt.
+
+browser-use runs in **its own environment**, not promptmap's: browser-use 1.0
+pins `mcp` 2.x, which promptmap's litellm can't share. On first use `uv` builds
+and caches one with the pinned `browser-use==1.0.4` (so `uv` must be on PATH),
+or point `PROMPTMAP_BROWSER_USE_PYTHON` at a Python that has it installed. A
+local browser needs Chrome, Chromium or Edge. browser-use's telemetry is off
+unless you set `ANONYMIZED_TELEMETRY` yourself.
 
 ## Moved here from promptmap core (promptmap ≥ 0.6)
 

@@ -115,6 +115,24 @@ Three ways to set it:
 
 `config(model=...)` alone keeps the provider from `settings.yml`. Changing either (in `config()` or `settings.yml`) is a prompt-cache miss, so you never get answers cached from the previous model.
 
+**Model aliases:** name your models once in `settings.yml` and pick them by name, so prompts say *how much model* they need rather than *which*:
+
+```yaml
+provider: anthropic
+model: claude-sonnet-4-5        # the default; may itself be an alias (model: low)
+aliases:
+  low: openai/gpt-4o-mini       # provider/model in one string
+  high:                         # or as a mapping
+    provider: anthropic
+    model: claude-opus-4-6
+```
+
+```jinja
+{{ config(model="low") }}
+```
+
+An alias sets both provider and model (it wins over a `config(provider=...)`); a name that isn't an alias is a plain model name, as before. Aliases also work for `config(agent_model="high")` (`agent`, `coding_agent`) and `config(browser_model="low")` (`browser_use`). Repointing an alias in `settings.yml` is a prompt-cache miss for the prompts that use it. `promptmap init` / `run --provider/--model` keep the `aliases:` block.
+
 The provider and model lists `init` offers come from the model list bundled with the installed litellm package (no network call); upgrading litellm updates them. If `promptmap run` finds neither `settings.yml` nor a `client.py` and is run in a terminal, it asks for provider and model and saves them.
 
 API keys come from the environment or `.env`. When `init` or `run` saves a provider and model, promptmap asks LiteLLM which variables that model needs (`litellm.validate_environment`) and adds each one missing from `.env` as `NAME=` (creating `.env` if needed and gitignoring it). In a terminal it offers to take each value now (hidden input); Enter (no) leaves `NAME=` blank to fill in `.env` yourself later. A variable that already has a value in `.env` or your environment is left alone.

@@ -1,7 +1,7 @@
 """
 Runs one browser-use task.  Executed as a script in browser-use's own Python
 environment (see `browser_use_exec`), never imported by promptmap: browser-use
-1.0 pins dependencies (mcp 2.x, pydantic, ...) that promptmap's litellm can't
+1.0 pins dependencies (openai 3.x via pydantic-ai, ...) that promptmap's litellm can't
 share an environment with.
 
 Reads a JSON request on stdin::

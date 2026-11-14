@@ -40,7 +40,7 @@ through the prompt cache, keyed on the task and the resolved model and
 browser, so an unchanged task does not re-run.
 
 browser-use runs in its own environment, not promptmap's (its 1.0 release
-pins mcp 2.x, which litellm can't use): ``uv`` builds and caches one with the
+needs openai 3.x, which litellm 1.102.1 can't use): ``uv`` builds and caches one with the
 pinned browser-use on first use, or set ``PROMPTMAP_BROWSER_USE_PYTHON`` to a
 Python that has it.  A local browser needs Chrome, Chromium or Edge installed.
 """
@@ -242,7 +242,7 @@ def runner_command() -> list[str]:
     ``PROMPTMAP_BROWSER_USE_PYTHON`` names one (a venv with browser-use
     installed); otherwise ``uv`` builds a cached, isolated one with the pinned
     browser-use.  It can't be promptmap's own environment: browser-use 1.0
-    pins mcp 2.x, which litellm can't use.
+    needs openai 3.x, which litellm 1.102.1 can't use.
     """
     import shutil
 

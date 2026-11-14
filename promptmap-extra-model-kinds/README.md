@@ -75,7 +75,7 @@ browser_use:
 from the environment (e.g. CI). Results are cached like any prompt.
 
 browser-use runs in **its own environment**, not promptmap's: browser-use 1.0
-pins `mcp` 2.x, which promptmap's litellm can't share. On first use `uv` builds
+needs `openai` 3.x (via pydantic-ai), which promptmap's litellm (`openai<3`) can't share. On first use `uv` builds
 and caches one with the pinned `browser-use==1.0.4` (so `uv` must be on PATH),
 or point `PROMPTMAP_BROWSER_USE_PYTHON` at a Python that has it installed. A
 local browser needs Chrome, Chromium or Edge. browser-use's telemetry is off

@@ -16,11 +16,11 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "pyyaml>=6.0",
     "mini-swe-agent>=2.0",
-    # litellm imports mcp on any tool-calling request (mini-swe-agent always
-    # sends tools) but only ships it in its [mcp] extra.
     # Pinned: two litellm releases on PyPI were compromised (March 2026).
-    # Bump deliberately after checking the release.
-    "litellm[mcp]==1.102.1",
+    # Bump deliberately after checking the release.  No [mcp] extra: since
+    # 1.102.1 litellm doesn't import mcp on tool-calling requests (checked
+    # against a local OpenAI/Anthropic stub with mcp unimportable).
+    "litellm==1.102.1",
     "tree-sitter-language-pack>=1.23",
     "questionary>=2.1,<3",
 ]

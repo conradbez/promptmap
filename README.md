@@ -35,7 +35,7 @@ promptmap test    # Validate outputs against map/*.testprompt
 promptmap docs    # Generate HTML report of the run and run history
 promptmap serve   # Launch the interactive local UI / HTTP server
 promptmap clear-cache MODEL  # Make one model start cold on the next run
-promptmap edit [MODEL]       # Edit promptdata, a model's config() or its template
+promptmap edit [MODEL]       # Show what can be edited + the command for it (-i to be asked)
 ```
 
 **Claude Code skill** (teaches Claude the promptmap workflow, prompt style and testing approach):

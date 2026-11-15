@@ -84,7 +84,7 @@ def test_cli_edit_flags(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(root)
     runner = CliRunner()
 
-    r = runner.invoke(main, ["edit", "article", "--set", "model=low", "--set", "cache=false",
+    r = runner.invoke(main, ["edit", "article", "--config", "model=low", "--set", "cache=false",
                              "--promptdata", "audience=kids"])
     assert r.exit_code == 0, r.output
     c = file_to_construct(root)
@@ -99,7 +99,7 @@ def test_cli_edit_flags(tmp_path: Path, monkeypatch) -> None:
 def test_cli_edit_interactive_promptdata(tmp_path: Path, monkeypatch) -> None:
     root = _project(tmp_path)
     monkeypatch.chdir(root)
-    r = CliRunner().invoke(main, ["edit"], input="adults\n\n")  # audience asked first, then keep topic
+    r = CliRunner().invoke(main, ["edit", "-i"], input="adults\n\n")  # audience asked first, then keep topic
     assert r.exit_code == 0, r.output
     assert file_to_construct(root).promptdata == {"topic": "cats", "audience": "adults"}
 
@@ -108,7 +108,7 @@ def test_cli_edit_interactive_model_config(tmp_path: Path, monkeypatch) -> None:
     root = _project(tmp_path)
     monkeypatch.chdir(root)
     # Set output_format=json, finish, decline template edit.
-    r = CliRunner().invoke(main, ["edit", "article"], input="output_format\njson\n\nn\n")
+    r = CliRunner().invoke(main, ["edit", "article", "-i"], input="output_format\njson\n\nn\n")
     assert r.exit_code == 0, r.output
     assert "output_format" in r.output  # offered as a known key
     assert file_to_construct(root).get_config("article") == {"output_format": "json"}
@@ -150,3 +150,32 @@ def test_import_from_json_shorthand_and_errors() -> None:
         import_from_json({"version": 99})
     with pytest.raises(ValueError):
         import_from_json({"models": {"x": {"path": "x.prompt"}}})
+
+
+def test_cli_edit_without_flags_guides_and_never_prompts(tmp_path: Path, monkeypatch) -> None:
+    root = _project(tmp_path)
+    monkeypatch.chdir(root)
+    before = {p: p.read_text() for p in root.rglob("*") if p.is_file()}
+
+    r = CliRunner().invoke(main, ["edit", "topic"], input="")  # empty stdin: a prompt would abort
+    assert r.exit_code == 0, r.output
+    assert "config() of 'topic'" in r.output
+    assert "model_type = 'template'" in r.output
+    assert "Known keys:" in r.output and "output_format" in r.output
+    assert "promptmap edit topic --config KEY=VALUE" in r.output
+    assert "promptdata --promptdata" not in r.output and "--promptdata topic=VALUE" in r.output
+
+    r = CliRunner().invoke(main, ["edit"], input="")
+    assert r.exit_code == 0, r.output
+    assert "audience = ''" in r.output and "topic = 'cats'" in r.output
+    assert "promptmap edit --promptdata" in r.output
+
+    assert {p: p.read_text() for p in root.rglob("*") if p.is_file()} == before
+
+
+def test_cli_edit_template_file_from_stdin(tmp_path: Path, monkeypatch) -> None:
+    root = _project(tmp_path)
+    monkeypatch.chdir(root)
+    r = CliRunner().invoke(main, ["edit", "topic", "--template-file", "-"], input="new body\n")
+    assert r.exit_code == 0, r.output
+    assert file_to_construct(root).models["topic"].source == "new body\n"

@@ -98,21 +98,10 @@ def load_tests(map_dir: str | Path = "map") -> dict[str, str]:
     so `promptmap test` gives a friendly message rather than crashing.
     Test names must be unique across subdirectories.
     """
-    map_dir = Path(map_dir)
-    if not map_dir.exists():
-        return {}
-    tests: dict[str, str] = {}
-    paths: dict[str, Path] = {}
-    for f in sorted(map_dir.rglob(f"*{TEST_SUFFIX}")):
-        name = f.name[: -len(TEST_SUFFIX)]
-        if name in tests:
-            raise ValueError(
-                f"Duplicate test name '{name}': found in both '{paths[name]}' "
-                f"and '{f}'. Test names must be unique across all subdirectories."
-            )
-        tests[name] = f.read_text(encoding="utf-8")
-        paths[name] = f
-    return tests
+    from promptmap.construct import read_map
+
+    _, tests = read_map(map_dir)
+    return {name: f.source for name, f in tests.items()}
 
 
 def _parse_pass(llm_output: str) -> bool:

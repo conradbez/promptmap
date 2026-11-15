@@ -2771,7 +2771,7 @@ wheels = [
 
 [[package]]
 name = "promptmap"
-version = "0.7.17"
+version = "0.7.18"
 source = { editable = "." }
 dependencies = [
     { name = "click" },

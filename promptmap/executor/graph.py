@@ -157,28 +157,14 @@ def load_models(map_dir: str | Path = "map") -> dict[str, ModelSpec]:
             "Create it and add *.prompt files."
         )
 
-    specs: dict[str, ModelSpec] = {}
+    from promptmap.construct import Construct, read_map
 
-    prompt_files = sorted(
-        {*map_dir.rglob("*.prompt"), *map_dir.rglob("*.prompt.jinja")}
-    )
-    for prompt_file in prompt_files:
-        name = _prompt_name(prompt_file)
-        if name in specs:
-            raise ValueError(
-                f"Duplicate model name '{name}': found in both "
-                f"'{specs[name].path}' and '{prompt_file.resolve()}'. "
-                "Model names must be unique across all subdirectories."
-            )
-        source = prompt_file.read_text(encoding="utf-8")
-        specs[name] = build_spec(name, source, prompt_file)
-
-    if not specs:
+    models, _ = read_map(map_dir)
+    if not models:
         raise FileNotFoundError(
             f"No *.prompt / *.prompt.jinja files found in '{map_dir}'."
         )
-
-    return _link_promptfile_deps(specs)
+    return Construct(root=map_dir, map_dir=".", models=models).specs()
 
 
 def build_models_from_dict(models: dict[str, str]) -> dict[str, ModelSpec]:

@@ -60,6 +60,7 @@ from promptmap.project_values import (
     load_values,
 )
 from promptmap.global_instruction import resolve_global_instruction
+from promptmap.construct import file_to_construct
 from promptmap.docs import generate_docs
 from promptmap.files import FileOutputError, contains_files, decode_output, display_text, export_files, iter_files
 from promptmap.validator import load_validators
@@ -304,11 +305,12 @@ def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple
     # promptdata.yml / promptfiles.yml in the project root supply defaults;
     # --promptdata / --promptfile override them key by key.
     try:
-        promptdata_vars: dict[str, str] = load_values(PROMPTDATA_FILE)
-        file_promptfiles: dict[str, str] = load_values(PROMPTFILES_FILE)
-    except ProjectValuesError as exc:
+        project = file_to_construct(".", map_dir)
+    except ValueError as exc:  # bad values file, or duplicate model/test names
         err_console.print(f"[red]Error:[/red] {escape(str(exc))}")
         sys.exit(1)
+    promptdata_vars: dict[str, str] = project.run_promptdata()
+    file_promptfiles: dict[str, str] = project.run_promptfiles()
     for label, values in ((PROMPTDATA_FILE, promptdata_vars), (PROMPTFILES_FILE, file_promptfiles)):
         if values:
             c.print(f"  [dim]{label}: {', '.join(values)}[/dim]")
@@ -346,7 +348,8 @@ def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple
     # ------------------------------------------------------------------
     try:
         try_load_client_module(map_dir)  # registers any project-local model types
-        all_models = load_models(map_dir)
+        # load_models only for its missing-map / no-models error message.
+        all_models = project.specs() if project.models else load_models(map_dir)
     except (FileNotFoundError, UnknownModelTypeError) as exc:
         err_console.print(f"[red]Error:[/red] {escape(str(exc))}")
         sys.exit(1)

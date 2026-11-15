@@ -14,6 +14,7 @@ promptmap serve        Serve the docs report and a web/HTTP model runner.
 promptmap type-hints   Write jinja-lsp autocomplete stubs for .prompt files.
 promptmap clear-cache  Make models start cold on the next run.
 promptmap rename       Rename a model, keeping its references and history.
+promptmap edit         Edit promptdata, a model's config() or its template.
 """
 
 from __future__ import annotations
@@ -68,6 +69,7 @@ from promptmap.cli.vscode import is_running_in_vscode, setup_vscode_associations
 from promptmap.cli.type_hints import register_command as _register_type_hints, generate_stubs as _generate_stubs
 from promptmap.cli.init_files import register_command as _register_init
 from promptmap.cli.test import register_command as _register_test
+from promptmap.cli.edit import register_command as _register_edit
 from promptmap.cli import pretty_print
 from promptmap.cli.pretty_print import console, err_console, format_duration
 
@@ -570,6 +572,7 @@ def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple
 # ---------------------------------------------------------------------------
 
 _register_test(main)
+_register_edit(main)
 
 
 # ---------------------------------------------------------------------------

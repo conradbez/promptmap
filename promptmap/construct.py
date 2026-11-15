@@ -103,13 +103,13 @@ class Construct:
 
     # -- config() editing ----------------------------------------------------
 
-    def get_config(self, model: str) -> dict[str, Any]:
+    def get_config(self, name: str, /) -> dict[str, Any]:
         """The model's ``config()`` keys as Python values (unparseable ones as source text)."""
-        return read_config_call(self._model(model).source)
+        return read_config_call(self._model(name).source)
 
-    def set_config(self, model: str, **values: Any) -> None:
-        """Set ``config()`` keys on *model*; a value of ``None`` removes the key."""
-        f = self._model(model)
+    def set_config(self, name: str, /, **values: Any) -> None:
+        """Set ``config()`` keys on model *name*; a value of ``None`` removes the key."""
+        f = self._model(name)
         f.source = write_config_call(f.source, values)
 
     def _model(self, name: str) -> SourceFile:

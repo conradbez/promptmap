@@ -16,6 +16,9 @@ Editing helpers work on the construct, not the disk::
     c.promptdata["topic"] = "cats"
     c.set_config("article", model="low")
     construct_to_files(c)
+
+:func:`export_to_json` / :func:`import_from_json` do the same with a JSON
+string, in memory only — push the result to disk with :func:`construct_to_files`.
 """
 
 from __future__ import annotations
@@ -228,6 +231,71 @@ def construct_to_files(construct: Construct, root: str | Path | None = None) -> 
         if _write_if_changed(p, _values_text(p, values)):
             changed.append(p)
     return changed
+
+
+# ---------------------------------------------------------------------------
+# construct ↔ JSON (in memory only)
+# ---------------------------------------------------------------------------
+
+#: Bumped when the JSON shape changes incompatibly.
+JSON_VERSION = 1
+
+
+def export_to_json(construct: Construct, *, indent: int | None = 2) -> str:
+    """Serialise *construct* to a JSON string.  Writes nothing to disk.
+
+    ``root`` is not included: it is where the project lives on this machine,
+    not part of the project.  Pass it to :func:`import_from_json` instead.
+    """
+    doc = {
+        "version": JSON_VERSION,
+        "map_dir": construct.map_dir,
+        "models": {n: {"path": f.path, "source": f.source} for n, f in construct.models.items()},
+        "tests": {n: {"path": f.path, "source": f.source} for n, f in construct.tests.items()},
+        "promptdata": dict(construct.promptdata),
+        "promptfiles": dict(construct.promptfiles),
+    }
+    return json.dumps(doc, indent=indent, ensure_ascii=False)
+
+
+def import_from_json(data: str | bytes | dict, root: str | Path = ".") -> Construct:
+    """Build a :class:`Construct` from JSON made by :func:`export_to_json`.
+
+    *data* is the JSON text or the already-parsed dict.  Nothing is read from or
+    written to disk; call :func:`construct_to_files` to write it under *root*.
+    A model or test without a ``path`` gets ``<name>.prompt`` / ``<name>.testprompt``.
+    """
+    doc = json.loads(data) if isinstance(data, (str, bytes)) else data
+    if not isinstance(doc, dict):
+        raise ValueError("construct JSON must be an object")
+    version = doc.get("version", JSON_VERSION)
+    if version != JSON_VERSION:
+        raise ValueError(f"construct JSON version {version} is not supported (expected {JSON_VERSION})")
+
+    def files(key: str, suffix: str) -> dict[str, SourceFile]:
+        out: dict[str, SourceFile] = {}
+        for name, f in (doc.get(key) or {}).items():
+            if isinstance(f, str):  # shorthand: name → source
+                f = {"source": f}
+            if not isinstance(f, dict) or not isinstance(f.get("source"), str):
+                raise ValueError(f"{key}.{name} must have a string 'source'")
+            out[name] = SourceFile(f.get("path") or f"{name}{suffix}", f["source"])
+        return out
+
+    def values(key: str) -> dict[str, str]:
+        raw = doc.get(key) or {}
+        if not isinstance(raw, dict):
+            raise ValueError(f"{key} must be an object of name: value")
+        return {str(k): "" if v is None else str(v) for k, v in raw.items()}
+
+    return Construct(
+        root=Path(root),
+        map_dir=doc.get("map_dir", "map"),
+        models=files("models", ".prompt"),
+        tests=files("tests", _TEST_SUFFIX),
+        promptdata=values("promptdata"),
+        promptfiles=values("promptfiles"),
+    )
 
 
 # ---------------------------------------------------------------------------

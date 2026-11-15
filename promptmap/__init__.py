@@ -48,6 +48,13 @@ from promptmap.tokens import LLMResult
 from promptmap.executor.executor import ModelRunResult
 from promptmap.executor.parser_model import PreviousRun
 from promptmap.types import PromptFile, PromptModelsDict
+from promptmap.construct import (
+    Construct,
+    construct_to_files,
+    export_to_json,
+    file_to_construct,
+    import_from_json,
+)
 
 # Registers the built-in kinds ("", template, agent).  Imported here,
 # after the registry exists, so that every entry point into promptmap has them without
@@ -55,6 +62,11 @@ from promptmap.types import PromptFile, PromptModelsDict
 import promptmap.executor.builtin_kinds  # noqa: E402,F401
 
 __all__ = [
+    "Construct",
+    "file_to_construct",
+    "construct_to_files",
+    "export_to_json",
+    "import_from_json",
     "run",
     "async_run",
     "ModelSpec",

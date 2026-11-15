@@ -118,3 +118,35 @@ def test_cli_edit_unknown_model(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(_project(tmp_path))
     r = CliRunner().invoke(main, ["edit", "nope"])
     assert r.exit_code == 1
+
+
+def test_json_round_trip_in_memory_then_to_files(tmp_path: Path) -> None:
+    from promptmap.construct import export_to_json, import_from_json
+
+    src = file_to_construct(_project(tmp_path / "a"))
+    text = export_to_json(src)
+    assert not (tmp_path / "b").exists()
+
+    c = import_from_json(text, root=tmp_path / "b")
+    assert not (tmp_path / "b").exists()  # import writes nothing
+    assert c.models == src.models and c.tests == src.tests and c.promptdata == src.promptdata
+    assert set(c.specs()) == {"topic", "article"}  # usable without touching disk
+
+    c.set_config("article", model="low")
+    construct_to_files(c)
+    back = file_to_construct(tmp_path / "b")
+    assert back.get_config("article") == {"model": "low"}
+    assert (tmp_path / "b" / "map" / "1_stage" / "1_a_article.prompt").is_file()
+
+
+def test_import_from_json_shorthand_and_errors() -> None:
+    import pytest
+
+    from promptmap.construct import import_from_json
+
+    c = import_from_json({"models": {"topic": "hi"}})
+    assert c.models["topic"].path == "topic.prompt"
+    with pytest.raises(ValueError):
+        import_from_json({"version": 99})
+    with pytest.raises(ValueError):
+        import_from_json({"models": {"x": {"path": "x.prompt"}}})

@@ -62,6 +62,7 @@ import promptmap
 from promptmap.executor.run_context import parse_json_output as promptmap_json
 
 from . import modal_exec
+from .npm_bins import OPENCODE_VERSION
 from .models import ENV_KEYS, model_name
 
 MODEL_TYPE = "agent_modal"
@@ -131,7 +132,6 @@ _APT_NAME = re.compile(r"^[a-z0-9][a-z0-9+.-]+$")
 
 # Pinned: the bullet's log and answer are read from OpenCode's JSON event
 # stream, whose shape is OpenCode's to change.
-OPENCODE_VERSION = "1.18.32"
 
 AGENT_DIR = pathlib.Path(__file__).resolve().parent / "agent"
 TASK_PATH = "/tmp/agent_task.md"

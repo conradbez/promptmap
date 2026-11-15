@@ -23,7 +23,7 @@ from promptmap.files import Dir, File, FileOutputError
 from promptmap.executor import mini_swe
 from promptmap.model_types import ModelCall, ModelKind, register_model_kind
 
-from . import pi_harness
+from . import npm_bins, pi_harness
 
 NAME = "agent_multi_harness"
 
@@ -72,9 +72,9 @@ async def run_agent(rendered: str, call: ModelCall) -> dict:
                           ``opencode.json``
 
     mini-swe-agent needs ``pip install mini-swe-agent``; opencode needs the
-    ``opencode`` binary on PATH (``npm i -g opencode-ai``) or
-    ``PROMPTMAP_OPENCODE_BIN``; pi needs the ``pi`` binary
-    (``npm i -g @mariozechner/pi-coding-agent``) or ``PROMPTMAP_PI_BIN``.  Results are cached on the rendered prompt like any
+    ``opencode`` binary and pi the ``pi`` binary: on PATH, at
+    ``PROMPTMAP_OPENCODE_BIN`` / ``PROMPTMAP_PI_BIN``, or installed on first
+    use with the ``[npm]`` extra (see ``npm_bins``).  Results are cached on the rendered prompt like any
     other kind, so an unchanged task does not re-run.
     """
     raw = await call.compute(
@@ -179,8 +179,7 @@ def _exec_opencode(task: str, call: ModelCall, workdir: Path) -> tuple[str, list
     binary = _opencode_bin()
     if not binary:
         raise FileNotFoundError(
-            "agent_backend=\"opencode\" needs the opencode binary: "
-            "npm i -g opencode-ai (or set PROMPTMAP_OPENCODE_BIN)"
+            f"agent_backend=\"opencode\" needs the opencode binary: {npm_bins.OPENCODE.install_hint}"
         )
 
     config = call.spec.config
@@ -256,7 +255,7 @@ passed on to the next step.
 
 def _opencode_bin() -> str | None:
     """Path to the opencode binary — a seam for tests."""
-    return os.getenv("PROMPTMAP_OPENCODE_BIN") or shutil.which("opencode")
+    return npm_bins.find_bin(npm_bins.OPENCODE)
 
 
 def _opencode_mcp_servers(value: Any, model_path: Path) -> dict:

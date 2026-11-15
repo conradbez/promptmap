@@ -92,5 +92,7 @@ models; otherwise keys come from the environment or `.env`.
 `coding_agent` moved the other way: it is now in promptmap core, on the
 [mini-swe-agent](https://mini-swe-agent.com) harness, under the same name.
 The [pi](https://pi.dev) harness lives here, as `agent_backend="pi"` on
-`agent_multi_harness` (needs Node: `npm i -g @mariozechner/pi-coding-agent`). See promptmap's
+`agent_multi_harness` (needs Node: `npm i -g @mariozechner/pi-coding-agent`,
+or install with the `[npm]` extra and pi / opencode are npm-installed on first
+use at a pinned version; Python ≥ 3.12). See promptmap's
 [agent docs](https://github.com/conradbez/promptmap/blob/main/docs/ADVANCED_USAGE.md#agent-models-model_typeagent).

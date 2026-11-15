@@ -162,7 +162,7 @@ def test_opencode_failure_is_reported(tmp_path, fake_opencode):
 def test_opencode_missing_binary(tmp_path, monkeypatch):
     monkeypatch.setenv("PROMPTMAP_OPENCODE_BIN", "")
     monkeypatch.setattr(builtin_kinds.shutil, "which", lambda _: None)
-    with pytest.raises(FileNotFoundError, match="npm i -g opencode-ai"):
+    with pytest.raises(FileNotFoundError, match=r"npm i -g opencode-ai.*\[npm\]"):
         _run_opencode(tmp_path)
 
 

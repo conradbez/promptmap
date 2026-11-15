@@ -1,6 +1,6 @@
 [project]
 name = "promptmap-extra-model-kinds"
-version = "0.7.3"
+version = "0.7.4"
 description = "Extra promptmap model kinds (execute_python, agent_multi_harness (mini-swe-agent / opencode / pi), python_modal, agent_modal, agent37, browser_use) and RAG kinds (brave_search, gemini_search, openai_search, anthropic_search)."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -17,6 +17,9 @@ dependencies = [
 # Pinned exactly, as browser-use asks (its releases move fast and break APIs),
 # and for the same supply-chain reason promptmap pins litellm.
 browser = ["browser-use==1.0.4"]
+# agent_multi_harness's opencode / pi backends: npm-install their CLIs on first
+# use when they are not on PATH (needs Node). abxpkg needs Python >= 3.12.
+npm = ["abxpkg==1.13.77; python_version >= '3.12'"]
 
 [project.urls]
 Repository = "https://github.com/conradbez/promptmap"

@@ -4,19 +4,19 @@ directory and collect its answer.  ``agent_multi_harness``'s
 ``agent_backend="pi"``.
 
 Needs the ``pi`` binary (``npm i -g @mariozechner/pi-coding-agent``) on PATH,
-or at ``PROMPTMAP_PI_BIN``.
+at ``PROMPTMAP_PI_BIN``, or installed on first use with the ``[npm]`` extra.
 """
 
 from __future__ import annotations
 
 import json
-import os
-import shutil
 import subprocess
 import time
 from pathlib import Path
 
 from promptmap.model_types import ModelCall, report_progress
+
+from . import npm_bins
 
 #: The config keys the harness reads.
 CONFIG_KEYS = frozenset({"agent_model", "agent_step_limit", "agent_cost_limit"})
@@ -32,8 +32,7 @@ def run_pi(task: str, call: ModelCall, workdir: Path) -> dict:
     binary = _pi_bin()
     if not binary:
         raise FileNotFoundError(
-            'agent_backend="pi" needs the pi coding agent: '
-            "npm i -g @mariozechner/pi-coding-agent (or set PROMPTMAP_PI_BIN)"
+            f'agent_backend="pi" needs the pi coding agent: {npm_bins.PI.install_hint}'
         )
     config = call.spec.config
     cmd = [binary, "--print", "--mode", "json", "--no-session"]
@@ -126,7 +125,7 @@ def _assistant_text(message: dict) -> str:
 
 def _pi_bin() -> str | None:
     """Path to the pi binary — a seam for tests."""
-    return os.getenv("PROMPTMAP_PI_BIN") or shutil.which("pi")
+    return npm_bins.find_bin(npm_bins.PI)
 
 
 def _agent_model_name(spec) -> str | None:

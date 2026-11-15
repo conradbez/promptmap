@@ -858,6 +858,14 @@ npm i -g opencode-ai                                # opencode (npm, not pip)
 opencode providers login                            # or export OPENAI_API_KEY etc.
 ```
 
+Or let promptmap install them: with `pip install "promptmap[npm]"` (Python ≥ 3.12,
+Node on the host), an `opencode` or `pi` not on PATH is npm-installed on first
+use, at a pinned version, into `~/.cache/promptmap/npm` (`PROMPTMAP_NPM_PREFIX`
+to move it). It uses [abxpkg](https://pypi.org/project/abxpkg/), which refuses
+npm releases under 14 days old and runs postinstall scripts only for opencode
+(they fetch its platform binary). `PROMPTMAP_OPENCODE_BIN` / `PROMPTMAP_PI_BIN`
+and PATH still come first.
+
 mini-swe-agent picks its LLM from, in order: `config(agent_model="...")` on the
 model, `agent_model = "..."` in `client.py`, then the `MSWEA_MODEL_NAME` env var.
 Each is a [litellm](https://docs.litellm.ai/docs/providers) model name such as

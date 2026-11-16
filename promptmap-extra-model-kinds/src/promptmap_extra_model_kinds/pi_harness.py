@@ -129,13 +129,9 @@ def _pi_bin() -> str | None:
 
 
 def _agent_model_name(spec) -> str | None:
-    """config(agent_model=...), else client.py's ``agent_model``, else pi's default."""
+    """config(agent_model=...), else pi's own default."""
     if spec.config.get("agent_model"):
         return str(spec.config["agent_model"])
-    from promptmap.llm import client_module_for
-
-    module = client_module_for(spec.path)
-    name = getattr(module, "agent_model", None) if module is not None else None
-    return str(name) if name else None
+    return None
 
 

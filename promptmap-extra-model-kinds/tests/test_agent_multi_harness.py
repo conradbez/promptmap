@@ -124,7 +124,7 @@ def test_agent_files_become_the_models_files(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Which model drives the agent: config > client.py agent_model > MSWEA_MODEL_NAME
+# Which model drives the agent: config > settings.yml > MSWEA_MODEL_NAME
 # ---------------------------------------------------------------------------
 
 def _agent_project(root, client_py: str | None, config: str = ""):
@@ -153,14 +153,22 @@ def _run_specs(specs):
     ))
 
 
-def test_client_py_agent_model_is_the_default(tmp_path, monkeypatch, scripted_agent):
+def test_settings_yml_model_is_the_default(tmp_path, monkeypatch, scripted_agent):
+    monkeypatch.setenv("MSWEA_MODEL_NAME", "from-env")
+    (tmp_path / "settings.yml").write_text("provider: openai\nmodel: gpt-from-settings\n")
+    _run_specs(_agent_project(tmp_path, None))
+    assert scripted_agent["name"] == "openai/gpt-from-settings"
+
+
+def test_client_py_agent_model_is_ignored(tmp_path, monkeypatch, scripted_agent):
     monkeypatch.setenv("MSWEA_MODEL_NAME", "from-env")
     _run_specs(_agent_project(tmp_path, 'agent_model = "from-client"\n'))
-    assert scripted_agent["name"] == "from-client"
+    assert scripted_agent["name"] == "from-env"
 
 
-def test_config_agent_model_beats_client_py(tmp_path, scripted_agent):
-    _run_specs(_agent_project(tmp_path, 'agent_model = "from-client"\n', ', agent_model="from-config"'))
+def test_config_agent_model_beats_settings_yml(tmp_path, scripted_agent):
+    (tmp_path / "settings.yml").write_text("provider: openai\nmodel: gpt-from-settings\n")
+    _run_specs(_agent_project(tmp_path, None, ', agent_model="from-config"'))
     assert scripted_agent["name"] == "from-config"
 
 

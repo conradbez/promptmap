@@ -88,7 +88,7 @@ It passes when the score reaches ``jev_cache_threshold``.
 Config keys (the agent always works in a scratch copy, never in place):
 
 ``agent_model``          litellm model name, e.g. ``anthropic/claude-sonnet-4-5``, or a settings.yml alias;
-                         defaults to client.py's ``agent_model``, then ``MSWEA_MODEL_NAME``
+                         defaults to settings.yml's model, then ``MSWEA_MODEL_NAME``
 ``agent_step_limit``     max agent turns, 0 for none (default 0)
 ``agent_cost_limit``     max spend in dollars, 0 for none (default 3)
 

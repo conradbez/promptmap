@@ -576,3 +576,19 @@ def test_agent_model_alias_becomes_litellm_name(tmp_path):
         == "anthropic/claude-opus-x"
     assert agent_model_name(ModelSpec(name="a", source="", path=path, config={"agent_model": "openai/gpt-5"})) \
         == "openai/gpt-5"
+
+
+def test_agent_model_defaults_to_settings_yml_then_env(tmp_path, monkeypatch):
+    from promptmap.executor.mini_swe import agent_model_name
+    from promptmap.model_spec import ModelSpec
+
+    proj = _project(tmp_path)
+    path = proj / "map" / "hello.prompt"
+    monkeypatch.setenv("MSWEA_MODEL_NAME", "from-env")
+    (proj / "settings.yml").write_text("provider: openai\nmodel: gpt-5\n")
+    assert agent_model_name(ModelSpec(name="a", source="", path=path, config={})) == "openai/gpt-5"
+    _with_aliases(proj, model="high")  # settings.yml's model may itself be an alias
+    (proj / "client.py").write_text('agent_model = "from-client"\n')  # no longer read
+    assert agent_model_name(ModelSpec(name="a", source="", path=path, config={})) == "anthropic/claude-opus-x"
+    (proj / "settings.yml").unlink()
+    assert agent_model_name(ModelSpec(name="a", source="", path=path, config={})) == "from-env"

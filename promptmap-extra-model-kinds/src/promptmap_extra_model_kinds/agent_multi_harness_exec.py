@@ -63,7 +63,7 @@ async def run_agent(rendered: str, call: ModelCall) -> dict:
     ``agent_dir``         working directory (required)
     ``agent_backend``     ``mini-swe-agent`` (default), ``opencode`` or ``pi``
     ``agent_model``       model name; for mini-swe-agent defaults to
-                          client.py's ``agent_model``, then ``MSWEA_MODEL_NAME``;
+                          settings.yml's model, then ``MSWEA_MODEL_NAME``;
                           opencode's / pi's own config otherwise
     ``agent_step_limit``  max LLM calls, 0 for none (default 0)
     ``agent_cost_limit``  max spend in dollars, 0 for none (default 3)

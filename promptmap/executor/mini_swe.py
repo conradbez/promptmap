@@ -5,7 +5,7 @@ agent, run in-process in a directory.  Shared by the ``agent`` and
 
 Pure Python (``pip install mini-swe-agent``, a promptmap dependency), so no
 Node toolchain is needed.  The LLM is picked by litellm name from, in order:
-``config(agent_model=...)``, client.py's ``agent_model``, ``MSWEA_MODEL_NAME``.
+``config(agent_model=...)``, settings.yml's ``provider``/``model``, ``MSWEA_MODEL_NAME``.
 """
 
 from __future__ import annotations
@@ -107,20 +107,22 @@ _BUDGET_TEMPLATE = """
 
 
 def agent_model_name(spec) -> str | None:
-    """config(agent_model=...), else client.py's ``agent_model``, else MSWEA_MODEL_NAME.
+    """config(agent_model=...), else settings.yml's model, else MSWEA_MODEL_NAME.
 
     A name that is a settings.yml alias (``agent_model="high"``) becomes the
-    litellm ``provider/model`` it points at.
+    litellm ``provider/model`` it points at.  settings.yml comes before the
+    env var because mini-swe-agent loads its own global ``.env`` (which may
+    set ``MSWEA_MODEL_NAME``) on import: the project's choice should win.
     """
     if spec.config.get("agent_model"):
-        name = str(spec.config["agent_model"])
-    else:
-        from promptmap.llm import client_module_for
+        return resolve_alias(spec, str(spec.config["agent_model"]))
+    from promptmap.llm import litellm_model
+    from promptmap.settings import resolve_model, settings_for
 
-        module = client_module_for(spec.path)
-        name = getattr(module, "agent_model", None) if module is not None else None
-        name = str(name) if name else os.getenv("MSWEA_MODEL_NAME")
-    return resolve_alias(spec, name)
+    target = resolve_model(settings_for(spec.path)) if getattr(spec, "path", None) else None
+    if target is not None:
+        return litellm_model(*target)
+    return os.getenv("MSWEA_MODEL_NAME") or None
 
 
 def resolve_alias(spec, name: str | None) -> str | None:

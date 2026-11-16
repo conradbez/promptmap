@@ -758,7 +758,7 @@ share these config keys: `agent_model`, `agent_step_limit` and
 `agent_cost_limit` (see the table below).
 
 mini-swe-agent picks its LLM from, in order: `config(agent_model="...")` on the
-model, `agent_model = "..."` in `client.py`, then the `MSWEA_MODEL_NAME` env var.
+model, the `provider` / `model` in `settings.yml`, then the `MSWEA_MODEL_NAME` env var.
 Each is a [litellm](https://docs.litellm.ai/docs/providers) model name such as
 `anthropic/claude-sonnet-5`. It does not use your `llm_call`.
 
@@ -840,7 +840,7 @@ continues from the previous run (`warm`) unless the model sets
 
 | config key            | meaning |
 |-----------------------|---------|
-| `agent_model`         | litellm model name (e.g. `openai/gpt-4o-mini`); default `agent_model` in `client.py`, then `MSWEA_MODEL_NAME` |
+| `agent_model`         | litellm model name (e.g. `openai/gpt-4o-mini`); default the `settings.yml` model, then `MSWEA_MODEL_NAME` |
 | `agent_step_limit`    | max LLM calls, `0` = no limit (default `0`) |
 | `agent_cost_limit`    | max spend in dollars, `0` = no limit (default `3`) |
 | `jev_cache_threshold` | verifier score needed to reuse over a changed input (default `0.85`) |
@@ -887,7 +887,7 @@ npm releases under 14 days old and runs postinstall scripts only for opencode
 and PATH still come first.
 
 mini-swe-agent picks its LLM from, in order: `config(agent_model="...")` on the
-model, `agent_model = "..."` in `client.py`, then the `MSWEA_MODEL_NAME` env var.
+model, the `provider` / `model` in `settings.yml`, then the `MSWEA_MODEL_NAME` env var.
 Each is a [litellm](https://docs.litellm.ai/docs/providers) model name such as
 `anthropic/claude-sonnet-5`. It does not use your `llm_call`.
 
@@ -922,7 +922,7 @@ is `research` in [`examples/pcb_design`](../examples/pcb_design).
 |--------------------|----------------------------------------------|
 | `agent_dir`        | working directory (required; created if missing) |
 | `agent_backend`    | `mini-swe-agent` (default), `opencode` or `pi` |
-| `agent_model`      | litellm name for mini-swe-agent (default `MSWEA_MODEL_NAME`); `provider/model` for opencode / pi (default: their own config) |
+| `agent_model`      | litellm name for mini-swe-agent (default the `settings.yml` model, then `MSWEA_MODEL_NAME`); `provider/model` for opencode / pi (default: their own config) |
 | `agent_step_limit` | max LLM calls, `0` = no limit (default `0`)  |
 | `agent_cost_limit` | max spend in dollars, `0` = no limit (default `3`) |
 | `agent_mcp`        | opencode only: MCP servers the agent may use (see below) |

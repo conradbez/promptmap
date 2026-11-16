@@ -115,7 +115,7 @@ Headings:
 ```
 
 **`agent`** runs [mini-swe-agent](https://mini-swe-agent.com) (pure Python,
-LLM from `agent_model` / `MSWEA_MODEL_NAME`) in a scratch folder: text in, text out.
+LLM from `config(agent_model=...)`, else the `settings.yml` model, else `MSWEA_MODEL_NAME`) in a scratch folder: text in, text out.
 Upstream `promptfiles` are copied to `inputs/`; files it writes to `outputs/`
 become the model's files.
 

@@ -141,6 +141,23 @@ Add tests for every endpoint.
 Output keys: `output` (answer), `result` (patched `Dir`), `changes`,
 `deleted`, `sum_of_changes`, `cache`. Downstream: `{{ ref('api').changes }}`.
 
+**Where the tree goes.** A `coding_agent` does not write `outputs/<model>/`
+(the tree stays in the run database, stored once however many steps share it);
+`write_folder=true` brings that folder back. To land the work in a real
+project, put `project="../app"` on the **last** agent of the chain:
+
+```jinja
+{{ config(model_type="coding_agent", promptfiles="api", project="../app") }}
+```
+
+After every run it writes the files that differ and removes the files this
+model deleted; anything else there (`.git`, `node_modules`, untracked files)
+is left alone, and the output reports `project: {path, written, deleted}`.
+Relative paths are from where `promptmap run` started. It overwrites without
+asking, so tell the user to commit hand edits first. Files deleted by an
+*earlier* agent are not removed from the project. Keep the intermediate agents
+pure (no `project=`), so reuse and parallel siblings keep working.
+
 **Tweaking a `coding_agent` prompt keeps its work.** `coding_agent` has
 `warm_start` on by default. After you edit its `.prompt` file, the next run
 starts from the previous change set, sees a diff of the old and new prompt and
@@ -237,6 +254,7 @@ Advanced — `docs/ADVANCED_USAGE.md`:
 | Models that write files or folders | `promptmap.File`, `Dir`, `Output` | `#models-that-produce-files-promptmapfile-promptmapdir-promptmapoutput` |
 | Refine last run's answer | `{{ previous }}`, `cache_check` | `#run-ids-and-iterating-on-the-last-answer-previous` |
 | Edit a `coding_agent` prompt, keep its previous run | `warm_start` (default on for `coding_agent`) | `#editing-a-prompt-without-a-cold-start-warm_start` |
+| Write a `coding_agent`'s tree to a real folder / `outputs/` | `project="../app"`, `write_folder=true` | INTERMEDIATE_USAGE `#where-file-outputs-go-write_folder-project` |
 | Make one model start cold next run | `promptmap clear-cache MODEL` | `#editing-a-prompt-without-a-cold-start-warm_start` |
 | Rename a model, keep its history | `promptmap rename OLD NEW` | `#renaming-a-model-promptmap-rename` |
 | Shared instructions for every model | `global.prompt` | `#global-instructions-globalprompt` |

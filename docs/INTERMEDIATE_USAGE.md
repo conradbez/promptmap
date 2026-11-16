@@ -221,6 +221,49 @@ A model with `{{ config(each="imgs") }}` can iterate over a list of files, or ov
 
 ---
 
+## Where file outputs go (`write_folder`, `project=`)
+
+A model that returns files (a `Dir`, `File`, …) has them written to
+`outputs/<model>/` after each run. A `coding_agent` is the exception: its
+`result` tree stays in the run database only. A chain of five agents would
+otherwise leave five full copies of the project on disk. The database stores
+each file once, however many steps share it.
+
+**Get the folder back** for one model:
+
+```jinja
+{{ config(model_type="coding_agent", promptfiles="api", write_folder=true) }}
+```
+
+`write_folder=false` does the opposite for any other model.
+
+**Write the result into a real project folder.** Put `project=` on the last
+agent of the chain:
+
+```jinja
+{# map/api_tests.prompt #}
+{{ config(model_type="coding_agent", promptfiles="api", project="../app") }}
+Add tests for every endpoint.
+```
+
+After every run, including cached ones:
+
+- Files whose contents differ are written. The rest are not touched.
+- Files this model deleted are removed.
+- Everything else in the folder stays: `.git`, `node_modules`, files the tree
+  never held. Nothing inside `.git` is ever touched.
+- A relative path is relative to where `promptmap run` was started.
+- The output reports `project: {path, written, deleted}`.
+
+Changed files are overwritten without asking, so commit hand edits in that
+folder first. Files deleted by an *earlier* agent in the chain are not removed
+from the project: `project=` only knows its own model's deletions.
+
+The agents still work on scratch copies, so caching, reuse and parallel
+agents work as before. Only the final tree lands in your folder.
+
+---
+
 ## RAG inside prompts (`rag.py`)
 
 `promptmap` leaves retrieval up to you. Register a search function as a *RAG kind*

@@ -2330,7 +2330,7 @@ wheels = [
 
 [[package]]
 name = "promptmap"
-version = "0.7.17"
+version = "0.7.19"
 source = { editable = "../" }
 dependencies = [
     { name = "click" },
@@ -2377,7 +2377,7 @@ dev = [
 
 [[package]]
 name = "promptmap-extra-model-kinds"
-version = "0.7.4"
+version = "0.7.19"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },

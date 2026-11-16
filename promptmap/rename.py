@@ -12,7 +12,7 @@ CLI can show it (``--dry-run``) before :func:`apply_rename` makes it:
 * the model's ``.prompt`` file, keeping its folder and sequence prefix
   (``3_a_old.prompt`` → ``3_a_new.prompt``), and ``validation/OLD.py``;
 * references in every other model and test: ``ref('OLD')``, ``ref("OLD.key")``
-  and ``config(promptfiles=..., each=...)`` values naming ``OLD``;
+  and ``config(promptfiles=..., each=..., inherit_coding_folder=...)`` values naming ``OLD``;
 * ``given`` / ``expect`` keys in YAML test cases;
 * the run database: ``OLD``'s rows (and its ``each=`` items ``OLD[i]``) move to
   ``NEW``, and every model whose file was rewritten has the stored template
@@ -131,7 +131,7 @@ def _names_old(old: str) -> str:
 
 
 _CONFIG_CALL = re.compile(r"\{\{-?\s*config\((.*?)\)\s*-?\}\}", re.DOTALL)
-_MODEL_ARGS = re.compile(r"""\b(promptfiles|each)\s*=\s*(\[[^\]]*\]|'[^']*'|"[^"]*")""")
+_MODEL_ARGS = re.compile(r"""\b(promptfiles|each|inherit_coding_folder)\s*=\s*(\[[^\]]*\]|'[^']*'|"[^"]*")""")
 
 
 def rewrite_source(text: str, old: str, new: str) -> str:

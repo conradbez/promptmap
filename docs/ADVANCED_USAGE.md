@@ -557,7 +557,7 @@ name that already has a file, or stored results (pass `--force` to merge the
 two histories).
 
 The alternative that needs no flag is a follow-up node: a second
-`coding_agent` with `promptfiles="first_agent"` whose prompt is only the tweak.
+`coding_agent` with `inherit_coding_folder="first_agent"` whose prompt is only the tweak.
 That keeps both steps visible in the DAG, at the cost of one more node per
 tweak.
 
@@ -788,20 +788,28 @@ do with the result.
 
 ```jinja
 {# map/add_health.prompt #}
-{{ config(model_type="coding_agent", promptfiles="repo", agent_model="anthropic/claude-sonnet-4-5") }}
+{{ config(model_type="coding_agent", inherit_coding_folder="repo", agent_model="anthropic/claude-sonnet-4-5") }}
 Add a /health endpoint and a test for it.
 ```
 
-- **Input:** `promptfiles="repo"` names an upstream model whose output is a
-  `Dir`. If that model is another `coding_agent`, its `result` is used. With no
-  input the agent starts from an empty folder and creates the tree.
+- **Input folder:** `inherit_coding_folder="repo"` names the upstream model
+  whose `Dir` the agent works on. If that model is another `coding_agent`, its
+  `result` is used (`"repo.result"` names it outright). Without it the agent
+  starts from an empty folder and creates the tree.
+- **Reference files:** `promptfiles` means what it means for every other
+  model: files the model is given. As for `agent`, they are copied into the
+  workspace, under `.promptmap_inputs/<model>/`, and the task lists them.
+  They never end up in `result`. When one changes, the agent runs again
+  (never `hit` or `replay`). Before 0.7.20, the first `Dir` in `promptfiles` was
+  the input folder. A model still written that way logs a warning that points
+  at `inherit_coding_folder`.
 - **Output:** a dict. `result` is the patched `Dir`, the only file output. It
   is kept in the run database and not written to `outputs/<model>/`, so a chain
   of agents does not leave one full copy of the tree per step on disk (set
   `write_folder=true` to get the folder). `output` is the agent's
   final reply. `changes` / `deleted` hold just what this model changed, and
   `sum_of_changes` has a per-symbol summary plus a unified diff.
-- **Chaining:** the next `coding_agent` takes `promptfiles="add_health"`.
+- **Chaining:** the next `coding_agent` takes `inherit_coding_folder="add_health"`.
 - **Parallel:** agents that do not depend on each other run at the same time,
   each in its own scratch copy (see [Parallel runs](#promptmaprun); `--threads`).
 - **Into a real folder:** `project="../app"` writes `result` into that folder
@@ -809,7 +817,7 @@ Add a /health endpoint and a test for it.
   the last agent of the chain:
 
   ```jinja
-  {{ config(model_type="coding_agent", promptfiles="add_health", project="../app") }}
+  {{ config(model_type="coding_agent", inherit_coding_folder="add_health", project="../app") }}
   Add a README section for the /health endpoint.
   ```
 
@@ -848,6 +856,7 @@ continues from the previous run (`warm`) unless the model sets
 | `context_max_chars`   | cap on each diff put into a prompt (default `20000`) |
 | `force_refresh`       | always run the agent (default `false`) |
 | `warm_start`          | after a `.prompt` edit, continue from the old template's last result (default `true`) |
+| `inherit_coding_folder` | upstream model whose folder the agent works on, e.g. `"repo"` (default none: an empty folder) |
 | `project`             | folder to write `result` into after every run, e.g. `"../app"` (default none) |
 | `write_folder`        | also write `result` to `outputs/<model>/` (default `false`) |
 

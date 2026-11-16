@@ -232,7 +232,7 @@ each file once, however many steps share it.
 **Get the folder back** for one model:
 
 ```jinja
-{{ config(model_type="coding_agent", promptfiles="api", write_folder=true) }}
+{{ config(model_type="coding_agent", inherit_coding_folder="api", write_folder=true) }}
 ```
 
 `write_folder=false` does the opposite for any other model.
@@ -242,7 +242,7 @@ agent of the chain:
 
 ```jinja
 {# map/api_tests.prompt #}
-{{ config(model_type="coding_agent", promptfiles="api", project="../app") }}
+{{ config(model_type="coding_agent", inherit_coding_folder="api", project="../app") }}
 Add tests for every endpoint.
 ```
 

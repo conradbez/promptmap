@@ -122,7 +122,9 @@ def _link_promptfile_deps(specs: dict[str, ModelSpec]) -> dict[str, ModelSpec]:
     """
     for name, spec in list(specs.items()):
         extra = []
-        for file_name in spec.promptfiles_used:
+        # coding_agent's inherit_coding_folder names an upstream tree the same way.
+        folder = spec.config.get("inherit_coding_folder")
+        for file_name in [*spec.promptfiles_used, *([str(folder)] if folder else [])]:
             upstream = split_model_path(file_name, specs)
             if upstream is None or upstream[0] == name:
                 continue

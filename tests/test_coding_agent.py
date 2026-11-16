@@ -89,9 +89,11 @@ def llm():
 _HISTORY: dict[str, PreviousRun] = {}
 
 
-def run(base: Dir, tmp_path, llm, prompt="add the feature", **config) -> dict:
+def run(base: Dir, tmp_path, llm, prompt="add the feature", inputs: dict | None = None, **config) -> dict:
+    """Run the node on *base*; *inputs* are upstream models attached as promptfiles."""
+    config = {"inherit_coding_folder": "up", **config}
     spec = ModelSpec(
-        name="node", source="", model_type=fa.NAME, config=config, promptfiles_used=["up"],
+        name="node", source="", model_type=fa.NAME, config=config, promptfiles_used=list(inputs or {}),
     )
 
     async def compute(key, compute):
@@ -104,7 +106,7 @@ def run(base: Dir, tmp_path, llm, prompt="add the feature", **config) -> dict:
 
     key = str(tmp_path)
     call = ModelCall(
-        spec=spec, outputs={"up": base}, llm=call_llm, compute=compute, previous=_HISTORY.get(key),
+        spec=spec, outputs={"up": base, **(inputs or {})}, llm=call_llm, compute=compute, previous=_HISTORY.get(key),
     )
     out = asyncio.run(fa.run_coding_agent(prompt, call))
     _HISTORY[key] = PreviousRun(prompt=prompt, output=out)
@@ -260,7 +262,7 @@ def test_chained_dir_input_from_another_agent(tmp_path, agent, jev, llm):
     first = run(tree(), tmp_path, llm)
     spec = ModelSpec(
         name="second", source="", model_type=fa.NAME,
-        config={}, promptfiles_used=["first"],
+        config={"inherit_coding_folder": "first"},
     )
     call = ModelCall(spec=spec, outputs={"first": first}, llm=None, compute=None)
     assert fa.resolve_base(call) is first["result"]
@@ -345,8 +347,8 @@ def test_chain_through_the_executor(tmp_path, monkeypatch, jev, dir_source):
         "repo": '{{ config(model_type="dir_source", cache=False) }}'
                 'from pathlib import Path\n'
                 f'output = Dir({{p.name: p.read_bytes() for p in Path("{app}").iterdir() if p.suffix != ".log"}}, name="app")',
-        "api": f'{{{{ config(model_type="{fa.NAME}", promptfiles="repo") }}}}add /health',
-        "tests": f'{{{{ config(model_type="{fa.NAME}", promptfiles="api") }}}}test it',
+        "api": f'{{{{ config(model_type="{fa.NAME}", inherit_coding_folder="repo") }}}}add /health',
+        "tests": f'{{{{ config(model_type="{fa.NAME}", inherit_coding_folder="api") }}}}test it',
         "apply": '{{ config(model_type="dir_source") }}'
                  f'ref("tests")["result"].save("{tmp_path / "out"}")',
     }
@@ -402,7 +404,7 @@ def test_text_llm_does_not_attach_the_input_tree(tmp_path, monkeypatch, dir_sour
 
     models = {
         "src": f'{{{{ config(model_type="dir_source", cache=False) }}}}output = Dir("{app}")',
-        "b": f'{{{{ config(model_type="{fa.NAME}", promptfiles=["src"]) }}}}write b',
+        "b": f'{{{{ config(model_type="{fa.NAME}", inherit_coding_folder="src") }}}}write b',
     }
     storage = MemoryStorageBackend()
     storage.init_db()
@@ -605,7 +607,7 @@ def test_executor_keeps_no_state_and_without_warm_start_a_template_edit_starts_a
         assert not results["agent"].error, results["agent"].error
         return results["agent"].value
 
-    first = f'{{{{ config(model_type="{fa.NAME}", promptfiles="src", warm_start=false) }}}}write out.py'
+    first = f'{{{{ config(model_type="{fa.NAME}", inherit_coding_folder="src", warm_start=false) }}}}write out.py'
     assert run_once(first)["cache"] == "miss"
     assert run_once(first)["cache"] == "hit"       # read back from the SQLite run database
     assert len(tasks) == 1
@@ -739,7 +741,7 @@ def test_warm_start_is_the_default_through_the_executor(tmp_path, monkeypatch, j
         labels.append(results["agent"].cache)
         return results["agent"].value
 
-    first = f'{{{{ config(model_type="{fa.NAME}", promptfiles="src") }}}}write out.py'
+    first = f'{{{{ config(model_type="{fa.NAME}", inherit_coding_folder="src") }}}}write out.py'
     assert run_once(first)["cache"] == "miss"
 
     edited = first + "\nKeep it short."
@@ -796,9 +798,9 @@ def test_rename_keeps_coding_agent_history_and_downstream_reuse(tmp_path, monkey
     (tmp_path / "map" / "src.prompt").write_text(
         '{{ config(model_type="dir_source") }}output = Dir({"a.py": b"a = 1\\n"}, name="app")')
     (tmp_path / "map" / "build.prompt").write_text(
-        f'{{{{ config(model_type="{fa.NAME}", promptfiles="src") }}}}write out.py')
+        f'{{{{ config(model_type="{fa.NAME}", inherit_coding_folder="src") }}}}write out.py')
     (tmp_path / "map" / "tests.prompt").write_text(
-        f'{{{{ config(model_type="{fa.NAME}", promptfiles="build.result") }}}}add tests')
+        f'{{{{ config(model_type="{fa.NAME}", inherit_coding_folder="build.result") }}}}add tests')
     storage = SQLiteStorageBackend(tmp_path / "db" / "promptmap.db")
     storage.init_db()
 
@@ -817,7 +819,7 @@ def test_rename_keeps_coding_agent_history_and_downstream_reuse(tmp_path, monkey
     plan = plan_rename(tmp_path / "map", "build", "build_app")
     apply_rename(plan)
     assert storage.rename_model("build", "build_app", plan.retemplate) == 1
-    assert 'promptfiles="build_app.result"' in (tmp_path / "map" / "tests.prompt").read_text()
+    assert 'inherit_coding_folder="build_app.result"' in (tmp_path / "map" / "tests.prompt").read_text()
 
     # Both reuse their last change: the renamed model by its moved history, the
     # downstream one because its stored template hash followed its rewritten file.
@@ -848,12 +850,12 @@ def test_independent_coding_agents_run_in_parallel(tmp_path, monkeypatch, jev, d
 
     monkeypatch.setattr(fa, "_exec_agent", exec_agent)
     src = '{{ config(model_type="dir_source") }}output = Dir({"a.py": b"a = 1\\n"}, name="app")'
-    agent = f'{{{{ config(model_type="{fa.NAME}", promptfiles="src") }}}}'
+    agent = f'{{{{ config(model_type="{fa.NAME}", inherit_coding_folder="src") }}}}'
     models = build_models_from_dict({
         "src": src,
         "api": agent + "build the api",
         "ui": agent + "build the ui",
-        "review": f'{{{{ config(model_type="{fa.NAME}", promptfiles="api.result") }}}}'
+        "review": f'{{{{ config(model_type="{fa.NAME}", inherit_coding_folder="api.result") }}}}'
                   "review {{ ref('ui').output }}",
     })
     storage = MemoryStorageBackend()
@@ -941,3 +943,64 @@ def test_project_relative_to_working_directory(tmp_path, agent, jev, llm, monkey
     out = run(tree(), tmp_path, llm, project="../app")
     assert Path(out["project"]["path"]) == (tmp_path / "app").resolve()
     assert (tmp_path / "app" / "feature.py").read_bytes() == EXPECTED["feature.py"]
+
+
+# ---------------------------------------------------------------------------
+# inherit_coding_folder / promptfiles as reference files
+# ---------------------------------------------------------------------------
+
+
+def test_promptfiles_are_reference_files_not_the_tree(tmp_path, agent, jev, llm):
+    from promptmap.files import File
+
+    seen = {}
+
+    def edit(root):
+        seen["spec"] = (root / fa.INPUTS_DIR / "spec" / "spec.md").read_text()
+        feature_edit(root)
+
+    agent["edit"] = edit
+    spec = File(b"use FEATURE\n", name="spec.md")
+    out = run(tree(), tmp_path, llm, inputs={"spec": spec})
+
+    assert seen["spec"] == "use FEATURE\n"
+    assert f"{fa.INPUTS_DIR}/spec/spec.md" in agent["tasks"][0]
+    assert files(out["result"]) == EXPECTED  # inputs never land in the result
+    assert out["inputs"] == {"spec/spec.md": spec.sha256}
+
+
+def test_unchanged_reference_files_hit_changed_ones_rerun(tmp_path, agent, jev, llm):
+    from promptmap.files import File
+
+    run(tree(), tmp_path, llm, inputs={"spec": File(b"v1\n", name="spec.md")})
+    assert run(tree(), tmp_path, llm, inputs={"spec": File(b"v1\n", name="spec.md")})["cache"] == "hit"
+    out = run(tree(), tmp_path, llm, inputs={"spec": File(b"v2\n", name="spec.md")})
+    assert out["cache"] == "miss"
+    assert "reference files (promptfiles) changed" in agent["tasks"][-1]
+
+
+def test_without_inherit_coding_folder_promptfiles_do_not_pick_the_tree(tmp_path, agent, jev, llm, caplog):
+    first = run(tree(), tmp_path / "a", llm)
+    spec = ModelSpec(name="second", source="", model_type=fa.NAME, config={}, promptfiles_used=["first"])
+    call = ModelCall(spec=spec, outputs={"first": first}, llm=None, compute=None)
+    with caplog.at_level("WARNING", logger="promptmap"):
+        assert fa.resolve_base(call).entries == {}
+    assert "inherit_coding_folder='first'" in caplog.text
+
+
+def test_inherit_coding_folder_must_name_a_folder():
+    spec = ModelSpec(name="n", source="", model_type=fa.NAME, config={"inherit_coding_folder": "txt"})
+    with pytest.raises(fa.FileOutputError, match="not a folder"):
+        fa.resolve_base(ModelCall(spec=spec, outputs={"txt": "hello"}, llm=None, compute=None))
+    with pytest.raises(fa.FileOutputError, match="names no upstream model"):
+        fa.resolve_base(ModelCall(spec=spec, outputs={}, llm=None, compute=None))
+
+
+def test_inherit_coding_folder_is_a_dependency():
+    from promptmap.executor import build_models_from_dict
+
+    specs = build_models_from_dict({
+        "api": f'{{{{ config(model_type="{fa.NAME}") }}}}build it',
+        "tests": f'{{{{ config(model_type="{fa.NAME}", inherit_coding_folder="api") }}}}test it',
+    })
+    assert "api" in specs["tests"].depends_on

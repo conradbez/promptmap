@@ -7,11 +7,17 @@ tree, lets the agent work on a throwaway copy of it (where it may build, run tes
 returns the tree with its changes already applied.  The real repository is
 never touched; a later node decides what to do with the result.
 
-Input (optional): ``promptfiles="fix"`` — an upstream model's :class:`~promptmap.files.Dir`.
-Without one the agent starts from an empty folder named after the model, so
-it creates the tree rather than editing one.
+Input tree (optional): ``inherit_coding_folder="fix"`` — an upstream model's
+:class:`~promptmap.files.Dir`.  Without one the agent starts from an empty
+folder named after the model, so it creates the tree rather than editing one.
 If that model is another ``coding_agent``, its ``result`` is used;
-``"fix.result"`` names it outright.  Where the tree comes from is the upstream
+``"fix.result"`` names it outright.
+
+Reference files (optional): ``promptfiles`` means what it means for every
+other model — upstream files the model is given.  As for the ``agent`` kind
+they are copied into the workspace, under ``.promptmap_inputs/<model>/``,
+and the task says so.  They are never part of ``result``; a change to them
+means the agent runs again (it is never a ``hit`` or ``replay``).  Where the tree comes from is the upstream
 model's business (a custom kind returning ``Dir("../app")``, an earlier
 ``coding_agent``, …).  Where the agent works is nobody's: a scratch
 copy that exists only to find out which files to create, edit or delete.
@@ -30,7 +36,7 @@ Output::
      "merged_by": {path: "git" | "llm"} — when files were merged,
      ...the agent kind's "logs" and "time_run" on a miss}
 
-so the next ``coding_agent`` takes ``promptfiles="this_model"``.
+so the next ``coding_agent`` takes ``inherit_coding_folder="this_model"``.
 
 ``result`` is the only file output.  It is kept in the run database, not
 written to ``outputs/<model>/`` (set ``write_folder=true`` for that, or
@@ -96,6 +102,8 @@ Config keys (the agent always works in a scratch copy, never in place):
 ``merge_max_files``      most colliding files to merge rather than re-run (5)
 ``context_max_chars``    cap on each diff put into a prompt (20000)
 ``force_refresh``        always run the agent (false)
+``inherit_coding_folder`` the upstream model whose folder this agent works on
+                         (e.g. ``"api"`` or ``"api.result"``); none = empty folder
 ``project``              a folder (e.g. ``"../app"``, relative to where promptmap
                          runs) to write ``result`` into after every run: changed
                          files are written, files this model deleted removed,
@@ -163,7 +171,10 @@ VERIFY_QUESTION = (
 _IGNORED_DIRS = frozenset({
     ".promptmap", "__pycache__", "node_modules", ".venv", ".pytest_cache", ".mypy_cache",
 })
-_IGNORED_PREFIXES = (".promptmap_out_",)
+_IGNORED_PREFIXES = (".promptmap_out_", ".promptmap_inputs")
+
+#: Where promptfiles (reference files) go in the scratch copy; never in ``result``.
+INPUTS_DIR = ".promptmap_inputs"
 
 
 # ---------------------------------------------------------------------------
@@ -281,6 +292,8 @@ class Last:
     sum_of_changes: dict | None = None
     #: False when the last run was of an older version of the template (warm_start).
     same_template: bool = True
+    #: The promptfiles (reference files) it was given: ``{path: sha256}``.
+    inputs: dict[str, str] = dataclasses.field(default_factory=dict)
 
     def was(self, path: str) -> bytes | None:
         """*path* as this model received it last time."""
@@ -355,6 +368,7 @@ def last_run(call: ModelCall) -> Last | None:
         deleted=tuple(out.get("deleted") or ()),
         sum_of_changes=summary if isinstance(summary, dict) and "ast_summary" in summary else None,
         same_template=getattr(previous, "same_template", True),
+        inputs=dict(out.get("inputs") or {}),
     )
 
 
@@ -368,19 +382,61 @@ def _read(tree: Dir, path: str) -> bytes | None:
 # ---------------------------------------------------------------------------
 
 def resolve_base(call: ModelCall) -> Dir:
-    """The input tree: the first promptfile holding a Dir, else an empty one."""
+    """The input tree named by ``inherit_coding_folder``, else an empty one."""
+    name = call.spec.config.get("inherit_coding_folder")
+    if not name:
+        _warn_old_promptfiles(call)
+        # No input tree: the agent starts from an empty folder and creates one.
+        return Dir({}, name=call.spec.name)
+    name = str(name)
+    found = split_model_path(name, call.outputs)
+    if found is None:
+        raise FileOutputError(
+            f"{NAME} '{call.spec.name}': inherit_coding_folder={name!r} names no upstream model."
+        )
+    model, path = found
+    value = select_path(call.outputs[model], path, name)
+    if isinstance(value, dict) and isinstance(value.get("result"), Dir):
+        value = value["result"]
+    if not isinstance(value, Dir):
+        raise FileOutputError(
+            f"{NAME} '{call.spec.name}': inherit_coding_folder={name!r} is not a folder "
+            f"(got {type(value).__name__}); point it at a model that returns a Dir."
+        )
+    return value
+
+
+def _warn_old_promptfiles(call: ModelCall) -> None:
+    """Point at inherit_coding_folder when promptfiles names another agent's tree.
+
+    Before 0.7.20 the first promptfile holding a Dir was the input tree.
+    """
     for name in call.spec.promptfiles_used:
         found = split_model_path(name, call.outputs)
-        if found is None:
-            continue
-        model, path = found
-        value = select_path(call.outputs[model], path, name)
+        value = call.outputs.get(found[0]) if found else None
         if isinstance(value, dict) and isinstance(value.get("result"), Dir):
-            value = value["result"]
-        if isinstance(value, Dir):
-            return value
-    # No input tree: the agent starts from an empty folder and creates one.
-    return Dir({}, name=call.spec.name)
+            log.warning(
+                "%s '%s': promptfiles=%r only attaches its files as reference now; "
+                "to work on that tree, use inherit_coding_folder=%r.",
+                NAME, call.spec.name, name, name,
+            )
+
+
+def input_hashes(call: ModelCall) -> dict[str, str]:
+    """``{path: sha256}`` of the promptfiles (reference files) this model is given."""
+    from .agent import input_files
+
+    return {rel: f.sha256 for rel, f in input_files(call)}
+
+
+def _inputs_note(inputs: dict[str, str]) -> str:
+    if not inputs:
+        return ""
+    listing = "\n".join(f"- {INPUTS_DIR}/{p}" for p in sorted(inputs))
+    return (
+        f"\n\nReference files for this task are in {INPUTS_DIR}/ (read them; do not "
+        f"edit them, they are not part of the workspace you hand back):\n{listing}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -390,8 +446,8 @@ def resolve_base(call: ModelCall) -> Dir:
 async def text_llm(call: ModelCall, prompt: str) -> str:
     """Send *prompt* to the run's LLM backend *without* the promptfiles.
 
-    ``call.llm`` attaches the model's promptfiles — here, the whole input
-    tree — to every call.  A merge or a verification needs only the text, so
+    ``call.llm`` attaches the model's promptfiles (its reference files) to
+    every call.  A merge or a verification needs only the text, so
     the backend is called directly, still through the cache.
     """
     backend = getattr(getattr(getattr(call.llm, "func", None), "__self__", None), "llm_call", None)
@@ -641,6 +697,8 @@ async def _run_coding_agent(rendered: str, call: ModelCall) -> dict:
         reason = "the prompt was edited"
     elif last.prompt != rendered:
         reason = "the task itself changed"
+    elif last.inputs != input_hashes(call):
+        reason = "its reference files (promptfiles) changed"
     else:
         try:
             reused = await _try_reuse(rendered, call, last, base)
@@ -777,6 +835,7 @@ def _shape(call, output, base: Dir, result: Dir, changes: dict[str, bytes], dele
             lambda p: None if p in deleted else changes.get(p),
         ),
         "cache": verdict,
+        "inputs": input_hashes(call),
     }
 
 
@@ -789,7 +848,11 @@ async def _run_agent(
     The output is always measured against *base*, the real input, so a run
     that starts from a pre-applied tree still reports every change it owns.
     """
-    task = rendered + OUTCOME_CONTRACT + (
+    from .agent import input_files
+
+    files = input_files(call)
+    inputs = {rel: f.sha256 for rel, f in files}
+    task = rendered + OUTCOME_CONTRACT + _inputs_note(inputs) + (
         context if context is not None else _previous_attempt(call, last, base, reason)
     )
     start = base if start is None else start
@@ -804,6 +867,10 @@ async def _run_agent(
         # Same key, same folder: a restarted run replays its steps (agent_step_cache).
         with agent_step_cache.scratch_dir("promptmap-coding-agent-", f"{call.spec.name}\x00{key}") as scratch:
             root = start.save(scratch)
+            for rel, f in files:
+                target = root / INPUTS_DIR / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(f.read_bytes())
             spec = call.spec.derive(config={**call.spec.config, "agent_dir": str(root)})
             raw = _exec_agent(task, dataclasses.replace(call, spec=spec))
             result = json.loads(raw) if isinstance(raw, str) else raw
@@ -934,7 +1001,7 @@ KIND = register_model_kind(ModelKind(
     exec_fn=run_coding_agent,
     config_keys=mini_swe.CONFIG_KEYS | {
         "jev_cache_threshold", "merge_max_files", "context_max_chars", "force_refresh",
-        "warm_start", "project",
+        "warm_start", "project", "inherit_coding_folder",
     },
     config_defaults={"warm_start": True, "write_folder": False},
 ))

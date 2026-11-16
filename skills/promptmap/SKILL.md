@@ -100,7 +100,7 @@ Set with `{{ config(model_type="...") }}` at the top of the file.
 | **prompt** (default LLM call) | the step needs judgement or generation | plain `.prompt` file |
 | **`template`** | reshaping, joining or selecting upstream outputs; no LLM needed | `{{ config(model_type="template") }}` |
 | **`agent`** | the step needs tools (run code, fetch, inspect files) but the result is an answer | `{{ config(model_type="agent") }}` |
-| **`coding_agent`** | the step produces or patches a file tree (code, a board, a repo) | `{{ config(model_type="coding_agent", promptfiles="repo") }}` |
+| **`coding_agent`** | the step produces or patches a file tree (code, a board, a repo) | `{{ config(model_type="coding_agent", inherit_coding_folder="repo") }}` |
 
 Prefer the cheapest type that works: `template` before prompt, prompt before
 agent. Deterministic steps should never cost an LLM call.
@@ -120,8 +120,11 @@ Upstream `promptfiles` are copied to `inputs/`; files it writes to `outputs/`
 become the model's files.
 
 **`coding_agent`** runs mini-swe-agent as a pure function: a `Dir` in, the patched `Dir` out.
-The input tree comes from upstream via `promptfiles`; leave it out and the
-agent creates the tree from scratch. Independent agents (neither refs the
+The tree it works on comes from upstream via `inherit_coding_folder="<model>"`;
+leave it out and the agent creates the tree from scratch. `promptfiles` keeps
+its ordinary meaning: reference files (a spec, a screenshot) copied into
+`.promptmap_inputs/` for the agent to read, never part of `result`; changing
+one re-runs the agent. Do not use `promptfiles` to pass the tree. Independent agents (neither refs the
 other) run in parallel, so split unrelated work into sibling agents rather than
 one long chain (`promptmap run --threads N` caps how many run at once,
 default 4). Chain agents by passing one's output to
@@ -130,11 +133,11 @@ changed the meaning of the code.
 
 ```jinja
 {# map/api.prompt — repo is an upstream model whose output is a Dir #}
-{{ config(model_type="coding_agent", promptfiles="repo") }}
+{{ config(model_type="coding_agent", inherit_coding_folder="repo") }}
 Add a /health endpoint to the API.
 
-{# map/api_tests.prompt — works on api's patched tree #}
-{{ config(model_type="coding_agent", promptfiles="api") }}
+{# map/api_tests.prompt — works on api's patched tree, reads api_spec's files #}
+{{ config(model_type="coding_agent", inherit_coding_folder="api", promptfiles="api_spec") }}
 Add tests for every endpoint.
 ```
 
@@ -147,7 +150,7 @@ Output keys: `output` (answer), `result` (patched `Dir`), `changes`,
 project, put `project="../app"` on the **last** agent of the chain:
 
 ```jinja
-{{ config(model_type="coding_agent", promptfiles="api", project="../app") }}
+{{ config(model_type="coding_agent", inherit_coding_folder="api", project="../app") }}
 ```
 
 After every run it writes the files that differ and removes the files this

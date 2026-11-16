@@ -772,8 +772,9 @@ things), and what it submits is the output. `output_format="json"` parses it.
 Sum the counts in the CSV. Write the total to total.txt in your outputs folder. Reply with just the number.
 ```
 
-- **Files in:** upstream files named in `promptfiles` are copied into
-  `inputs/<model>/` in the workspace, and the task lists them.
+- **Files in:** files named in `promptfiles` are copied into the workspace,
+  and the task lists them. An upstream model's go to `inputs/<model>/`, a
+  run-level `--promptfile spec=docs/spec.pdf` to `inputs/spec/spec.pdf`.
 - **Files out:** anything the agent writes to `outputs/` becomes the model's files
   (an `Output`: the reply plus those files).
 - Cached on the task plus the input files' hashes.
@@ -798,7 +799,8 @@ Add a /health endpoint and a test for it.
   starts from an empty folder and creates the tree.
 - **Reference files:** `promptfiles` means what it means for every other
   model: files the model is given. As for `agent`, they are copied into the
-  workspace, under `.promptmap_inputs/<model>/`, and the task lists them.
+  workspace, under `.promptmap_inputs/<name>/`, and the task lists them. That
+  covers upstream models' files and run-level `--promptfile name=path` files.
   They never end up in `result`. When one changes, the agent runs again
   (never `hit` or `replay`). Before 0.8.0, the first `Dir` in `promptfiles` was
   the input folder. A model still written that way logs a warning that points

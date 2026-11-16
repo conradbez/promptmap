@@ -134,3 +134,42 @@ def test_agent_is_told_its_remaining_budget(monkeypatch):
     budgets = [str(c) for c in seen if "<budget>" in str(c)]
     assert "Step 1 of 3 (2 left). $0.25 of $2.00 spent. Submit your final output before" in budgets[0]
     assert "Step 2 of 3 (1 left). $0.50 of $2.00 spent. Your next response is your last" in budgets[1]
+
+
+def test_run_level_promptfiles_land_in_inputs(fake_agent, tmp_path):
+    import io
+
+    spec = tmp_path / "spec.md"
+    spec.write_text("# spec v1")
+    handle = io.BytesIO(b"raw")
+    handle.name = "data.bin"
+    _, _, results = run_models(
+        {"a": '{{ config(model_type="agent", promptfiles=["spec", "data"]) }}read it'},
+        promptfiles={"spec": str(spec), "data": handle},
+    )
+    assert results["a"].error == ""
+    assert fake_agent[0]["inputs"] == ["inputs/data/data.bin", "inputs/spec/spec.md"]
+    assert "inputs/spec/spec.md" in fake_agent[0]["task"]
+    assert handle.tell() == 0  # put back for anyone else reading it
+
+
+def test_run_level_promptfile_change_reruns(fake_agent, tmp_path):
+    from promptmap.storage.memory import MemoryStorageBackend
+
+    storage = MemoryStorageBackend()
+    spec = tmp_path / "spec.md"
+    model = {"a": '{{ config(model_type="agent", promptfiles="spec") }}read it'}
+    for text in ("v1", "v1", "v2"):
+        spec.write_text(text)
+        run_models(model, storage=storage, promptfiles={"spec": str(spec)})
+    assert len(fake_agent) == 2  # v1 once (then cached), v2 again
+
+
+def test_missing_run_level_promptfile_is_an_error(fake_agent, tmp_path):
+    other = tmp_path / "x.md"
+    other.write_text("x")
+    _, _, results = run_models(
+        {"a": '{{ config(model_type="agent", promptfiles="spec") }}read it'},
+        promptfiles={"other": str(other)},
+    )
+    assert "--promptfile spec=path" in results["a"].error

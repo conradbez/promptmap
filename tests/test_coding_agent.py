@@ -1004,3 +1004,26 @@ def test_inherit_coding_folder_is_a_dependency():
         "tests": f'{{{{ config(model_type="{fa.NAME}", inherit_coding_folder="api") }}}}test it',
     })
     assert "api" in specs["tests"].depends_on
+
+
+def test_run_level_promptfiles_reach_the_coding_agent(tmp_path, monkeypatch):
+    from tests.test_model_types import run_models
+
+    seen = []
+
+    def exec_agent(task, call):
+        root = Path(call.spec.config["agent_dir"])
+        seen.append(sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()))
+        (root / "out.py").write_text("x = 1\n")
+        return json.dumps({"output": "ok", "logs": [], "time_run": 0.0})
+
+    monkeypatch.setattr(fa, "_exec_agent", exec_agent)
+    spec = tmp_path / "spec.md"
+    spec.write_text("# spec")
+    _, _, results = run_models(
+        {"build": f'{{{{ config(model_type="{fa.NAME}", promptfiles="spec") }}}}build it'},
+        promptfiles={"spec": str(spec)},
+    )
+    assert results["build"].error == ""
+    assert seen == [[f"{fa.INPUTS_DIR}/spec/spec.md"]]
+    assert set(results["build"].value["result"].entries) == {"out.py"}

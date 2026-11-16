@@ -189,6 +189,7 @@ async def _produce_one(
         secrets=ctx.secrets,
         previous=ctx.previous_for(spec),
         report_cache=partial(ctx.report_cache, spec.name),
+        promptfiles=ctx.promptfiles or {},
     )
     return await kind.exec_fn(rendered, call)
 

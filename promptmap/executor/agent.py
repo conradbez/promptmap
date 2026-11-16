@@ -7,8 +7,9 @@ along the way.  Nothing on your disk is touched.
 
 Files work as they do for any model:
 
-* **In:** upstream files named in ``promptfiles`` are copied into
-  ``inputs/`` in the workspace, and the task says so.
+* **In:** files named in ``promptfiles`` — an upstream model's, or a
+  run-level ``--promptfile name=path`` — are copied into ``inputs/<name>/``
+  in the workspace, and the task says so.
 * **Out:** anything the agent writes into ``outputs/`` becomes this model's
   files (an :class:`~promptmap.files.Output`: its reply plus those files).
 
@@ -46,16 +47,49 @@ When you are done, your final reply is the output passed on to the next step.
 
 
 def input_files(call: ModelCall) -> list[tuple[str, File]]:
-    """``(relative path, File)`` for every upstream file named in ``promptfiles``."""
+    """``(relative path, File)`` for every file named in ``promptfiles``.
+
+    An upstream model's files sit under its name (``logo/logo.png``); a
+    run-level ``--promptfile spec=docs/spec.pdf`` under the promptfile's name
+    (``spec/spec.pdf``).  Upstream models win when a name could be both, as
+    for ``call.llm``.
+    """
     found: list[tuple[str, File]] = []
+    run_level = getattr(call, "promptfiles", None) or {}
     for name in call.spec.promptfiles_used:
         hit = split_model_path(name, call.outputs)
-        if hit is None:
-            continue  # a run-level --promptfile, not an upstream model
-        model, path = hit
-        value = select_path(call.outputs[model], path, name)
-        found += [(safe_relpath(f"{model}/{rel}"), f) for rel, f in iter_files(value)]
+        if hit is not None and hit[0] != call.spec.name:
+            model, path = hit
+            value = select_path(call.outputs[model], path, name)
+            found += [(safe_relpath(f"{model}/{rel}"), f) for rel, f in iter_files(value)]
+            continue
+        if not run_level:
+            continue  # no run-level files at all: nothing to attach (as call.llm)
+        if name not in run_level:
+            raise FileOutputError(
+                f"Model '{call.spec.name}' declares promptfile '{name}' in config "
+                f"but it was not provided. Pass it via --promptfile {name}=path "
+                "or the promptfiles= argument."
+            )
+        file = _run_level_file(run_level[name])
+        found.append((safe_relpath(f"{name}/{file.name}"), file))
     return found
+
+
+def _run_level_file(handle: Any) -> File:
+    """A run-level promptfile (path or open binary handle) as a File.
+
+    A handle is read and put back where it was, so ``call.llm`` and later
+    calls can still read it.
+    """
+    if isinstance(handle, (str, Path)) or hasattr(handle, "__fspath__"):
+        return File(Path(handle))
+    pos = handle.tell() if hasattr(handle, "seek") else None
+    try:
+        return File(handle)
+    finally:
+        if pos is not None:
+            handle.seek(pos)
 
 
 async def run_agent(rendered: str, call: ModelCall) -> Any:

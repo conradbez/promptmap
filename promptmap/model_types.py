@@ -114,6 +114,12 @@ class ModelCall:
     #: ``promptmap run``; promptmap's own prompt-cache hits need no report.
     report_cache: Callable[[str], None] = field(default=lambda verdict: None, repr=False)
 
+    #: Run-level promptfiles (``--promptfile name=path`` / ``run(promptfiles=...)``),
+    #: by name: a path or an open binary handle.  Upstream models' files are in
+    #: :attr:`outputs`; a kind that hands files to something other than
+    #: ``call.llm`` (an agent's workspace) reads the rest from here.
+    promptfiles: "Mapping[str, Any]" = field(default_factory=dict, repr=False)
+
 
 #: Who hears progress from inside a running model: ``(model_name, step, total)``.
 #: ``total`` is 0 when the model has no fixed limit.  Set by a front end (the

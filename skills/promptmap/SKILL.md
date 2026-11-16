@@ -116,7 +116,7 @@ Headings:
 
 **`agent`** runs [mini-swe-agent](https://mini-swe-agent.com) (pure Python,
 LLM from `config(agent_model=...)`, else the `settings.yml` model, else `MSWEA_MODEL_NAME`) in a scratch folder: text in, text out.
-Upstream `promptfiles` are copied to `inputs/`; files it writes to `outputs/`
+`promptfiles` (upstream models' files and run-level `--promptfile name=path`) are copied to `inputs/<name>/`; files it writes to `outputs/`
 become the model's files.
 
 **`coding_agent`** runs mini-swe-agent as a pure function: a `Dir` in, the patched `Dir` out.

@@ -32,8 +32,9 @@ Output::
 
 so the next ``coding_agent`` takes ``promptfiles="this_model"``.
 
-``result`` is the only file output, so the run's ``outputs/<model>/`` folder
-holds exactly the complete patched tree.  Everything else is plain data: text
+``result`` is the only file output.  It is kept in the run database, not
+written to ``outputs/<model>/`` (set ``write_folder=true`` for that, or
+``project="../app"`` to write it into a real folder).  Everything else is plain data: text
 files as strings, binary files (images, video, PDFs, …) only as
 ``{"sha256": ...}``.  The next run reads a changed binary's bytes from the
 previous ``result``; an *original* binary is known only by its hash, which is
@@ -95,6 +96,12 @@ Config keys (the agent always works in a scratch copy, never in place):
 ``merge_max_files``      most colliding files to merge rather than re-run (5)
 ``context_max_chars``    cap on each diff put into a prompt (20000)
 ``force_refresh``        always run the agent (false)
+``project``              a folder (e.g. ``"../app"``, relative to where promptmap
+                         runs) to write ``result`` into after every run: changed
+                         files are written, files this model deleted removed,
+                         everything else there left alone
+``write_folder``         also write ``result`` to ``outputs/<model>/`` (false for
+                         this kind; the tree stays in the run database)
 ``warm_start``           after a ``.prompt`` edit, continue from the last result
                          of the old template instead of starting cold (true;
                          ``promptmap clear-cache MODEL`` forces one cold start)
@@ -120,7 +127,7 @@ from typing import Any, Callable, Iterable
 
 import time
 
-from promptmap.files import Dir, File, FileOutputError, select_path, split_model_path
+from promptmap.files import Dir, File, FileOutputError, safe_relpath, select_path, split_model_path
 from promptmap import agent_step_cache
 from promptmap.model_types import ModelCall, ModelKind, register_model_kind
 
@@ -553,11 +560,62 @@ async def llm_merge(call: ModelCall, goal: str, sides: dict[str, tuple]) -> dict
 
 
 # ---------------------------------------------------------------------------
+# project=: write the result into a real folder
+# ---------------------------------------------------------------------------
+
+def apply_to_project(result: Dir, deleted: Iterable[str], project: str | os.PathLike) -> dict:
+    """Write *result* into the real folder *project*; return what was done.
+
+    Only files whose bytes differ are written, so re-applying the same result
+    touches nothing.  Files this model deleted are removed; anything else
+    already in the folder (``.git``, ``node_modules``, files the tree never
+    held) is left alone.  A relative *project* is relative to the working
+    directory, i.e. where ``promptmap run`` was started.
+    """
+    root = Path(project).expanduser()
+    if not root.is_absolute():
+        root = Path.cwd() / root
+    root = root.resolve()
+    if root.exists() and not root.is_dir():
+        raise FileOutputError(f"project={str(project)!r} is a file, not a folder.")
+    written: list[str] = []
+    for rel, file in sorted(result.entries.items()):
+        target = root / _project_path(rel)
+        data = file.read_bytes()
+        if target.is_symlink():
+            raise FileOutputError(f"project: refusing to write through symlink {rel!r}.")
+        if target.is_file() and target.read_bytes() == data:
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        written.append(rel)
+    removed: list[str] = []
+    for rel in sorted(set(deleted)):
+        target = root / _project_path(rel)
+        if rel not in result.entries and target.is_file() and not target.is_symlink():
+            target.unlink()
+            removed.append(rel)
+    if written or removed:
+        log.info("%s: wrote %d and deleted %d file(s) in %s", NAME, len(written), len(removed), root)
+    return {"path": str(root), "written": written, "deleted": removed}
+
+
+def _project_path(rel: str) -> str:
+    rel = safe_relpath(rel)
+    if ".git" in rel.split("/"):
+        raise FileOutputError(f"project: refusing to touch {rel!r} inside .git.")
+    return rel
+
+
+# ---------------------------------------------------------------------------
 # exec_fn
 # ---------------------------------------------------------------------------
 
 async def run_coding_agent(rendered: str, call: ModelCall) -> dict:
     out = await _run_coding_agent(rendered, call)
+    project = call.spec.config.get("project")
+    if project and isinstance(out, dict) and isinstance(out.get("result"), Dir):
+        out["project"] = apply_to_project(out["result"], out.get("deleted", []), project)
     report = getattr(call, "report_cache", None)  # promptmap >= 0.7.7
     if report is not None and isinstance(out, dict):
         report(out.get("cache", ""))
@@ -876,7 +934,7 @@ KIND = register_model_kind(ModelKind(
     exec_fn=run_coding_agent,
     config_keys=mini_swe.CONFIG_KEYS | {
         "jev_cache_threshold", "merge_max_files", "context_max_chars", "force_refresh",
-        "warm_start",
+        "warm_start", "project",
     },
-    config_defaults={"warm_start": True},
+    config_defaults={"warm_start": True, "write_folder": False},
 ))

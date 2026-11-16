@@ -890,3 +890,54 @@ def test_max_parallel_caps_how_many_models_run_at_once():
         ))
         assert all(r.status == "success" for r in results)
         assert live["peak"] == expected, (limit, live["peak"])
+
+
+# ---------------------------------------------------------------------------
+# write_folder / project=
+# ---------------------------------------------------------------------------
+
+
+def test_coding_agent_does_not_write_outputs_folder_by_default():
+    from promptmap.cli import _write_folder
+
+    spec = ModelSpec(name="node", source="", model_type=fa.NAME, config={})
+    assert _write_folder(spec) is False
+    assert _write_folder(ModelSpec(name="n", source="", model_type=fa.NAME, config={"write_folder": True}))
+    assert _write_folder(ModelSpec(name="n", source="", model_type="", config={}))  # other kinds: on
+
+
+def test_project_receives_the_result(tmp_path, agent, jev, llm):
+    project = tmp_path / "app"
+    project.mkdir()
+    (project / "old.txt").write_text("remove me\n")
+    (project / "notes.md").write_text("not in the tree\n")
+    (project / ".git").mkdir()
+    (project / ".git" / "HEAD").write_text("ref\n")
+
+    out = run(tree(), tmp_path, llm, project=str(project))
+
+    assert out["project"]["deleted"] == ["old.txt"]
+    assert set(out["project"]["written"]) == set(EXPECTED)
+    assert {p.relative_to(project).as_posix(): p.read_bytes() for p in project.rglob("*") if p.is_file()} == {
+        **EXPECTED, "notes.md": b"not in the tree\n", ".git/HEAD": b"ref\n",
+    }
+
+
+def test_project_rewrites_only_what_differs(tmp_path, agent, jev, llm):
+    project = tmp_path / "app"
+    run(tree(), tmp_path, llm, project=str(project))  # creates the folder
+    (project / "util.py").write_text("hand edit\n")
+
+    out = run(tree(), tmp_path, llm, project=str(project))
+
+    assert out["cache"] == "hit"
+    assert out["project"] == {"path": str(project.resolve()), "written": ["util.py"], "deleted": []}
+    assert (project / "util.py").read_bytes() == EXPECTED["util.py"]
+
+
+def test_project_relative_to_working_directory(tmp_path, agent, jev, llm, monkeypatch):
+    (tmp_path / "work").mkdir()
+    monkeypatch.chdir(tmp_path / "work")
+    out = run(tree(), tmp_path, llm, project="../app")
+    assert Path(out["project"]["path"]) == (tmp_path / "app").resolve()
+    assert (tmp_path / "app" / "feature.py").read_bytes() == EXPECTED["feature.py"]

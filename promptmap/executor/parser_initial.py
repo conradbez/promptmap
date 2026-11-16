@@ -39,6 +39,7 @@ _BUILTIN_CONFIG_KEYS = frozenset({
     "each",
     "cache",
     "warm_start",
+    "write_folder",
     # Read by the default LiteLLM backend (a client.py llm_call may read them too).
     "provider",
     "model",

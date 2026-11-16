@@ -65,6 +65,7 @@ from promptmap.construct import file_to_construct
 from promptmap.docs import generate_docs
 from promptmap.files import FileOutputError, contains_files, decode_output, display_text, export_files, iter_files
 from promptmap.validator import load_validators
+from promptmap.model_types import config_value
 from promptmap.cli.vscode import is_running_in_vscode, setup_vscode_associations
 from promptmap.cli.type_hints import register_command as _register_type_hints, generate_stubs as _generate_stubs
 from promptmap.cli.init_files import register_command as _register_init
@@ -543,7 +544,10 @@ def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple
                 files_dir = outputs_dir / result.model_name
                 if files_dir.is_dir():
                     shutil.rmtree(files_dir)  # last run's files for this model
-                export_files(value, files_dir)
+                # {{ config(write_folder=false) }} (coding_agent's default)
+                # keeps the files in the run database only.
+                if _write_folder(all_models[result.model_name]):
+                    export_files(value, files_dir)
                 text = display_text(value)
             else:
                 text = value if isinstance(value, str) else result.llm_output
@@ -1017,3 +1021,11 @@ def _git_sha() -> str | None:
         ).decode().strip()
     except Exception:
         return None
+
+
+def _write_folder(spec) -> bool:
+    """Whether a model's file output goes to ``outputs/<model>/`` (``write_folder``)."""
+    value = config_value(spec, "write_folder", True)
+    if isinstance(value, str):
+        return value.strip().lower() not in {"false", "0", "no", "off", ""}
+    return bool(value)

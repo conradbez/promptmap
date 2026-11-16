@@ -308,6 +308,7 @@ When `output_format: json` is set, promptmap validates the LLM output as JSON (s
 | `global_instruction` | `False` opts this model out of the run's [global instruction](#global-instructions-globalprompt) |
 | `cache` | `False` skips reading the prompt cache, so the model always re-runs; the fresh result still overwrites the cached entry |
 | `warm_start` | `True` keeps `previous` across edits to the `.prompt` file; on by default for `coding_agent` — see [Editing a prompt without a cold start](#editing-a-prompt-without-a-cold-start-warm_start) |
+| `write_folder` | `False` keeps a model's file output in the run database only, instead of also writing it to `outputs/<model>/`; on by default, off for `coding_agent` |
 
 Any other key — and any unknown `model_type` — raises an `UnknownConfigKeyWarning` naming the model and file, with a did-you-mean suggestion, so typos like `output_fmt="json"` surface instead of being silently ignored. The key is still kept in the config dict, since promptmap forwards the whole dict to a `llm_call(prompt, config=...)` that accepts one. If your `llm_call` consumes custom keys, register them once to silence the warning:
 
@@ -794,13 +795,30 @@ Add a /health endpoint and a test for it.
 - **Input:** `promptfiles="repo"` names an upstream model whose output is a
   `Dir`. If that model is another `coding_agent`, its `result` is used. With no
   input the agent starts from an empty folder and creates the tree.
-- **Output:** a dict. `result` is the patched `Dir` (the only file output, so
-  `outputs/<model>/` holds exactly the patched tree). `output` is the agent's
+- **Output:** a dict. `result` is the patched `Dir`, the only file output. It
+  is kept in the run database and not written to `outputs/<model>/`, so a chain
+  of agents does not leave one full copy of the tree per step on disk (set
+  `write_folder=true` to get the folder). `output` is the agent's
   final reply. `changes` / `deleted` hold just what this model changed, and
   `sum_of_changes` has a per-symbol summary plus a unified diff.
 - **Chaining:** the next `coding_agent` takes `promptfiles="add_health"`.
 - **Parallel:** agents that do not depend on each other run at the same time,
   each in its own scratch copy (see [Parallel runs](#promptmaprun); `--threads`).
+- **Into a real folder:** `project="../app"` writes `result` into that folder
+  after every run, so the steps of the chain build up one project. Put it on
+  the last agent of the chain:
+
+  ```jinja
+  {{ config(model_type="coding_agent", promptfiles="add_health", project="../app") }}
+  Add a README section for the /health endpoint.
+  ```
+
+  Only files whose bytes differ are written, and files this model deleted are
+  removed. Everything else in the folder (`.git`, `node_modules`, files the
+  tree never held) is left alone, and nothing inside `.git` is ever touched.
+  A relative path is relative to where `promptmap run` was started. The output
+  reports `project: {path, written, deleted}`. Files the agent changes are
+  overwritten without asking, so commit hand edits there first.
 
 **Reuse instead of re-running.** With the same prompt, a changed input does not
 always mean a new agent run. The `cache` key in the output says what happened,
@@ -830,6 +848,8 @@ continues from the previous run (`warm`) unless the model sets
 | `context_max_chars`   | cap on each diff put into a prompt (default `20000`) |
 | `force_refresh`       | always run the agent (default `false`) |
 | `warm_start`          | after a `.prompt` edit, continue from the old template's last result (default `true`) |
+| `project`             | folder to write `result` into after every run, e.g. `"../app"` (default none) |
+| `write_folder`        | also write `result` to `outputs/<model>/` (default `false`) |
 
 The agent sees its budget after every command (`Step 3 of 5 (2 left). $0.04
 of $3.00 spent.`) and is told to submit on its last step, since a run cut off by

@@ -800,7 +800,7 @@ Add a /health endpoint and a test for it.
   model: files the model is given. As for `agent`, they are copied into the
   workspace, under `.promptmap_inputs/<model>/`, and the task lists them.
   They never end up in `result`. When one changes, the agent runs again
-  (never `hit` or `replay`). Before 0.7.20, the first `Dir` in `promptfiles` was
+  (never `hit` or `replay`). Before 0.8.0, the first `Dir` in `promptfiles` was
   the input folder. A model still written that way logs a warning that points
   at `inherit_coding_folder`.
 - **Output:** a dict. `result` is the patched `Dir`, the only file output. It

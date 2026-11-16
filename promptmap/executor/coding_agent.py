@@ -409,7 +409,7 @@ def resolve_base(call: ModelCall) -> Dir:
 def _warn_old_promptfiles(call: ModelCall) -> None:
     """Point at inherit_coding_folder when promptfiles names another agent's tree.
 
-    Before 0.7.20 the first promptfile holding a Dir was the input tree.
+    Before 0.8.0 the first promptfile holding a Dir was the input tree.
     """
     for name in call.spec.promptfiles_used:
         found = split_model_path(name, call.outputs)

@@ -55,7 +55,7 @@ class Construct:
 
     root: Path
     map_dir: str = "map"
-    #: model name → file.  Names follow the loader's rules (sequence prefixes stripped).
+    #: model name → file.  Names follow the loader's rules (file name minus suffix).
     models: dict[str, SourceFile] = field(default_factory=dict)
     #: test name → file.
     tests: dict[str, SourceFile] = field(default_factory=dict)

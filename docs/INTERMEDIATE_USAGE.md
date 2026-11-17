@@ -12,19 +12,19 @@ promptmap docs --open    # and opens it
 
 ## Grouping models in folders
 
-Group models in folders as the project grows. A leading `<number>_<letter>_`
-only sorts files in reading order and is not part of the model name, so
-`2_build/2_a_parts.prompt` is still `ref('parts')`:
+Group models in folders as the project grows. The folder is not part of the
+model name, so `2_build/parts.prompt` is `ref('parts')`. Model names must be
+unique across all folders.
 
 ```
 map/
   1_design/
-    1_a_brief.prompt
-    1_b_requirements.prompt
+    brief.prompt
+    requirements.prompt
   2_build/
-    2_a_parts.prompt
+    parts.prompt
   3_qa/
-    3_a_bom_line.prompt
+    bom_line.prompt
 ```
 
 ---

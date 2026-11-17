@@ -44,7 +44,7 @@ def test_rewrite_yaml_renames_given_and_expect_keys_only():
 @pytest.fixture
 def project(tmp_path, monkeypatch):
     (tmp_path / "map" / "2_build").mkdir(parents=True)
-    (tmp_path / "map" / "2_build" / "2_a_draft.prompt").write_text("Write a haiku")
+    (tmp_path / "map" / "2_build" / "draft.prompt").write_text("Write a haiku")
     (tmp_path / "map" / "short.prompt").write_text("Shorten: {{ ref('draft') }}")
     (tmp_path / "map" / "draft_ok.testprompt").write_text("{{ config(gate=False) }}Is {{ ref('draft') }} a haiku?")
     (tmp_path / "validation").mkdir()
@@ -54,15 +54,15 @@ def project(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_plan_keeps_folder_and_prefix_and_moves_the_validator(project):
+def test_plan_keeps_folder_and_moves_the_validator(project):
     plan = plan_rename("map", "draft", "poem")
     moves = {str(a.relative_to(project.resolve()) if a.is_absolute() else a): str(b.name) for a, b in plan.moves}
-    assert moves == {"map/2_build/2_a_draft.prompt": "2_a_poem.prompt", "validation/draft.py": "poem.py"}
+    assert moves == {"map/2_build/draft.prompt": "poem.prompt", "validation/draft.py": "poem.py"}
     assert {p.name for p in plan.edits} == {"short.prompt", "draft_ok.testprompt"}
     assert set(plan.retemplate) == {"short"}
 
     apply_rename(plan)
-    assert (project / "map" / "2_build" / "2_a_poem.prompt").read_text() == "Write a haiku"
+    assert (project / "map" / "2_build" / "poem.prompt").read_text() == "Write a haiku"
     assert (project / "map" / "short.prompt").read_text() == "Shorten: {{ ref('poem') }}"
     assert (project / "validation" / "poem.py").exists()
 
@@ -85,7 +85,7 @@ def test_cli_rename_keeps_the_cache(project):
 
     dry = CliRunner().invoke(main, ["rename", "draft", "poem", "--dry-run"])
     assert dry.exit_code == 0, dry.output
-    assert "Would move" in dry.output and (project / "map" / "2_build" / "2_a_draft.prompt").exists()
+    assert "Would move" in dry.output and (project / "map" / "2_build" / "draft.prompt").exists()
 
     done = CliRunner().invoke(main, ["rename", "draft", "poem"])
     assert done.exit_code == 0, done.output

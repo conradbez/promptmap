@@ -21,7 +21,7 @@ def _project(tmp_path: Path) -> Path:
     (tmp_path / "map" / "topic.prompt").write_text(
         '{{ config(model_type="template") }}\n{{ promptdata("topic") }}\n', encoding="utf-8"
     )
-    (tmp_path / "map" / "1_stage" / "1_a_article.prompt").write_text(
+    (tmp_path / "map" / "1_stage" / "article.prompt").write_text(
         "Write about {{ ref('topic') }} for {{ promptdata('audience') }}\n", encoding="utf-8"
     )
     (tmp_path / "map" / "article_ok.testprompt").write_text("{{ ref('article') }}\n", encoding="utf-8")
@@ -34,7 +34,7 @@ def test_round_trip_reads_everything_and_writes_nothing(tmp_path: Path) -> None:
     c = file_to_construct(root)
 
     assert set(c.models) == {"topic", "article"}
-    assert c.models["article"].path == "1_stage/1_a_article.prompt"
+    assert c.models["article"].path == "1_stage/article.prompt"
     assert set(c.tests) == {"article_ok"}
     assert c.promptdata == {"topic": "cats", "audience": ""}
     assert c.run_promptdata() == {"topic": "cats"}
@@ -60,7 +60,7 @@ def test_edits_write_only_changed_files_and_keep_header(tmp_path: Path) -> None:
 
     changed = construct_to_files(c)
 
-    assert sorted(p.name for p in changed) == ["1_a_article.prompt", "promptdata.yml"]
+    assert sorted(p.name for p in changed) == ["article.prompt", "promptdata.yml"]
     text = (root / "promptdata.yml").read_text(encoding="utf-8")
     assert text.startswith("# my header\n")
     assert file_to_construct(root).promptdata == {"topic": "cats", "audience": "kids"}
@@ -136,7 +136,7 @@ def test_json_round_trip_in_memory_then_to_files(tmp_path: Path) -> None:
     construct_to_files(c)
     back = file_to_construct(tmp_path / "b")
     assert back.get_config("article") == {"model": "low"}
-    assert (tmp_path / "b" / "map" / "1_stage" / "1_a_article.prompt").is_file()
+    assert (tmp_path / "b" / "map" / "1_stage" / "article.prompt").is_file()
 
 
 def test_import_from_json_shorthand_and_errors() -> None:

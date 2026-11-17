@@ -9,8 +9,8 @@ file by hand therefore costs a cold run, and leaves every ``ref('OLD')`` broken.
 :func:`plan_rename` works out every change without touching anything, so the
 CLI can show it (``--dry-run``) before :func:`apply_rename` makes it:
 
-* the model's ``.prompt`` file, keeping its folder and sequence prefix
-  (``3_a_old.prompt`` → ``3_a_new.prompt``), and ``validation/OLD.py``;
+* the model's ``.prompt`` file, keeping its folder
+  (``2_build/old.prompt`` → ``2_build/new.prompt``), and ``validation/OLD.py``;
 * references in every other model and test: ``ref('OLD')``, ``ref("OLD.key")``
   and ``config(promptfiles=..., each=..., inherit_coding_folder=...)`` values naming ``OLD``;
 * ``given`` / ``expect`` keys in YAML test cases;
@@ -71,9 +71,7 @@ def plan_rename(map_dir: str | Path, old: str, new: str, validation_dir: str | P
     plan = RenamePlan(old=old, new=new)
 
     src = Path(models[old].path)
-    prefix_and_name = src.name[: len(src.name) - len(_suffix(src))]
-    prefix = prefix_and_name[: len(prefix_and_name) - len(old)]
-    dst = src.with_name(f"{prefix}{new}{_suffix(src)}")
+    dst = src.with_name(f"{new}{_suffix(src)}")
     if _prompt_name(dst) != new:
         raise RenameError(f"'{dst.name}' would not be read as model '{new}'.")
     plan.moves.append((src, dst))

@@ -264,6 +264,7 @@ Advanced — `docs/ADVANCED_USAGE.md`:
 | JSON output, caching and other config keys | `config()` | `#output-format-config-config` |
 | Agents / MCP tools | `agent`, `coding_agent`; `agent_multi_harness` + `agent_mcp` | `#agent-models-model_typeagent` |
 | Your own model type | custom model kinds | `#writing-your-own-model-kind-model_type` |
+| Your own Jinja functions; tell a model where it sits (`org_outline()`) | `jinja_template_functions.py`, `@promptmap.template_function` | `#your-own-jinja-functions-jinja_template_functionspy` |
 | Call from Python / live progress | `promptmap.run()` | `#python-api` |
 | Token counts | `LLMResult` | `#token-usage-promptmapllmresult` |
 

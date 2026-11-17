@@ -42,6 +42,13 @@ from promptmap.files import (
     SQLiteBlobStore,
 )
 from promptmap.rag import get_rag_kind, known_rag_kinds, rag_kind, register_rag_kind
+from promptmap.template_functions import (
+    TemplateContext,
+    get_template_function,
+    known_template_functions,
+    register_template_function,
+    template_function,
+)
 from promptmap.secrets import Secrets
 from promptmap.storage.base import StorageBackend
 from promptmap.tokens import LLMResult
@@ -77,6 +84,11 @@ __all__ = [
     "get_model_kind",
     "known_model_kinds",
     "rag_kind",
+    "template_function",
+    "register_template_function",
+    "get_template_function",
+    "known_template_functions",
+    "TemplateContext",
     "register_rag_kind",
     "get_rag_kind",
     "known_rag_kinds",
@@ -425,6 +437,7 @@ async def async_run(
     run_start = time.monotonic()
 
     results = await execute_run(
+        all_models=all_models,
         run_id=run_id,
         ordered_models=ordered,
         storage_backend=storage_backend,

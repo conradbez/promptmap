@@ -60,6 +60,7 @@ from promptmap.model_spec import ModelSpec
 from promptmap.model_types import config_value
 from promptmap.run_ids import template_hash
 from promptmap.secrets import Secrets
+from promptmap.template_functions import TemplateContext, dag_from_specs
 from promptmap.storage.base import StorageBackend
 from promptmap.tokens import add_tokens, split_usage
 from promptmap.types import PromptFile
@@ -183,6 +184,11 @@ class RunContext:
     #: blob store, or an in-memory one for a backend that has none.
     blobs: BlobStore | None = None
 
+    #: Every model in the project (not only the selected ones), for the
+    #: :class:`~promptmap.template_functions.TemplateContext` template
+    #: functions receive.  Empty means "the models being run".
+    all_specs: dict[str, ModelSpec] = field(default_factory=dict)
+
     #: model name → output value.  A JSON-format model's entry is the parsed
     #: object, so downstream templates can do ``{{ ref('m').key }}``.
     outputs: dict[str, Any] = field(default_factory=dict)
@@ -196,6 +202,7 @@ class RunContext:
     _accounting: dict[str, _ModelAccounting] = field(default_factory=dict)
     _files: dict[str, list | None] = field(default_factory=dict)
     _previous_rows: dict[tuple[str, bool], Any] = field(default_factory=dict)
+    _template_dag: Any = None
 
     def __post_init__(self) -> None:
         if self.blobs is None:
@@ -234,6 +241,7 @@ class RunContext:
             extra_context=extra_context,
             previous=self.previous_for(spec),
             wrap_refs=self.wrap_refs,
+            template_context=self.template_context(spec.name),
         )
         state.extra_outputs = extra_outputs
         acct = self._acct(spec.name)
@@ -241,6 +249,12 @@ class RunContext:
         if primary:
             acct.render_state = state
         return rendered, state
+
+    def template_context(self, model: str) -> TemplateContext:
+        """The context template functions receive while *model* renders."""
+        if self._template_dag is None:
+            self._template_dag = dag_from_specs(self.all_specs)
+        return TemplateContext(model=model, specs=self.all_specs, dag=self._template_dag)
 
     def previous_for(self, spec: ModelSpec) -> PreviousRun | None:
         """*spec*'s latest successful result from another run of this same

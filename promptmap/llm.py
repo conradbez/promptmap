@@ -78,6 +78,9 @@ def try_load_client_module(map_dir: str) -> ModuleType | None:
     commands that actually need a backend call :func:`resolve_llm_call` later
     and surface the error there, with the message the user expects.
     """
+    from promptmap.template_functions import load_project_file
+
+    load_project_file(map_dir)
     try:
         return load_client_module(map_dir)
     except Exception:

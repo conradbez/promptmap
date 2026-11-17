@@ -977,6 +977,67 @@ exceeded, the process is stopped and the last log entry is
 
 ---
 
+## Your own Jinja functions (`jinja_template_functions.py`)
+
+Register a function and every template can call it. Put it in
+`jinja_template_functions.py` beside `map/` (or in `client.py`); promptmap
+imports it before the models are parsed.
+
+```python
+# jinja_template_functions.py
+import promptmap
+
+@promptmap.template_function("shout")
+def shout(ctx, text, suffix="!"):
+    return text.upper() + suffix
+```
+
+```jinja
+{# map/answer.prompt #}
+{{ shout(ref('question')) }}
+```
+
+The first argument is always a `promptmap.TemplateContext`, the way a model
+kind always gets `call`. The template passes the rest.
+
+| `ctx.` | What it is |
+|--------|-----------|
+| `model` | name of the model being rendered |
+| `specs` | every model's `ModelSpec` by name — all of them, even under `--select` |
+| `dag` | `networkx.DiGraph`; edge `A → B` means B `ref()`s A |
+| `source(name)` | a model's raw, unrendered template |
+| `body_lines(name, n)` | its first `n` non-blank lines, `config()` calls removed |
+
+A package ships functions under the `promptmap.template_functions` entry
+point group, exactly like model kinds. Names promptmap already uses (`ref`,
+`config`, `promptdata`, `rag_*`, ...) cannot be registered.
+
+### Built in: `org_outline()`
+
+Tells a model where it sits in the pipeline:
+
+```jinja
+{{ org_outline() }}                 {# every model, names only #}
+{{ org_outline(up=1, lines=2) }}    {# from my parents down, 2 template lines each #}
+```
+
+```text
+n1
+- a
+  - a2 [you are here]
+  - a1 (also refs b)
+- b
+n2
+```
+
+- A model with several parents is listed once, under its **deepest** parent,
+  which leaves the fewest refs that point outside the tree.
+- The other refs are named in `(also refs ...)`. Refs a parent already builds
+  on are left out, since the outline implies them.
+- `up=N` starts the outline N levels above this model (`0` = this model and
+  what it feeds). Parents it hides still appear in `(also refs ...)`.
+- `lines=N` shows each model's first N raw template lines (default 0).
+
 ## Writing your own model kind (`model_type=`)
 
 Every `.prompt` file is run by a *model kind*. Leave `model_type` unset and promptmap

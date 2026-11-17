@@ -481,6 +481,7 @@ def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple
         cache_check=cache_check,
         wrap_refs=wrap_refs,
         max_parallel=threads,
+        all_models=all_models,
     )
     gated = None
     try:

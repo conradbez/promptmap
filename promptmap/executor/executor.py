@@ -358,6 +358,7 @@ async def execute_run(
     cache_check: Callable[..., Any] | None = None,
     wrap_refs: bool | Callable[[str, bool], str] | None = None,
     max_parallel: int = DEFAULT_MAX_PARALLEL,
+    all_models: "Mapping[str, ModelSpec] | None" = None,
 ) -> list[ModelRunResult]:
     """
     Execute all *ordered_models* in dependency order, independent ones in parallel.
@@ -408,6 +409,9 @@ async def execute_run(
         Models that do not depend on each other run concurrently; ``1`` runs
         them one at a time.  Results are returned in the order they finished,
         which is always a valid dependency order.
+    all_models:
+        Every model in the project, by name — what template functions such as
+        ``org_outline()`` see.  Defaults to *ordered_models*.
 
     Returns
     -------
@@ -444,6 +448,7 @@ async def execute_run(
         secrets=secrets,
         cache_check=cache_check,
         wrap_refs=wrap_refs,
+        all_specs=dict(all_models) if all_models else {m.name: m for m in ordered_models},
     )
     if skipped is not None:
         ctx.skipped = skipped

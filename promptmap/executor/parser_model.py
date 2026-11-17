@@ -15,6 +15,7 @@ from jinja2 import Environment, StrictUndefined, meta
 from promptmap import jsonpath
 from promptmap.files import contains_files
 from promptmap.rag import template_functions
+from promptmap.template_functions import TemplateContext, bound_functions
 
 
 @dataclass
@@ -85,6 +86,7 @@ def render_prompt(
     extra_context: dict | None = None,
     previous: PreviousRun | None = None,
     wrap_refs: "bool | Callable[[str, bool], str] | None" = None,
+    template_context: TemplateContext | None = None,
 ) -> "tuple[str, _RenderState]":
     """
     Render *template_source* as a Jinja2 template.
@@ -115,6 +117,10 @@ def render_prompt(
         callable ``(name, is_open) -> str`` to produce the opening
         (``is_open=True``) and closing tags yourself.  Structured (JSON) and
         file values are returned unwrapped so ``ref('m').key`` keeps working.
+    template_context:
+        Passed as the first argument to every registered template function
+        (see :mod:`promptmap.template_functions`).  Defaults to one that knows
+        only *model_name*.
 
     Returns
     -------
@@ -160,6 +166,7 @@ def render_prompt(
         "config": lambda **_: "",   # no-op during real render; config already parsed
         "model": model_context,
         "previous": previous,
+        **bound_functions(template_context or TemplateContext(model=model_name)),
         **template_functions(template_source + (global_instruction or "")),
         **(extra_context or {}),
     }

@@ -14,6 +14,8 @@ import warnings
 
 from jinja2 import Environment, Undefined
 
+from promptmap.template_functions import config_stubs
+
 
 #: ref('model') or ref('model.key[0][*]') — the dependency is the leading name.
 _REF_PATTERN = re.compile(r"""\bref\(\s*['"](\w+)(?:[.\[][^'"]*)?['"]\s*\)""")
@@ -184,6 +186,9 @@ def extract_jinja_config(template_source: str) -> dict[str, str]:
         "previous": None,
         "skip_and_set_to_value": lambda value="": "",
         "skip_this_and_downstream": lambda value="": "",
+        # A registered template function would otherwise be undefined here
+        # and its call would cut the config capture short.
+        **config_stubs(),
         # Unregistered rag_x() calls would raise and cut the config capture short.
         **{f"rag_{name}": (lambda *a, **kw: []) for name in _rag_call_names(template_source)},
     }

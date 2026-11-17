@@ -144,6 +144,51 @@ def test_lines_shows_raw_template_without_config():
     ])
 
 
+def test_down_limits_how_far_below_the_outline_goes():
+    # Refs cut off are named, so the model still knows what it builds on.
+    assert outline("a1", up=0, down=1) == "\n".join([
+        "a1 [you are here]",
+        "- a (also refs n1)",
+        "- b (also refs n1)",
+    ])
+    assert outline("a1", up=0, down=0) == "a1 (also refs a, b) [you are here]"
+
+
+CHAIN = {
+    "src": "x", "s1": "{{ ref('src') }}", "s2": "{{ ref('s1') }}", "s3": "{{ ref('s2') }}",
+    "s4": "{{ ref('s3') }}", "report": "{{ ref('s4') }}",
+    "side": "{{ ref('src') }}", "summary": "{{ ref('side') }}",
+}
+
+
+def chain_outline(model: str, **kw) -> str:
+    return org_outline(TemplateContext(model=model, specs=build_models_from_dict(CHAIN)), **kw)
+
+
+def test_zoom_adds_the_top_levels_and_marks_the_path_to_them():
+    assert chain_outline("s2", up=0, down=1, zoom=1) == "\n".join([
+        "report",
+        "- s4 [on your path]",
+        "  - s3 [on your path]",
+        "    - s2 [you are here]",
+        "      - s1 (also refs src)",
+        "summary (also refs side)",
+    ])
+
+
+def test_zoom_marks_only_the_gap_between_overview_and_window():
+    # zoom=2 already shows s4; up=1 already shows s3: nothing left to mark.
+    assert chain_outline("s2", up=0, down=0, zoom=2) == "\n".join([
+        "report",
+        "- s4",
+        "  - s3 [on your path]",
+        "    - s2 (also refs s1) [you are here]",
+        "summary",
+        "- side (also refs src)",
+    ])
+    assert "[on your path]" not in chain_outline("s3", up=1, down=0, zoom=1)
+
+
 def test_org_outline_in_a_real_run_sees_unselected_models():
     models = {**PIPELINE, "a2": "{{ ref('a') }}\n{{ org_outline() }}"}
     out = promptmap.run(models_from_dict=models, llm_call=echo, verbose=False, select=["a2"])

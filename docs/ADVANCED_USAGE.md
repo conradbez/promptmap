@@ -1019,8 +1019,10 @@ are the final outputs (models nothing `ref()`s), and under each model are the
 models it is built from.
 
 ```jinja
-{{ org_outline() }}                 {# every model, names only #}
-{{ org_outline(up=1, lines=2) }}    {# from my consumers down, 2 template lines each #}
+{{ org_outline() }}                       {# every model, names only #}
+{{ org_outline(up=1, down=1) }}           {# a window around this model #}
+{{ org_outline(up=0, down=1, zoom=1) }}   {# that window plus the final outputs #}
+{{ org_outline(up=1, lines=2) }}          {# 2 template lines each #}
 ```
 
 For `n1 → a, b`, `a, b → a1`, `a, n1 → a2`, as seen from `a2`:
@@ -1038,9 +1040,24 @@ n2
   to it, which leaves the fewest refs that point outside the tree.
 - A model's other refs are named in `(also refs ...)`. Refs another of its
   refs already builds on are left out, since the outline implies them.
-- `up=N` starts the outline N levels above this model, toward the final
-  outputs (`0` = this model and what it is built from). A top bullet that is
-  not a final output names the consumers it hides in `(used by ...)`.
+- `up=N` shows N levels of consumers above this model, toward the final
+  outputs (`0` = none). A top bullet that is not a final output names the
+  consumers it hides in `(used by ...)`.
+- `down=N` shows N levels below this model — what it is built from. A
+  consumer `up` brings in is shown down to the same level, so siblings appear
+  too. Refs cut off are named in `(also refs ...)`.
+- `zoom=N` adds the top N levels of the whole pipeline for the big picture.
+  If that and the `up`/`down` window don't join, the chain linking them is
+  added, each model marked `[on your path]`:
+
+  ```text
+  report
+  - s4 [on your path]
+    - s3 [on your path]
+      - s2 [you are here]
+        - s1 (also refs src)
+  summary (also refs side)
+  ```
 - `lines=N` shows each model's first N raw template lines (default 0).
 
 ## Writing your own model kind (`model_type=`)

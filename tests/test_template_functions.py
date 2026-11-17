@@ -80,54 +80,67 @@ def outline(model: str, **kw) -> str:
     return org_outline(TemplateContext(model=model, specs=build_models_from_dict(PIPELINE)), **kw)
 
 
-def test_outline_names_only_marks_current_model():
+def test_outline_is_declarative_final_outputs_on_top():
+    """Top bullets are models nothing refs; each model's children are what it refs."""
     assert outline("a2") == "\n".join([
-        "n1",
+        "a2 [you are here]",
         "- a",
-        "  - a2 [you are here]",
-        "  - a1 (also refs b)",
-        "- b",
+        "  - n1",
+        "a1 (also refs a)",
+        "- b (also refs n1)",
         "n2",
     ])
 
 
-def test_ref_to_a_tree_ancestor_is_not_listed_as_extra():
-    """a2 refs n1 too, but n1 is above it in the tree: nothing out of tree."""
-    assert "a2 [you are here]" in outline("a2").splitlines()[2]
+def test_top_bullets_have_no_dependents():
+    specs = build_models_from_dict(PIPELINE)
+    dag = TemplateContext(specs=specs).dag
+    tops = [l.split()[0] for l in outline("a").splitlines() if not l.startswith((" ", "-"))]
+    assert tops == ["a2", "a1", "n2"]
+    assert all(dag.out_degree(t) == 0 for t in tops)
 
 
-def test_deepest_parent_is_chosen():
+def test_ref_implied_by_another_ref_is_not_listed_as_extra():
+    """a2 refs n1 too, but a (shown under a2) already builds on n1."""
+    assert outline("a2").splitlines()[0] == "a2 [you are here]"
+
+
+def test_closest_consumer_is_chosen():
     specs = build_models_from_dict({
         "top": "x", "mid": "{{ ref('top') }}", "leaf": "{{ ref('top') }} {{ ref('mid') }}",
     })
-    assert org_outline(TemplateContext(model="leaf", specs=specs)) == (
-        "top\n- mid\n  - leaf [you are here]"
+    assert org_outline(TemplateContext(model="top", specs=specs)) == (
+        "leaf\n- mid\n  - top [you are here]"
     )
 
 
 def test_up_limits_how_far_above_the_outline_starts():
-    # Hidden parents are still named: the model learns what it builds on.
-    assert outline("a1", up=0) == "a1 (also refs a, b) [you are here]"
-    # a1's parents are a and b; n1 and n2 are above / beside them, so hidden.
-    # a2's ref to hidden n1 is implied: a already builds on n1.
-    assert outline("a1", up=1) == "\n".join([
-        "a (also refs n1)",
-        "- a2",
-        "- a1 (also refs b) [you are here]",
-        "b (also refs n1)",
+    # up=0: this model and what it is built from; hidden consumers are named.
+    assert outline("a", up=0) == "a (used by a2, a1) [you are here]\n- n1"
+    assert outline("a1", up=0) == "\n".join([
+        "a1 [you are here]",
+        "- a",
+        "  - n1",
+        "- b (also refs n1)",
+    ])
+    # up=1 from n1: its consumers a, b, a2 and what they are built from.
+    # b is not a final output — a1, which up hides, refs it.
+    assert outline("n1", up=1) == "\n".join([
+        "a2",
+        "- a",
+        "  - n1 [you are here]",
+        "b (also refs n1; used by a1)",
     ])
 
 
 def test_lines_shows_raw_template_without_config():
     text = outline("a", up=0, lines=2)
     assert text == "\n".join([
-        "a (also refs n1) [you are here]",
+        "a (used by a2, a1) [you are here]",
         "  A body line",
         "  {{ ref('n1') }}",
-        "- a2",
-        "  {{ ref('a') }} {{ ref('n1') }}",
-        "- a1 (also refs b)",
-        "  {{ ref('a') }} {{ ref('b') }}",
+        "- n1",
+        "  root one",
     ])
 
 

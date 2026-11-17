@@ -1014,28 +1014,33 @@ point group, exactly like model kinds. Names promptmap already uses (`ref`,
 
 ### Built in: `org_outline()`
 
-Tells a model where it sits in the pipeline:
+Tells a model where it sits in the pipeline, declaratively: the top bullets
+are the final outputs (models nothing `ref()`s), and under each model are the
+models it is built from.
 
 ```jinja
 {{ org_outline() }}                 {# every model, names only #}
-{{ org_outline(up=1, lines=2) }}    {# from my parents down, 2 template lines each #}
+{{ org_outline(up=1, lines=2) }}    {# from my consumers down, 2 template lines each #}
 ```
 
+For `n1 → a, b`, `a, b → a1`, `a, n1 → a2`, as seen from `a2`:
+
 ```text
-n1
+a2 [you are here]
 - a
-  - a2 [you are here]
-  - a1 (also refs b)
-- b
+  - n1
+a1 (also refs a)
+- b (also refs n1)
 n2
 ```
 
-- A model with several parents is listed once, under its **deepest** parent,
-  which leaves the fewest refs that point outside the tree.
-- The other refs are named in `(also refs ...)`. Refs a parent already builds
-  on are left out, since the outline implies them.
-- `up=N` starts the outline N levels above this model (`0` = this model and
-  what it feeds). Parents it hides still appear in `(also refs ...)`.
+- A model several others ref is listed once, under the consumer **closest**
+  to it, which leaves the fewest refs that point outside the tree.
+- A model's other refs are named in `(also refs ...)`. Refs another of its
+  refs already builds on are left out, since the outline implies them.
+- `up=N` starts the outline N levels above this model, toward the final
+  outputs (`0` = this model and what it is built from). A top bullet that is
+  not a final output names the consumers it hides in `(used by ...)`.
 - `lines=N` shows each model's first N raw template lines (default 0).
 
 ## Writing your own model kind (`model_type=`)

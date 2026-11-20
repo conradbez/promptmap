@@ -864,7 +864,8 @@ async def execute(rendered: str, call: promptmap.ModelCall) -> dict:
     except (TypeError, ValueError):
         own = 0
     steps = agent_exec.steps_for(own) if own > 0 else run.steps
-    provider = _provider(run.provider, run.api_key, run.model)
+    model = promptmap.model_types.config_value(call.spec, "model") or run.model
+    provider = _provider(run.provider, run.api_key, model)
     name = call.spec.name
     on_line = (lambda line: run.on_log(name, line)) if run.on_log else None
     json_answer = call.spec.output_format == "json"

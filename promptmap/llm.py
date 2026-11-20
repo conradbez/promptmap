@@ -180,6 +180,7 @@ def litellm_model(provider: str, model: str) -> str:
 
 def litellm_llm_call(
     provider: str, model: str, aliases: dict[str, tuple[str, str]] | None = None,
+    api_key: str | None = None,
 ) -> Callable:
     """The default ``llm_call``: one user message to *provider*/*model* via LiteLLM.
 
@@ -188,7 +189,9 @@ def litellm_llm_call(
     ``{{ config(provider="openai", model="gpt-4o-mini") }}``, or name one of
     settings.yml's *aliases* (alias -> (provider, model)):
     ``{{ config(model="low") }}``.  Files attached to a prompt go in the same
-    message.
+    message.  *api_key*, when given, is passed to LiteLLM instead of it
+    reading the provider's key from the environment; it never enters the
+    cache key.
     """
     default_target = litellm_model(provider, model)
     aliases = dict(aliases or {})
@@ -210,7 +213,11 @@ def litellm_llm_call(
         content: str | list = prompt
         if files:
             content = [{"type": "text", "text": prompt}] + [_file_block(f) for f in files]
-        response = quiet_litellm().completion(model=target, messages=[{"role": "user", "content": content}])
+        response = quiet_litellm().completion(
+            model=target,
+            messages=[{"role": "user", "content": content}],
+            **({"api_key": api_key} if api_key else {}),
+        )
         usage = getattr(response, "usage", None)
         return LLMResult(
             response.choices[0].message.content,

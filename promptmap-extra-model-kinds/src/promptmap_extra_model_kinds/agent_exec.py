@@ -623,8 +623,9 @@ async def execute(rendered: str, call: promptmap.ModelCall) -> dict:
         own = int(call.spec.config.get(STEPS_KEY) or 0)
     except (TypeError, ValueError):
         own = 0
+    model = promptmap.model_types.config_value(call.spec, "model") or run.model
     env = _secret_env(
-        run.provider, run.api_key, steps_for(own) if own > 0 else run.steps, run.model
+        run.provider, run.api_key, steps_for(own) if own > 0 else run.steps, model
     )
     name = call.spec.name
     want_files = bool(call.spec.config.get(FILES_KEY))

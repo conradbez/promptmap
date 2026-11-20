@@ -22,6 +22,7 @@ from promptmap.executor.parser_initial import (
     known_config_keys,
     register_config_keys,
 )
+from promptmap.executor.run_context import exclude_from_cache_key
 from promptmap.classifier import classifier_cache_check, systemone_classifier
 from promptmap.executor.graph import UnknownModelTypeError
 from promptmap.model_spec import ModelSpec
@@ -93,6 +94,7 @@ __all__ = [
     "get_rag_kind",
     "known_rag_kinds",
     "register_config_keys",
+    "exclude_from_cache_key",
     "known_config_keys",
     "UnknownConfigKeyWarning",
     "UnknownModelTypeError",

@@ -75,6 +75,12 @@ _OPT_OUT_VALUES = frozenset({"false", "none", "no", "off", "0"})
 _NON_KEY_CONFIG = frozenset({"cache"})
 
 
+def exclude_from_cache_key(*keys: str) -> None:
+    """Leave these config() keys out of the prompt cache key, like ``cache``."""
+    global _NON_KEY_CONFIG
+    _NON_KEY_CONFIG = _NON_KEY_CONFIG | frozenset(keys)
+
+
 def parse_json_output(raw: str) -> dict | list:
     """Strip optional ```json fences and parse as JSON. Raises ValueError on failure."""
     stripped = raw.strip()

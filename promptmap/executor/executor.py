@@ -424,6 +424,8 @@ async def execute_run(
         )
 
     secrets = secrets if isinstance(secrets, Secrets) else Secrets(secrets)
+    from promptmap.secrets import current as _current_secrets
+    _current_secrets.set(secrets)  # this task's context only; model tasks inherit it
     missing = missing_secrets(ordered_models, secrets)
     if missing:
         raise MissingSecretsError(

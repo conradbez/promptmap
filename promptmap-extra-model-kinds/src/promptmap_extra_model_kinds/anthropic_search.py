@@ -43,8 +43,7 @@ def anthropic_search(query: str, instructions: str = INSTRUCTIONS, model: str | 
     if not query:
         return [EMPTY]
     model = model or os.environ.get("ANTHROPIC_SEARCH_MODEL", DEFAULT_MODEL)
-    load_env("ANTHROPIC_API_KEY")
-    client = anthropic.Anthropic(timeout=TIMEOUT)
+    client = anthropic.Anthropic(api_key=load_env("ANTHROPIC_API_KEY"), timeout=TIMEOUT)
     # The fallback router is only offered for the newest models; skip it on an override.
     fallback = {"betas": [FALLBACK_BETA], "fallbacks": "default"} if model == DEFAULT_MODEL else {}
     messages: list[dict] = [{"role": "user", "content": prompt(query, instructions)}]

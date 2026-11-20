@@ -13,6 +13,7 @@ the cache, and a stored run holds nothing worth stealing.
 
 from __future__ import annotations
 
+import contextvars
 import os
 from typing import Iterable, Iterator, Mapping
 
@@ -78,3 +79,13 @@ def parse_secret_flags(specs: Iterable[str], environ: Mapping[str, str] | None =
                 )
         values[name] = value
     return Secrets(values)
+
+
+#: The secrets of the run in progress, for code that is not handed a ModelCall
+#: (RAG kinds, template functions).  Empty outside a run.
+current: "contextvars.ContextVar[Secrets]" = contextvars.ContextVar("promptmap_secrets")
+
+
+def current_secrets() -> Secrets:
+    """The running run's secrets (empty outside a run)."""
+    return current.get(Secrets())

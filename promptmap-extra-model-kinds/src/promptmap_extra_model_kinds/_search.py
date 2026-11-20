@@ -27,7 +27,12 @@ def prompt(query: str, instructions: str) -> str:
 
 
 def load_env(name: str) -> str | None:
-    """Environment variable *name*, falling back to a ``.env`` in the working directory or a parent."""
+    """The run's secret *name* if it was passed one, else environment variable
+    *name*, falling back to a ``.env`` in the working directory or a parent."""
+    from promptmap.secrets import current_secrets
+
+    if current_secrets().get(name):
+        return current_secrets()[name]
     if not os.environ.get(name):
         from dotenv import find_dotenv, load_dotenv
 

@@ -50,3 +50,27 @@ def test_cache_is_a_known_config_key(recwarn) -> None:
 
     build_models_from_dict({"a": "{{ config(cache=False) }}\nHi"})
     assert [w for w in recwarn if issubclass(w.category, promptmap.UnknownConfigKeyWarning)] == []
+
+
+def test_exclude_from_cache_key_keeps_the_entry_across_changes(monkeypatch) -> None:
+    """A key named in exclude_from_cache_key changes like cache= does: same entry."""
+    from promptmap.executor import run_context
+
+    monkeypatch.setattr(run_context, "_NON_KEY_CONFIG", run_context._NON_KEY_CONFIG)
+    promptmap.exclude_from_cache_key("model")
+    storage, llm = MemoryStorageBackend(), CountingLLM()
+
+    _run({"a": '{{ config(model="one") }}\nHi'}, llm, storage)
+    results = _run({"a": '{{ config(model="two") }}\nHi'}, llm, storage)
+
+    assert llm.calls == 1
+    assert results["a"].cached is True
+
+
+def test_model_is_part_of_the_cache_key_by_default() -> None:
+    storage, llm = MemoryStorageBackend(), CountingLLM()
+
+    _run({"a": '{{ config(model="one") }}\nHi'}, llm, storage)
+    _run({"a": '{{ config(model="two") }}\nHi'}, llm, storage)
+
+    assert llm.calls == 2

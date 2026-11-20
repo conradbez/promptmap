@@ -27,7 +27,7 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass
-from functools import partial
+from functools import partial, wraps
 from typing import Any, Awaitable, Callable, Mapping
 
 from promptmap import jsonpath
@@ -338,6 +338,18 @@ async def execute_model(spec: ModelSpec, ctx: RunContext) -> ModelRunResult:
     )
 
 
+def _own_context(fn):
+    """Run the coroutine *fn* in a task of its own, so context vars it sets
+    (the run's secrets) end with it instead of leaking into the caller."""
+
+    @wraps(fn)
+    async def wrapper(*args, **kwargs):
+        return await asyncio.create_task(fn(*args, **kwargs))
+
+    return wrapper
+
+
+@_own_context
 async def execute_run(
     run_id: str,
     ordered_models: list[ModelSpec],
@@ -425,7 +437,7 @@ async def execute_run(
 
     secrets = secrets if isinstance(secrets, Secrets) else Secrets(secrets)
     from promptmap.secrets import current as _current_secrets
-    _current_secrets.set(secrets)  # this task's context only; model tasks inherit it
+    _current_secrets.set(secrets)  # this run's task only (see _own_context); model tasks inherit it
     missing = missing_secrets(ordered_models, secrets)
     if missing:
         raise MissingSecretsError(

@@ -44,7 +44,9 @@ def api_key(name: str, rag: str) -> str:
     """Like :func:`load_env`, but raise naming the RAG kind when the key is missing."""
     key = load_env(name)
     if not key:
-        raise RuntimeError(f"rag_{rag}() needs {name} in the environment or a .env file.")
+        raise RuntimeError(
+            f"rag_{rag}() needs {name} in the run's secrets, the environment or a .env file."
+        )
     return key
 
 

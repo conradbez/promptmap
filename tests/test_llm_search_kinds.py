@@ -86,6 +86,19 @@ def test_openai_missing_key_names_the_rag(openai_search, monkeypatch, tmp_path):
         mod.openai_search("q")
 
 
+def test_run_secrets_win_over_the_environment(openai_search):
+    from promptmap.secrets import Secrets, current
+
+    from promptmap_extra_model_kinds import _search
+
+    token = current.set(Secrets({"OPENAI_API_KEY": "from-run"}))
+    try:
+        assert _search.load_env("OPENAI_API_KEY") == "from-run"
+    finally:
+        current.reset(token)
+    assert _search.load_env("OPENAI_API_KEY") == "test-key"
+
+
 # ---------------------------------------------------------------------------
 # Anthropic
 # ---------------------------------------------------------------------------
@@ -107,7 +120,7 @@ def anthropic_search(monkeypatch):
         calls.append({**kwargs, "messages": list(kwargs["messages"])})
         return responses.pop(0)
 
-    monkeypatch.setattr(mod.anthropic, "Anthropic", lambda timeout: NS(beta=NS(messages=NS(create=create))))
+    monkeypatch.setattr(mod.anthropic, "Anthropic", lambda timeout, api_key=None: NS(beta=NS(messages=NS(create=create))))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.delenv("ANTHROPIC_SEARCH_MODEL", raising=False)
     return mod, calls, responses
@@ -148,3 +161,23 @@ def test_anthropic_refusal_raises(anthropic_search):
 
     with pytest.raises(RuntimeError, match="declined.*cyber"):
         mod.anthropic_search("q")
+
+
+
+def test_anthropic_client_gets_the_run_key(anthropic_search, monkeypatch):
+    from promptmap.secrets import Secrets, current
+
+    mod, _, responses = anthropic_search
+    keys = []
+    monkeypatch.setattr(
+        mod.anthropic, "Anthropic",
+        lambda timeout, api_key=None: keys.append(api_key)
+        or NS(beta=NS(messages=NS(create=lambda **kw: responses.pop(0)))),
+    )
+    responses.append(NS(stop_reason="end_turn", content=[_text("ok")]))
+    token = current.set(Secrets({"ANTHROPIC_API_KEY": "from-run"}))
+    try:
+        mod.anthropic_search("q")
+    finally:
+        current.reset(token)
+    assert keys == ["from-run"]

@@ -257,3 +257,53 @@ def test_promptmap_test_without_secret_fails_cleanly(tmp_path, monkeypatch):
     assert "PROMPTMAP_CLI_TEST_KEY" in result.output
     assert not isinstance(result.exception, MissingSecretsError)  # exited, no traceback
     _REGISTRY.pop("needs_secret_cli_test", None)
+
+
+# ---------------------------------------------------------------------------
+# current_secrets(): the run's secrets for code not handed a ModelCall
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def rag_peeking_at_secrets():
+    """A RAG kind that records what current_secrets() holds when it runs."""
+    from promptmap import rag
+    from promptmap.secrets import current_secrets
+
+    seen: list[dict] = []
+
+    @promptmap.rag_kind("peek_secrets_test")
+    def peek(query):
+        seen.append(dict(current_secrets()))
+        return ["x"]
+
+    yield seen
+    rag._REGISTRY.pop("peek_secrets_test", None)
+
+
+def test_rag_kinds_see_the_run_secrets(rag_peeking_at_secrets):
+    run_models({"a": 'Hi {{ rag_peek_secrets_test("q") }}'}, secrets={"API_KEY": KEY})
+    assert rag_peeking_at_secrets == [{"API_KEY": KEY}]
+
+
+def test_run_secrets_do_not_outlive_the_run(rag_peeking_at_secrets):
+    """After execute_run returns, its caller's context holds no secrets."""
+    from promptmap.secrets import current_secrets
+
+    async def run_then_look():
+        storage = MemoryStorageBackend()
+        storage.init_db()
+        specs = list(build_models_from_dict({"a": 'Hi {{ rag_peek_secrets_test("q") }}'}).values())
+        await execute_run(
+            run_id=storage.create_run(model_count=1), ordered_models=specs,
+            storage_backend=storage, llm_call=lambda p: "resp", secrets={"API_KEY": KEY},
+        )
+        return dict(current_secrets())
+
+    assert asyncio.run(run_then_look()) == {}
+    assert rag_peeking_at_secrets == [{"API_KEY": KEY}]
+
+
+def test_current_secrets_is_empty_outside_a_run():
+    from promptmap.secrets import current_secrets
+
+    assert dict(current_secrets()) == {}

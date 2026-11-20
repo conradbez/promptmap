@@ -1,0 +1,24 @@
+# Build promptmap and promptmap-extra-model-kinds and publish them to PyPI.
+# Runs on every push to main; versions already on PyPI are skipped
+# (--check-url), so only a version bump in a pyproject.toml publishes.
+name: Publish to PyPI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Build
+        run: |
+          uv build -o dist
+          uv build promptmap-extra-model-kinds -o dist
+      - name: Publish
+        run: uv publish --check-url https://pypi.org/simple/ dist/*
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}

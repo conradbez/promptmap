@@ -45,6 +45,39 @@ def resolve_model_name(root: Path, map_dir: str, model: str | None) -> str | Non
     return os.getenv("PM_CODE_MODEL") or os.getenv("MSWEA_MODEL_NAME") or None
 
 
+def load_env(root: Path) -> None:
+    """Load the project's .env, as ``promptmap run`` does; variables already set win."""
+    from dotenv import load_dotenv
+
+    load_dotenv(root / ".env", override=False)
+
+
+def missing_api_keys(model_name: str) -> list[str]:
+    """Environment variables *model_name* needs that are not set (best effort).
+
+    litellm's own check does not know its OpenAI-compatible providers (Sarvam,
+    ...), whose key name is in its ``openai_like/providers.json``; both are read.
+    Without this a missing key surfaces as a server error that is retried for
+    a minute.
+    """
+    import litellm
+
+    missing: list[str] = []
+    try:
+        missing += litellm.validate_environment(model=model_name).get("missing_keys") or []
+    except Exception:  # noqa: BLE001 — unknown provider: litellm will say so itself
+        pass
+    provider = model_name.split("/", 1)[0] if "/" in model_name else ""
+    try:
+        table = json.loads((Path(litellm.__file__).parent / "llms" / "openai_like" / "providers.json").read_text())
+        env = (table.get(provider) or {}).get("api_key_env")
+        if env and not os.getenv(env) and env not in missing:
+            missing.append(env)
+    except (OSError, ValueError, AttributeError):
+        pass
+    return missing
+
+
 def ensure_project(root: Path, map_dir: str, model_name: str) -> list[str]:
     """Create map/ and, when there is no LLM backend, a settings.yml for *model_name*."""
     notes = []
@@ -143,10 +176,16 @@ def main(request, model, root, map_dir, code_dir, max_steps, cost_limit, no_skil
 
     root_path = Path(root).resolve()
     root_path.mkdir(parents=True, exist_ok=True)
+    load_env(root_path)
     model_name = resolve_model_name(root_path, map_dir, model)
     if not model_name:
         console.print("[red]Error:[/red] no model. Pass --model anthropic/claude-sonnet-5-5 "
                       "(any LiteLLM name), set $PM_CODE_MODEL, or run `promptmap init`.")
+        sys.exit(2)
+    missing = missing_api_keys(model_name)
+    if missing:
+        console.print(f"[red]Error:[/red] {escape(model_name)} needs {', '.join(missing)}, which is not set. "
+                      f"Add it to {escape(str(root_path / '.env'))} or export it.")
         sys.exit(2)
     for note in ensure_project(root_path, map_dir, model_name):
         console.print(f"[green]{escape(note)}[/green]")

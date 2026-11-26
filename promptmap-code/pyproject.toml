@@ -1,6 +1,6 @@
 [project]
 name = "promptmap-code"
-version = "0.1.1"
+version = "0.1.2"
 description = "pm-code: a CLI agent (mini-swe-agent based) that builds promptmap pipelines of chat and coding_agent nodes through tool calls."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -11,6 +11,7 @@ dependencies = [
     "mini-swe-agent>=2.0",
     "click>=8.1",
     "rich>=13.0",
+    "python-dotenv>=1.0",
 ]
 
 [project.urls]

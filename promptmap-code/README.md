@@ -16,6 +16,7 @@ Defaults:
 
 - **Project:** the current directory (`--root`). Nodes go in `map/`, run history in `.promptmap/`.
 - **Code:** `coding_agent` nodes write into the current directory (`--code-dir`), through their `project=` config key.
+- **API keys:** read from the environment and the project's `.env`, like `promptmap run`. A missing key stops pm-code at startup, with the variable's name.
 - **Model:** `--model` → `settings.yml` → `$PM_CODE_MODEL` / `$MSWEA_MODEL_NAME`. If the project has no `settings.yml`, pm-code writes one so the nodes use the same model.
 
 ## Tools

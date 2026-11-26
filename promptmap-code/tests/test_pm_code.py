@@ -123,6 +123,7 @@ def test_agent_stops_at_max_steps(ws, monkeypatch):
 def test_cli_one_shot(tmp_path, monkeypatch):
     from promptmap_code import cli
 
+    monkeypatch.setenv("OPENAI_API_KEY", "test")
     monkeypatch.setattr(ToolModel, "_query", lambda self, m, **kw: _response(content="Hello."))
     result = CliRunner().invoke(cli.main, ["--root", str(tmp_path), "--model", "openai/gpt-test", "hi"])
     assert result.exit_code == 0, result.output
@@ -206,3 +207,36 @@ def test_cli_progress_printer():
     assert p.running == {"build": "step 3"} and p.status is not None
     p("done", "build", "success")
     assert p.running == {} and p.status is None
+
+
+# -- API keys ----------------------------------------------------------------------
+
+def test_missing_api_keys_knows_openai_like_providers(monkeypatch):
+    from promptmap_code.cli import missing_api_keys
+
+    monkeypatch.delenv("SARVAM_API_KEY", raising=False)
+    assert "SARVAM_API_KEY" in missing_api_keys("sarvam/sarvam-m")
+    monkeypatch.setenv("SARVAM_API_KEY", "x")
+    assert "SARVAM_API_KEY" not in missing_api_keys("sarvam/sarvam-m")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert missing_api_keys("anthropic/claude-sonnet-5-5") == ["ANTHROPIC_API_KEY"]
+
+
+def test_cli_fails_fast_on_a_missing_key(tmp_path, monkeypatch):
+    from promptmap_code import cli
+
+    monkeypatch.delenv("SARVAM_API_KEY", raising=False)
+    result = CliRunner().invoke(cli.main, ["--root", str(tmp_path), "-m", "sarvam/sarvam-m", "hi"])
+    assert result.exit_code == 2 and "SARVAM_API_KEY" in result.output
+
+
+def test_cli_loads_the_project_env(tmp_path, monkeypatch):
+    from promptmap_code import cli
+
+    monkeypatch.delenv("SARVAM_API_KEY", raising=False)
+    (tmp_path / ".env").write_text("SARVAM_API_KEY=from-dotenv\n")
+    monkeypatch.setattr(ToolModel, "_query", lambda self, m, **kw: _response(content="Hello."))
+    result = CliRunner().invoke(cli.main, ["--root", str(tmp_path), "-m", "sarvam/sarvam-m", "hi"])
+    assert result.exit_code == 0, result.output
+    import os
+    assert os.environ.pop("SARVAM_API_KEY") == "from-dotenv"

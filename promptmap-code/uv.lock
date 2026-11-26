@@ -1931,13 +1931,14 @@ dev = [
 
 [[package]]
 name = "promptmap-code"
-version = "0.1.1"
+version = "0.1.2"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "mini-swe-agent" },
     { name = "promptmap" },
     { name = "promptmap-extra-model-kinds" },
+    { name = "python-dotenv" },
     { name = "rich" },
 ]
 
@@ -1952,6 +1953,7 @@ requires-dist = [
     { name = "mini-swe-agent", specifier = ">=2.0" },
     { name = "promptmap", editable = "../" },
     { name = "promptmap-extra-model-kinds", editable = "../promptmap-extra-model-kinds" },
+    { name = "python-dotenv", specifier = ">=1.0" },
     { name = "rich", specifier = ">=13.0" },
 ]
 

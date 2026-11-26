@@ -36,6 +36,7 @@ import dataclasses
 import hashlib
 import inspect
 import json
+import logging
 import re
 import time
 from dataclasses import dataclass, field
@@ -64,6 +65,8 @@ from promptmap.template_functions import TemplateContext, dag_from_specs
 from promptmap.storage.base import StorageBackend
 from promptmap.tokens import add_tokens, split_usage
 from promptmap.types import PromptFile
+
+logger = logging.getLogger(__name__)
 
 _JSON_FENCE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL)
 
@@ -274,13 +277,23 @@ class RunContext:
         yet, the model's latest result from *any* version of its template is
         offered instead, marked ``same_template=False``, so a kind such as
         ``coding_agent`` can continue from it after a small prompt edit.
+
+        A model that never succeeded gets None (a failed run is never
+        offered; the last success before it is).  A lookup that breaks — a
+        storage error, a stored output that no longer decodes — is logged and
+        also gives None: the previous result is best-effort context, never a
+        reason to fail the model.
         """
-        row = self._previous_row(spec)
-        if row is None and _truthy(config_value(spec, "warm_start", False)):
-            row = self._previous_row(spec, any_template=True)
-            if row is not None:
-                return dataclasses.replace(self._as_previous(spec, row), same_template=False)
-        return None if row is None else self._as_previous(spec, row)
+        try:
+            row = self._previous_row(spec)
+            if row is None and _truthy(config_value(spec, "warm_start", False)):
+                row = self._previous_row(spec, any_template=True)
+                if row is not None:
+                    return dataclasses.replace(self._as_previous(spec, row), same_template=False)
+            return None if row is None else self._as_previous(spec, row)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not load the previous result of '%s': %s", spec.name, exc)
+            return None
 
     def previous_of(self, name: str) -> PreviousRun | None:
         """``{{ previous_of('name') }}``: model *name*'s :meth:`previous_for`.
@@ -329,10 +342,14 @@ class RunContext:
         """
         if self.cache_check is None:
             return None
-        row = self._previous_row(spec)
-        if row is None or row["llm_output_raw"] is None:
+        try:
+            row = self._previous_row(spec)
+            if row is None or row["llm_output_raw"] is None:
+                return None
+            previous, raw = self._as_previous(spec, row), row["llm_output_raw"]
+        except Exception as exc:  # noqa: BLE001 — no candidate means a fresh call
+            logger.warning("Could not load the previous result of '%s': %s", spec.name, exc)
             return None
-        previous, raw = self._as_previous(spec, row), row["llm_output_raw"]
 
         kwargs: dict = {}
         params = inspect.signature(self.cache_check).parameters

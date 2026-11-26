@@ -46,6 +46,54 @@ class PreviousRun:
         return str(self.output)
 
 
+class _NoPrevious:
+    """What ``previous`` / ``previous_of()`` give a template when there is no
+    earlier result (never run, only failed, or the lookup broke).
+
+    Falsy, so ``{% if previous %}`` still works, and safe to use without the
+    check: every attribute or key is this same empty value, so
+    ``{{ previous.output }}`` and ``{{ previous.output.key }}`` render as ``""``
+    instead of failing under StrictUndefined.
+    """
+
+    __slots__ = ()
+
+    def __bool__(self) -> bool:
+        return False
+
+    def __str__(self) -> str:
+        return ""
+
+    __html__ = __str__
+
+    def __repr__(self) -> str:
+        return "NO_PREVIOUS"
+
+    def __getattr__(self, name: str) -> "_NoPrevious":
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return self
+
+    def __getitem__(self, key: Any) -> "_NoPrevious":
+        return self
+
+    def __iter__(self):
+        return iter(())
+
+    def __len__(self) -> int:
+        return 0
+
+    def __eq__(self, other: object) -> bool:
+        return other is None or isinstance(other, _NoPrevious) or other == ""
+
+    def __hash__(self) -> int:
+        return 0
+
+
+#: The single empty ``previous`` value templates see.
+NO_PREVIOUS = _NoPrevious()
+
+
 @dataclass
 class _RenderState:
     """Mutable state set by skip functions during template rendering.
@@ -111,12 +159,13 @@ def render_prompt(
     previous:
         This model's result from its last run of the same template, exposed
         as ``{{ previous }}`` (``previous.prompt``, ``previous.output``), or
-        None.
+        None — which templates see as :data:`NO_PREVIOUS`, an empty, falsy
+        value whose attributes all render as ``""``.
     previous_of:
         Looks up another model's last result the same way, exposed as
         ``{{ previous_of('name') }}``.  It reads stored results from earlier
-        runs only, so it adds no dependency on that model.  Without one,
-        ``previous_of()`` returns None.
+        runs only, so it adds no dependency on that model.  A None result
+        (or no lookup at all) reaches the template as :data:`NO_PREVIOUS`.
     wrap_refs:
         When truthy, every text value ``ref()`` returns is wrapped in tags
         naming what was referenced: ``[name]\n<output>\n[/name]``.  Pass a
@@ -171,8 +220,8 @@ def render_prompt(
         "was_skipped": was_skipped,
         "config": lambda **_: "",   # no-op during real render; config already parsed
         "model": model_context,
-        "previous": previous,
-        "previous_of": previous_of or (lambda name: None),
+        "previous": NO_PREVIOUS if previous is None else previous,
+        "previous_of": _previous_of_fn(previous_of),
         **bound_functions(template_context or TemplateContext(model=model_name)),
         **template_functions(template_source + (global_instruction or "")),
         **(extra_context or {}),
@@ -208,6 +257,14 @@ def render_prompt(
         rendered = _apply_global_instruction(env, global_instruction, rendered, context)
 
     return rendered, state
+
+
+def _previous_of_fn(lookup: "Callable[[str], PreviousRun | None] | None") -> Callable[[str], Any]:
+    """``previous_of`` for templates: :data:`NO_PREVIOUS` instead of None."""
+    def previous_of(name: str) -> Any:
+        found = lookup(name) if lookup else None
+        return NO_PREVIOUS if found is None else found
+    return previous_of
 
 
 def _wrap_ref(wrap_refs: "bool | Callable[[str, bool], str]", name: str, value: str) -> str:

@@ -567,3 +567,52 @@ def test_previous_of_works_for_a_model_outside_the_selection(storage) -> None:
 def test_previous_of_an_unknown_model_fails(storage) -> None:
     result = _run({"b": "{{ previous_of('zzz') }}"}, storage, EchoLLM())
     assert "no model named 'zzz'" in str(result["b"])
+
+
+# -- graceful fallback when there is no previous result ---------------------
+
+
+def test_previous_without_a_guard_renders_empty_on_the_first_run(storage) -> None:
+    llm = EchoLLM()
+    _run({"a": "[{{ previous }}|{{ previous.output }}|{{ previous.output.key }}|{{ previous.prompt }}]"}, storage, llm)
+    assert llm.prompts == ["[|||]"]
+
+
+def test_previous_of_without_a_guard_renders_empty(storage) -> None:
+    llm = EchoLLM()
+    _run({"a": "Hi", "b": "[{{ previous_of('a').output.key }}]{% for x in previous_of('a').output %}{{ x }}{% endfor %}"}, storage, llm)
+    assert "[]" in llm.prompts
+
+
+def test_previous_falls_back_to_the_last_success_after_an_error(storage) -> None:
+    def failing(prompt: str) -> str:
+        raise RuntimeError("down")
+
+    llm = EchoLLM()
+    peek = "b sees {{ previous_of('a').output }}"
+    _run({"a": "Hi", "b": "x"}, storage, llm)
+    a_ok = _row(storage, _latest_run(storage)["run_id"], "a")["llm_output"]
+    _run({"a": "Hi again"}, storage, failing)           # a errors, new template
+    _run({"a": "Hi", "b": peek}, storage, llm, select=["b"])
+    assert llm.prompts[-1] == f"b sees {a_ok}"
+
+
+def test_previous_of_a_model_that_only_failed_renders_empty(storage) -> None:
+    def failing(prompt: str) -> str:
+        raise RuntimeError("down")
+
+    llm = EchoLLM()
+    _run({"a": "Hi"}, storage, failing)
+    _run({"a": "Hi", "b": "[{{ previous_of('a').output }}]"}, storage, llm, select=["b"])
+    assert llm.prompts == ["[]"]
+
+
+def test_a_broken_previous_lookup_does_not_fail_the_model(storage, monkeypatch) -> None:
+    def broken(*args, **kwargs):
+        raise RuntimeError("db gone")
+
+    monkeypatch.setattr(storage, "get_previous_result", broken)
+    llm = EchoLLM()
+    result = _run({"a": "Hi", "b": "[{{ previous.output }}{{ previous_of('a').output }}]"}, storage, llm)
+    assert "[]" in llm.prompts
+    assert not any(isinstance(v, promptmap.ModelError) for v in result.values())

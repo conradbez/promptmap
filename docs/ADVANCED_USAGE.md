@@ -452,13 +452,22 @@ Write a first draft of a slogan for {{ promptdata('topic') }}.
 | `previous.output` | what the model produced (parsed for `output_format="json"`, so `previous.output.key` works) |
 | `previous.run_id` | the run it came from |
 
-`previous` is `None` unless this model has succeeded before **with the same
+`previous` is empty unless this model has succeeded before **with the same
 `template_hash`**. Edit the `.prompt` file and it is `None` again until the
 new version has run once; revert the edit and the old version's last result
 comes back. Failed runs are never offered. Promptdata is not part of the
 match, so a run with different inputs still sees the last answer. To keep
 `previous` across an edit, set `warm_start=true` (below; the default for
 `coding_agent`).
+
+**When there is nothing to show.** If the model never ran, only ever failed,
+or the stored result can't be loaded (a storage error, say), `previous` is an
+empty value rather than an error. It is falsy, so `{% if previous %}` works,
+and every attribute renders as `""`, so `{{ previous.output }}` and even
+`{{ previous.output.key }}` are safe without a guard. If the last run
+**failed**, `previous` holds the last *successful* run before it. A failed
+lookup is logged as a warning and never fails the model. `call.previous` in
+model kinds and `cache_check` get the same fallback (`None`, or a fresh call).
 
 Because the rendered prompt now includes the last output, it usually differs
 from run to run, so a model that reads `previous` is rarely a prompt-cache
@@ -467,8 +476,8 @@ hit.
 ### `{{ previous_of('name') }}`
 
 The same lookup for any other model in the project. It returns the same
-object as `previous` (`.prompt`, `.output`, `.run_id`, `.same_template`), or
-`None`:
+object as `previous` (`.prompt`, `.output`, `.run_id`, `.same_template`),
+with the same empty fallback when there is nothing to show:
 
 ```jinja
 {% set last = previous_of('summary') %}

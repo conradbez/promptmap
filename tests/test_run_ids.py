@@ -565,15 +565,9 @@ def test_previous_of_works_for_a_model_outside_the_selection(storage) -> None:
     assert llm.prompts[-1].startswith("a said answer")
 
 
-def test_previous_of_an_unknown_model_renders_empty_by_default(storage) -> None:
-    llm = EchoLLM()
-    result = _run({"b": "[{{ previous_of('zzz').output }}]"}, storage, llm)
-    assert llm.prompts == ["[]"]
-    assert not isinstance(result["b"], promptmap.ModelError)
-
-
-def test_previous_of_an_unknown_model_fails_when_strict(storage) -> None:
-    result = _run({"b": "{{ previous_of('zzz', strict=true) }}"}, storage, EchoLLM())
+def test_previous_of_an_unknown_model_fails(storage) -> None:
+    """A typo is the one case that is not graceful."""
+    result = _run({"b": "{{ previous_of('zzz') }}"}, storage, EchoLLM())
     assert "no model named 'zzz'" in str(result["b"])
 
 

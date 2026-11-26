@@ -163,7 +163,7 @@ def render_prompt(
         value whose attributes all render as ``""``.
     previous_of:
         Looks up another model's last result the same way, exposed as
-        ``{{ previous_of('name') }}`` (``strict=True`` passed through).  It reads stored results from earlier
+        ``{{ previous_of('name') }}``.  It reads stored results from earlier
         runs only, so it adds no dependency on that model.  A None result
         (or no lookup at all) reaches the template as :data:`NO_PREVIOUS`.
     wrap_refs:
@@ -259,10 +259,10 @@ def render_prompt(
     return rendered, state
 
 
-def _previous_of_fn(lookup: "Callable[..., PreviousRun | None] | None") -> Callable[..., Any]:
+def _previous_of_fn(lookup: "Callable[[str], PreviousRun | None] | None") -> Callable[[str], Any]:
     """``previous_of`` for templates: :data:`NO_PREVIOUS` instead of None."""
-    def previous_of(name: str, strict: bool = False) -> Any:
-        found = lookup(name, strict=strict) if lookup else None
+    def previous_of(name: str) -> Any:
+        found = lookup(name) if lookup else None
         return NO_PREVIOUS if found is None else found
     return previous_of
 

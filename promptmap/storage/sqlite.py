@@ -273,20 +273,21 @@ class SQLiteStorageBackend:
     def get_previous_result(
         self, model_name: str, template_hash: str | None, exclude_run_id: str | None = None
     ) -> Optional[sqlite3.Row]:
-        """The latest successful row of *model_name* run from this same
-        template (any template when *template_hash* is None), outside
-        *exclude_run_id*: its ``run_id``, ``prompt_rendered``, ``llm_output``
-        (validated when it was) and ``llm_output_raw`` (the response the
-        cache would serve)."""
+        """The latest finished row (success or error) of *model_name* run from
+        this same template (any template when *template_hash* is None),
+        outside *exclude_run_id*: its ``run_id``, ``status``,
+        ``prompt_rendered``, ``llm_output`` (validated when it was) and
+        ``llm_output_raw`` (the response the cache would serve).  The caller
+        treats an ``error`` row as "no previous result"."""
         with self.get_conn() as conn:
             return conn.execute(
-                """SELECT run_id, prompt_rendered,
+                """SELECT run_id, status, prompt_rendered,
                           COALESCE(llm_output_validated, llm_output) AS llm_output,
                           llm_output AS llm_output_raw
                    FROM model_results
                    WHERE template_hash IS NOT NULL AND (? IS NULL OR template_hash = ?)
                      AND model_name = ?
-                     AND status = 'success' AND run_id != ?
+                     AND status IN ('success', 'error') AND run_id != ?
                    ORDER BY completed_at DESC, id DESC
                    LIMIT 1""",
                 (template_hash, template_hash, model_name, exclude_run_id or ""),

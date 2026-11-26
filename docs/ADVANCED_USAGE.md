@@ -452,20 +452,20 @@ Write a first draft of a slogan for {{ promptdata('topic') }}.
 | `previous.output` | what the model produced (parsed for `output_format="json"`, so `previous.output.key` works) |
 | `previous.run_id` | the run it came from |
 
-`previous` is empty unless this model has succeeded before **with the same
-`template_hash`**. Edit the `.prompt` file and it is `None` again until the
-new version has run once; revert the edit and the old version's last result
-comes back. Failed runs are never offered. Promptdata is not part of the
+`previous` is the model's **last run with the same `template_hash`**, and
+only if that run succeeded. Edit the `.prompt` file and it is empty again
+until the new version has run once; revert the edit and the old version's
+last result comes back. Promptdata is not part of the
 match, so a run with different inputs still sees the last answer. To keep
 `previous` across an edit, set `warm_start=true` (below; the default for
 `coding_agent`).
 
-**When there is nothing to show.** If the model never ran, only ever failed,
-or the stored result can't be loaded (a storage error, say), `previous` is an
-empty value rather than an error. It is falsy, so `{% if previous %}` works,
+**When there is nothing to show.** If the model never ran, its **last run
+failed**, or the stored result can't be loaded (a storage error, say),
+`previous` is an empty value rather than an error. An older success is never
+offered in place of a failed last run. It is falsy, so `{% if previous %}` works,
 and every attribute renders as `""`, so `{{ previous.output }}` and even
-`{{ previous.output.key }}` are safe without a guard. If the last run
-**failed**, `previous` holds the last *successful* run before it. A failed
+`{{ previous.output.key }}` are safe without a guard. A failed
 lookup is logged as a warning and never fails the model. `call.previous` in
 model kinds and `cache_check` get the same fallback (`None`, or a fresh call).
 
@@ -518,9 +518,10 @@ that is the right default. For an expensive one, above all a `coding_agent`
 that spent 30 steps building a feature, it means a one-line tweak to the
 `.prompt` file throws all that work away and starts over.
 
-**What it does.** With `warm_start` on, when the current template has no
-successful run yet, `previous` falls back to the model's latest successful run
-from *any* version of its template. It carries `previous.same_template ==
+**What it does.** With `warm_start` on, when the current template has never
+run, `previous` falls back to the model's last run from *any* version of its
+template (again, only if that run succeeded). If the current template's own
+last run failed, there is no fallback. It carries `previous.same_template ==
 False` so a kind or template can tell. Once the edited template has run, its
 own result takes over again.
 
@@ -613,7 +614,8 @@ def cache_check(prompt: str, previous) -> bool:
 
 On an exact cache miss, promptmap calls it with the new compiled prompt and
 the same `previous` object templates see (`.prompt`, `.output`, `.run_id`):
-the model's latest successful result **from the same template**. Since the
+the model's last result **from the same template**, if that run succeeded
+(after a failed run there is no candidate and the model runs fresh). Since the
 template is fixed, comparing `prompt` with `previous.prompt` compares only the
 inputs. Return `True` and the old response is served as a cache
 hit: the model is reported `cached`, its kind and validator process the

@@ -95,9 +95,10 @@ class MemoryStorageBackend:
     def get_previous_result(
         self, model_name: str, template_hash: str | None, exclude_run_id: str | None = None
     ) -> dict[str, Any] | None:
-        """The latest successful row of *model_name* run from this same
-        template (any template when *template_hash* is None), outside
-        *exclude_run_id*."""
+        """The latest finished row (success or error) of *model_name* run
+        from this same template (any template when *template_hash* is None),
+        outside *exclude_run_id*.  The caller treats an ``error`` row as "no
+        previous result"."""
         matches = [
             row
             for run_id, results in self._results.items()
@@ -106,7 +107,7 @@ class MemoryStorageBackend:
             if row.get("model_name") == model_name
             and row.get("template_hash") is not None
             and (template_hash is None or row.get("template_hash") == template_hash)
-            and row.get("status") == "success"
+            and row.get("status") in ("success", "error")
         ]
         if not matches:
             return None
@@ -114,9 +115,10 @@ class MemoryStorageBackend:
         _, row = max(enumerate(matches), key=lambda ir: (ir[1]["completed_at"], ir[0]))
         return {
             "run_id": row["run_id"],
-            "prompt_rendered": row["prompt_rendered"],
-            "llm_output": row.get("llm_output_validated") or row["llm_output"],
-            "llm_output_raw": row["llm_output"],
+            "status": row["status"],
+            "prompt_rendered": row.get("prompt_rendered"),
+            "llm_output": row.get("llm_output_validated") or row.get("llm_output"),
+            "llm_output_raw": row.get("llm_output"),
         }
 
     def get_cached_token_usage(self, cache_key: str) -> int | None:

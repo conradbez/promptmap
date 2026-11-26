@@ -222,7 +222,7 @@ def test_previous_output_is_parsed_for_json_models(storage) -> None:
     assert prompts == ["start", "last count 1"]
 
 
-def test_previous_ignores_failed_runs(storage) -> None:
+def test_previous_is_empty_when_the_last_run_failed(storage) -> None:
     def failing(prompt: str) -> str:
         raise RuntimeError("down")
 
@@ -231,7 +231,8 @@ def test_previous_ignores_failed_runs(storage) -> None:
     _run({"a": _ITERATE}, storage, failing)
     _run({"a": _ITERATE}, storage, llm)
 
-    assert llm.prompts[1] == "Improve on: answer 1 (asked: First draft)"
+    # The last run failed, so there is no previous — not the older success.
+    assert _row(storage, _latest_run(storage)["run_id"], "a")["prompt_rendered"] == "First draft"
 
 
 def test_a_model_kind_reads_its_previous_output(storage) -> None:
@@ -584,17 +585,44 @@ def test_previous_of_without_a_guard_renders_empty(storage) -> None:
     assert "[]" in llm.prompts
 
 
-def test_previous_falls_back_to_the_last_success_after_an_error(storage) -> None:
+def test_previous_of_is_empty_when_the_other_models_last_run_failed(storage) -> None:
+    calls = {"n": 0}
+
+    def flaky(prompt: str) -> str:
+        calls["n"] += 1
+        if prompt == "Hi" and calls["n"] > 1:
+            raise RuntimeError("down")
+        return f"answer {calls['n']}"
+
+    _run({"a": "Hi"}, storage, flaky)            # a succeeds
+    storage.clear_cache(["a"], previous=False)   # force a real second call
+    _run({"a": "Hi"}, storage, flaky)            # a fails
+    llm = EchoLLM()
+    _run({"a": "Hi", "b": "[{{ previous_of('a').output }}]"}, storage, llm, select=["b"])
+    assert llm.prompts == ["[]"]
+
+
+def test_a_failure_on_another_template_does_not_hide_this_ones_last_run(storage) -> None:
     def failing(prompt: str) -> str:
         raise RuntimeError("down")
 
     llm = EchoLLM()
-    peek = "b sees {{ previous_of('a').output }}"
     _run({"a": "Hi", "b": "x"}, storage, llm)
     a_ok = _row(storage, _latest_run(storage)["run_id"], "a")["llm_output"]
-    _run({"a": "Hi again"}, storage, failing)           # a errors, new template
-    _run({"a": "Hi", "b": peek}, storage, llm, select=["b"])
+    _run({"a": "Hi again"}, storage, failing)
+    _run({"a": "Hi", "b": "b sees {{ previous_of('a').output }}"}, storage, llm, select=["b"])
     assert llm.prompts[-1] == f"b sees {a_ok}"
+
+
+def test_warm_start_does_not_reach_past_a_failed_last_run(storage) -> None:
+    def failing(prompt: str) -> str:
+        raise RuntimeError("down")
+
+    llm = EchoLLM()
+    _run({"a": _WARM}, storage, llm)
+    _run({"a": _WARM + " v2"}, storage, failing)
+    _run({"a": _WARM + " v2"}, storage, llm)
+    assert llm.prompts[-1] == "First draft v2"
 
 
 def test_previous_of_a_model_that_only_failed_renders_empty(storage) -> None:

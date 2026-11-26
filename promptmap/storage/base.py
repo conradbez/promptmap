@@ -18,8 +18,8 @@ what it saved.  Without them token usage is simply not recorded.
 
 ``record_run_ids`` and ``get_previous_result`` are optional as well.  The
 first stores a run's content hashes (:mod:`promptmap.run_ids`); the second
-returns the latest successful row of a model run from the same template
-hash in another run, which backs ``{{ previous }}`` in templates and is the
+returns the latest finished row (``status`` ``success`` or ``error``) of a
+model run from the same template hash in another run, which backs ``{{ previous }}`` in templates and is the
 candidate a ``cache_check`` judges.  Called with ``template_hash=None`` it
 returns the latest row of that model from any template — the fallback a
 model with ``warm_start=true`` uses after its ``.prompt`` file is edited.  Without

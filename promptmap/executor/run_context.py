@@ -78,6 +78,16 @@ _OPT_OUT_VALUES = frozenset({"false", "none", "no", "off", "0"})
 _NON_KEY_CONFIG = frozenset({"cache"})
 
 
+def _succeeded(row: Any) -> bool:
+    """True for a successful storage row.  A backend that returns no
+    ``status`` only ever returns successful rows (the older contract)."""
+    try:
+        status = row["status"]
+    except (KeyError, IndexError):
+        return True
+    return status in (None, "success")
+
+
 def exclude_from_cache_key(*keys: str) -> None:
     """Leave these config() keys out of the prompt cache key, like ``cache``."""
     global _NON_KEY_CONFIG
@@ -211,6 +221,7 @@ class RunContext:
     _accounting: dict[str, _ModelAccounting] = field(default_factory=dict)
     _files: dict[str, list | None] = field(default_factory=dict)
     _previous_rows: dict[tuple[str, bool], Any] = field(default_factory=dict)
+    _previous_failed: set[tuple[str, bool]] = field(default_factory=set)
     _template_dag: Any = None
 
     def __post_init__(self) -> None:
@@ -267,8 +278,8 @@ class RunContext:
         return TemplateContext(model=model, specs=self.all_specs, dag=self._template_dag)
 
     def previous_for(self, spec: ModelSpec) -> PreviousRun | None:
-        """*spec*'s latest successful result from another run of this same
-        template, looked up once per model per run.
+        """*spec*'s result from its last other run of this same template, if
+        that run succeeded; looked up once per model per run.
 
         Only a row whose stored template hash matches the current source
         counts, so a result produced by an older version of the prompt is
@@ -278,8 +289,8 @@ class RunContext:
         offered instead, marked ``same_template=False``, so a kind such as
         ``coding_agent`` can continue from it after a small prompt edit.
 
-        A model that never succeeded gets None (a failed run is never
-        offered; the last success before it is).  A lookup that breaks — a
+        Only the model's *last* run counts: when it failed — or the model
+        never ran — this is None, never an older success.  A lookup that breaks — a
         storage error, a stored output that no longer decodes — is logged and
         also gives None: the previous result is best-effort context, never a
         reason to fail the model.
@@ -310,13 +321,27 @@ class RunContext:
         return self.previous_for(spec)
 
     def _previous_row(self, spec: ModelSpec, *, any_template: bool = False) -> Any:
-        """The storage row behind :meth:`previous_for`, fetched once per model."""
+        """The storage row behind :meth:`previous_for`, fetched once per model.
+
+        Storage returns the model's *last* finished run.  When that run
+        failed there is no previous result: an older success is never
+        offered in its place.
+        """
         key = (spec.name, any_template)
         if key not in self._previous_rows:
             lookup = getattr(self.storage, "get_previous_result", None)
             wanted = None if any_template else template_hash(spec.source)
-            self._previous_rows[key] = lookup(spec.name, wanted, self.run_id) if lookup else None
+            row = lookup(spec.name, wanted, self.run_id) if lookup else None
+            if row is not None and not _succeeded(row):
+                self._previous_failed.add(key)
+                row = None
+            self._previous_rows[key] = row
         return self._previous_rows[key]
+
+    def _last_run_failed(self, spec: ModelSpec) -> bool:
+        """True when this template's last run errored — then ``warm_start``
+        does not reach back to an older template either."""
+        return (spec.name, False) in self._previous_failed
 
     def _as_previous(self, spec: ModelSpec, row: Any) -> PreviousRun:
         output: Any = decode_output(row["llm_output"] or "", self.blobs)

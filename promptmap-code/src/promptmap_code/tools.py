@@ -95,9 +95,13 @@ class ToolResult:
 class Toolbox:
     """Runs a tool call against a :class:`Workspace`."""
 
-    def __init__(self, workspace: Workspace, max_chars: int = 20_000) -> None:
+    def __init__(self, workspace: Workspace, max_chars: int = 20_000,
+                 progress: Callable[[str, str, str], None] | None = None) -> None:
         self.ws = workspace
         self.max_chars = max_chars
+        #: ``progress(event, node, detail)`` while nodes run: event is
+        #: "start", "step" (detail "3" or "3/40") or "done" (detail: status).
+        self.progress = progress
         self._handlers: dict[str, Callable[..., str]] = {
             "list_nodes": self.list_nodes,
             "show_node": lambda name: self.ws.source(name),
@@ -175,7 +179,7 @@ class Toolbox:
     def run_nodes(self, names: list[str] | None = None) -> str:
         import promptmap
 
-        results = self.ws.run(list(names or []) or None)
+        results = self._run(list(names or []) or None)
         lines = []
         for node, value in results.items():
             if isinstance(value, promptmap.ModelError):
@@ -191,7 +195,7 @@ class Toolbox:
     def chat_with_node(self, name: str, message: str) -> str:
         import promptmap
 
-        value = self.ws.chat(name, message)
+        value = self._run([name], chat_input={name: message}).get(name)
         if isinstance(value, promptmap.ModelError):
             return f"Error: {value.message}"
         return self._clip(str(value))
@@ -223,6 +227,28 @@ class Toolbox:
         return "\n".join(files) or "(empty)"
 
     # -- helpers -------------------------------------------------------------
+
+    def _run(self, select: list[str] | None, **kwargs: Any) -> dict[str, Any]:
+        """``Workspace.run``, reporting node starts, agent steps and finishes to :attr:`progress`."""
+        if self.progress is None:
+            return self.ws.run(select, **kwargs)
+        from promptmap.model_types import progress_listener
+
+        report = self.progress
+
+        def done(result) -> None:
+            detail = result.status + (" (cached)" if getattr(result, "cached", False) else "")
+            if result.status == "error" and result.error:
+                detail += f": {' '.join(str(result.error).split())[:120]}"
+            report("done", result.model_name, detail)
+
+        token = progress_listener.set(
+            lambda node, step, total: report("step", node, f"{step}/{total}" if total else str(step)))
+        try:
+            return self.ws.run(select, on_model_start=lambda node: report("start", node, ""),
+                               on_model_done=done, **kwargs)
+        finally:
+            progress_listener.reset(token)
 
     def _clip(self, text: str, max_chars: int | None = None) -> str:
         limit = max_chars or self.max_chars

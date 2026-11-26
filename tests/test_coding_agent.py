@@ -1027,3 +1027,45 @@ def test_run_level_promptfiles_reach_the_coding_agent(tmp_path, monkeypatch):
     assert results["build"].error == ""
     assert seen == [[f"{fa.INPUTS_DIR}/spec/spec.md"]]
     assert set(results["build"].value["result"].entries) == {"out.py"}
+
+
+# ---------------------------------------------------------------------------
+# project=: the project's AGENTS.md reaches the agent
+# ---------------------------------------------------------------------------
+
+def _run_maker(tmp_path, agent, config):
+    agent["edit"] = lambda root: (root / "app.py").write_text("print('hi')\n")
+    spec = ModelSpec(name="maker", source="", model_type=fa.NAME, config=config)
+
+    async def passthrough(key, compute):
+        value = compute()
+        return await value if hasattr(value, "__await__") else value
+
+    call = ModelCall(spec=spec, outputs={}, llm=None, compute=passthrough)
+    asyncio.run(fa.run_coding_agent("make an app", call))
+    return agent["tasks"][-1]
+
+
+def test_project_agents_md_is_added_to_the_task(tmp_path, agent, jev, llm):
+    project = tmp_path / "app"
+    project.mkdir()
+    (project / "AGENTS.md").write_text("Use tabs.")
+    (project / "CLAUDE.md").write_text("Not this one.")
+    task = _run_maker(tmp_path, agent, {"project": str(project)})
+    assert "<project_instructions>\nUse tabs.\n</project_instructions>" in task
+    assert "AGENTS.md" in task and "Not this one." not in task
+
+
+def test_claude_md_is_the_fallback_and_it_can_be_turned_off(tmp_path, agent, jev, llm):
+    project = tmp_path / "app"
+    project.mkdir()
+    (project / "CLAUDE.md").write_text("Use spaces.")
+    assert "Use spaces." in _run_maker(tmp_path, agent, {"project": str(project)})
+    off = _run_maker(tmp_path, agent, {"project": str(project), "project_instructions": "false"})
+    assert "project_instructions" not in off
+
+
+def test_no_project_no_instructions(tmp_path, agent, jev, llm, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "AGENTS.md").write_text("cwd rules")
+    assert "cwd rules" not in _run_maker(tmp_path, agent, {})

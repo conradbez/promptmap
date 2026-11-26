@@ -49,6 +49,15 @@ The system prompt is built in three layers. The earlier layer wins where they di
 mini-swe-agent's own `default.yaml` prompts are not used: they teach a bash
 workflow, and pm-code has no shell.
 
+The coding agents that `coding_agent` nodes run are told something different:
+mini-swe's bash prompts (with promptmap's submit command in place of its bare
+`echo`), the node's task, and the code folder's `AGENTS.md` (else `CLAUDE.md`).
+`project_instructions=false` on a node leaves that file out. Editing `AGENTS.md`
+alone does not re-run a node: use `force_refresh` or `promptmap clear-cache NODE`.
+
+While nodes run, pm-code prints each node's start and finish, with a spinner
+showing coding agents' step counts.
+
 The guide ships as `promptmap_code/promptmap_skill.md`, a copy of the repo
 file. A test fails if the two differ.
 

@@ -55,7 +55,7 @@ def run_mini_swe(task: str, call: ModelCall, workdir: Path) -> dict:
             report_progress(call.spec.name, self.n_calls, step_limit)
             return message
 
-    defaults = yaml.safe_load((package_dir / "config" / "default.yaml").read_text())
+    defaults = submit_with_output(yaml.safe_load((package_dir / "config" / "default.yaml").read_text()))
     model_cfg = defaults["model"] | {
         "observation_template": defaults["model"]["observation_template"] + _BUDGET_TEMPLATE,
     }
@@ -82,14 +82,31 @@ def run_mini_swe(task: str, call: ModelCall, workdir: Path) -> dict:
 #: mini-swe-agent's own prompt says to submit with a bare
 #: ``echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT``, which submits nothing.  promptmap
 #: wants a final output, which is whatever the agent prints after that marker.
-_SUBMIT_INSTRUCTION = """
+#: :func:`submit_with_output` puts this command in place of the bare echo in
+#: mini-swe's own templates, so the agent is told one way to submit, not two
+#: (two made agents chain the submit onto a heredoc, writing it into a file).
+SUBMIT_COMMAND = r'''printf 'COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT\n%s\n' "<your final output>"'''
+_BARE_SUBMIT = "`echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`"
+
+_SUBMIT_INSTRUCTION = f"""
 
 When you are done, submit your final output (the answer to pass on to the next
-step) by printing COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT on the first line and
-the output after it, e.g.:
+step): COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT on the first line, the output after
+it.  Use this command on its own, never chained with && or ; to another command
+(finish writing and checking files first):
 
-    printf 'COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT\\n%s\\n' "your final output"
+    {SUBMIT_COMMAND}
 """
+
+
+def submit_with_output(defaults: dict) -> dict:
+    """mini-swe-agent's default config with its bare-echo submit replaced by :data:`SUBMIT_COMMAND`."""
+    out = {section: dict(values) if isinstance(values, dict) else values for section, values in defaults.items()}
+    for section, key in (("agent", "instance_template"), ("agent", "system_template"), ("model", "format_error_template")):
+        text = out.get(section, {}).get(key)
+        if isinstance(text, str):
+            out[section][key] = text.replace(_BARE_SUBMIT, f"`{SUBMIT_COMMAND}`")
+    return out
 
 
 #: Appended to every command result so the agent knows what it has left.

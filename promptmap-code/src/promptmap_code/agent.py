@@ -159,11 +159,15 @@ class ToolModel(LitellmModel):
 class PromptmapEnvironment:
     """A mini-swe-agent environment whose actions are promptmap tool calls."""
 
-    def __init__(self, toolbox: Toolbox, on_action: Callable[[dict, dict], None] | None = None) -> None:
+    def __init__(self, toolbox: Toolbox, on_action: Callable[[dict, dict], None] | None = None,
+                 on_action_start: Callable[[dict], None] | None = None) -> None:
         self.toolbox = toolbox
         self.on_action = on_action
+        self.on_action_start = on_action_start
 
     def execute(self, action: dict, cwd: str = "", *, timeout: int | None = None) -> dict[str, Any]:
+        if self.on_action_start is not None:
+            self.on_action_start(action)
         result = self.toolbox.call(action.get("tool", ""), action.get("args", {}))
         output = {"output": result.output, "returncode": 0 if result.ok else 1, "exception_info": ""}
         if self.on_action is not None:
@@ -219,12 +223,15 @@ class PmCodeAgent(DefaultAgent):
 
 def build_agent(workspace, model_name: str, *, max_steps: int = 40, cost_limit: float = 0.0, skill: bool = True,
                 on_action: Callable[[dict, dict], None] | None = None,
+                on_progress: Callable[[str, str, str], None] | None = None,
+                on_action_start: Callable[[dict], None] | None = None,
                 model_kwargs: dict | None = None) -> PmCodeAgent:
     from promptmap.llm import quiet_litellm
 
     quiet_litellm()
     model = ToolModel(model_name=model_name, model_kwargs=model_kwargs or {})
-    env = PromptmapEnvironment(Toolbox(workspace), on_action=on_action)
+    env = PromptmapEnvironment(Toolbox(workspace, progress=on_progress), on_action=on_action,
+                               on_action_start=on_action_start)
     agent = PmCodeAgent(model, env, max_steps=max_steps, cost_limit=cost_limit, skill=skill)
     agent._start_time = time.time()
     return agent

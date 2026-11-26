@@ -173,3 +173,20 @@ def test_missing_run_level_promptfile_is_an_error(fake_agent, tmp_path):
         promptfiles={"other": str(other)},
     )
     assert "--promptfile spec=path" in results["a"].error
+
+
+def test_mini_swe_templates_name_one_submit_command():
+    """mini-swe's bare-echo submit is replaced, so the agent is not told two ways to finish."""
+    import yaml
+    from minisweagent import package_dir
+
+    from promptmap.executor import mini_swe
+
+    raw = yaml.safe_load((package_dir / "config" / "default.yaml").read_text())
+    assert mini_swe._BARE_SUBMIT in raw["agent"]["instance_template"]  # mini-swe still says it
+    fixed = mini_swe.submit_with_output(raw)
+    for section, key in (("agent", "instance_template"), ("model", "format_error_template")):
+        assert mini_swe._BARE_SUBMIT not in fixed[section][key]
+        assert mini_swe.SUBMIT_COMMAND in fixed[section][key]
+    assert mini_swe._BARE_SUBMIT in raw["agent"]["instance_template"]  # input left alone
+    assert mini_swe.SUBMIT_COMMAND in mini_swe._SUBMIT_INSTRUCTION

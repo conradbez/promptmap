@@ -165,3 +165,44 @@ def test_packaged_skill_matches_repo_copy():
         pytest.skip("not in the promptmap repo")
     assert packaged.read_text() == repo.read_text(), (
         "Copy skills/promptmap/SKILL.md to promptmap-code/src/promptmap_code/promptmap_skill.md")
+
+
+# -- progress while nodes run ----------------------------------------------------
+
+def test_run_reports_progress(ws):
+    import asyncio
+
+    from promptmap.model_types import ModelKind, get_model_kind, register_model_kind, report_progress
+
+    if get_model_kind("stepper_test") is None:
+        async def stepper(rendered, call):  # reports steps from a worker thread, like the agent kinds
+            def work():
+                report_progress(call.spec.name, 2, 5)
+                return "POEM"
+            return await asyncio.to_thread(work)
+
+        register_model_kind(ModelKind("stepper_test", stepper))
+    events = []
+    box = Toolbox(ws, progress=lambda *e: events.append(e))
+    ws.add_node("topic", "cats", {"model_type": "template"})
+    ws.add_node("poem", "Poem about:", {"model_type": "stepper_test"})
+    ws.connect("topic", "poem")
+
+    original = ws.run
+    ws.run = lambda select=None, **kw: original(select, llm_call=lambda p: "unused", **kw)
+    out = box.call("run_nodes", {"names": ["poem"]}).output
+    assert "poem: ok — POEM" in out
+    assert ("start", "poem", "") in events and ("step", "poem", "2/5") in events
+    assert ("done", "poem", "success") in events
+    assert events.index(("start", "topic", "")) < events.index(("done", "topic", "success"))
+
+
+def test_cli_progress_printer():
+    from promptmap_code.cli import NodeProgress
+
+    p = NodeProgress()
+    p("start", "build", "")
+    p("step", "build", "3")
+    assert p.running == {"build": "step 3"} and p.status is not None
+    p("done", "build", "success")
+    assert p.running == {} and p.status is None

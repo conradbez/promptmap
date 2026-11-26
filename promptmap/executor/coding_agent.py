@@ -110,6 +110,8 @@ Config keys (the agent always works in a scratch copy, never in place):
                          everything else there left alone
 ``write_folder``         also write ``result`` to ``outputs/<model>/`` (false for
                          this kind; the tree stays in the run database)
+``project_instructions`` give the agent ``project``'s AGENTS.md (else CLAUDE.md),
+                         since it works in a scratch copy (true)
 ``warm_start``           after a ``.prompt`` edit, continue from the last result
                          of the old template instead of starting cold (true;
                          ``promptmap clear-cache MODEL`` forces one cold start)
@@ -427,6 +429,38 @@ def input_hashes(call: ModelCall) -> dict[str, str]:
     from .agent import input_files
 
     return {rel: f.sha256 for rel, f in input_files(call)}
+
+
+#: Instruction files read from ``project=``, first found wins.
+PROJECT_INSTRUCTION_FILES = ("AGENTS.md", "CLAUDE.md")
+_PROJECT_INSTRUCTIONS_MAX = 8000
+
+
+def project_instructions(call: ModelCall) -> str:
+    """The ``project=`` folder's AGENTS.md (else CLAUDE.md), as a task note; "" when none.
+
+    The agent works in a scratch copy, so it would never see the rules of the
+    project its code lands in.  Off with ``project_instructions=false``.  The
+    file is part of the agent's task, not of the rendered prompt: editing it
+    alone does not re-run a model whose inputs are unchanged (``force_refresh``
+    or ``promptmap clear-cache MODEL`` does).
+    """
+    project = call.spec.config.get("project")
+    flag = call.spec.config.get("project_instructions")
+    if not project or (flag not in (None, "") and not _truthy(flag)):
+        return ""
+    for name in PROJECT_INSTRUCTION_FILES:
+        path = Path(project).expanduser() / name
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace").strip()
+        if len(text) > _PROJECT_INSTRUCTIONS_MAX:
+            text = text[:_PROJECT_INSTRUCTIONS_MAX] + "\n... [truncated]"
+        return (
+            f"\n\nProject instructions ({name} of the project this code is written into; "
+            f"follow them where they apply to this task):\n<project_instructions>\n{text}\n</project_instructions>"
+        )
+    return ""
 
 
 def _inputs_note(inputs: dict[str, str]) -> str:
@@ -852,7 +886,7 @@ async def _run_agent(
 
     files = input_files(call)
     inputs = {rel: f.sha256 for rel, f in files}
-    task = rendered + OUTCOME_CONTRACT + _inputs_note(inputs) + (
+    task = rendered + OUTCOME_CONTRACT + project_instructions(call) + _inputs_note(inputs) + (
         context if context is not None else _previous_attempt(call, last, base, reason)
     )
     start = base if start is None else start
@@ -1001,7 +1035,7 @@ KIND = register_model_kind(ModelKind(
     exec_fn=run_coding_agent,
     config_keys=mini_swe.CONFIG_KEYS | {
         "jev_cache_threshold", "merge_max_files", "context_max_chars", "force_refresh",
-        "warm_start", "project", "inherit_coding_folder",
+        "warm_start", "project", "inherit_coding_folder", "project_instructions",
     },
     config_defaults={"warm_start": True, "write_folder": False},
 ))

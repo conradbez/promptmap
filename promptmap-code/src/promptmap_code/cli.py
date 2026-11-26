@@ -58,15 +58,56 @@ def ensure_project(root: Path, map_dir: str, model_name: str) -> list[str]:
     return notes
 
 
-def _describe(action: dict, output: dict) -> None:
+def _announce(action: dict) -> None:
     args = ", ".join(f"{k}={_short(v)}" for k, v in action.get("args", {}).items())
-    colour = "red" if output.get("returncode") else "cyan"
-    console.print(f"[{colour}]⏺ {escape(action.get('tool', '?'))}[/{colour}]([dim]{escape(args)}[/dim])")
+    console.print(f"[cyan]⏺ {escape(action.get('tool', '?'))}[/cyan]([dim]{escape(args)}[/dim])")
+
+
+def _describe(action: dict, output: dict) -> None:
+    if output.get("returncode"):
+        console.print("  [red]⎿ failed:[/red]")
     lines = str(output.get("output", "")).splitlines()
     for line in lines[:6]:
         console.print(f"  [dim]⎿ {escape(line[:160])}[/dim]")
     if len(lines) > 6:
         console.print(f"  [dim]⎿ … {len(lines) - 6} more lines[/dim]")
+
+
+class NodeProgress:
+    """Prints node starts and finishes; a spinner shows the running nodes' agent steps."""
+
+    def __init__(self) -> None:
+        import threading
+
+        self.running: dict[str, str] = {}
+        self.status = None
+        self.lock = threading.Lock()
+
+    def __call__(self, event: str, node: str, detail: str) -> None:
+        with self.lock:
+            if event == "start":
+                self.running[node] = ""
+                console.print(f"  [dim]⎿[/dim] [yellow]▶ {escape(node)}[/yellow]")
+            elif event == "step":
+                self.running[node] = f"step {detail}"
+            elif event == "done":
+                self.running.pop(node, None)
+                colour = "green" if detail.startswith("success") else "yellow" if detail.startswith("skipped") else "red"
+                console.print(f"  [dim]⎿[/dim] [{colour}]■ {escape(node)}[/{colour}] [dim]{escape(detail)}[/dim]")
+            self._refresh()
+
+    def _refresh(self) -> None:
+        if not self.running:
+            if self.status is not None:
+                self.status.stop()
+                self.status = None
+            return
+        text = "running " + ", ".join(f"{n} {s}".strip() for n, s in self.running.items())
+        if self.status is None:
+            self.status = console.status(escape(text))
+            self.status.start()
+        else:
+            self.status.update(escape(text))
 
 
 def _short(value) -> str:
@@ -112,7 +153,8 @@ def main(request, model, root, map_dir, code_dir, max_steps, cost_limit, no_skil
 
     workspace = Workspace(root_path, map_dir=map_dir, code_dir=code_dir)
     agent = build_agent(workspace, model_name, max_steps=max_steps, cost_limit=cost_limit,
-                        skill=not no_skill, on_action=_describe)
+                        skill=not no_skill, on_action=_describe, on_progress=NodeProgress(),
+                        on_action_start=_announce)
     console.print(f"[bold]pm-code[/bold] [dim]{escape(model_name)} · map {escape(str(workspace.root / map_dir))} "
                   f"· code {escape(str(workspace.code_dir))}[/dim]")
 

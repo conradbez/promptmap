@@ -1,11 +1,11 @@
 [project]
 name = "promptmap-code"
-version = "0.1.0"
+version = "0.1.1"
 description = "pm-code: a CLI agent (mini-swe-agent based) that builds promptmap pipelines of chat and coding_agent nodes through tool calls."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "promptmap>=0.9.1",
+    "promptmap>=0.9.2",
     # model_type="chat" lives here.
     "promptmap-extra-model-kinds>=0.8.0",
     "mini-swe-agent>=2.0",

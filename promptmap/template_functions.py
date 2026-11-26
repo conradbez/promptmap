@@ -58,7 +58,7 @@ PROJECT_FILE = "jinja_template_functions.py"
 
 #: Names promptmap itself puts in every template; a plugin may not shadow them.
 RESERVED_NAMES = frozenset({
-    "ref", "promptdata", "config", "model", "previous", "each", "prompt",
+    "ref", "promptdata", "config", "model", "previous", "previous_of", "each", "prompt",
     "was_skipped", "skip_and_set_to_value", "skip_this_and_downstream",
     "return_list_RAG_results",
 })

@@ -184,6 +184,7 @@ def extract_jinja_config(template_source: str) -> dict[str, str]:
         "return_list_RAG_results": lambda *a, **kw: [],
         "was_skipped": lambda *a, **kw: False,
         "previous": None,
+        "previous_of": lambda *a, **kw: None,
         "skip_and_set_to_value": lambda value="": "",
         "skip_this_and_downstream": lambda value="": "",
         # A registered template function would otherwise be undefined here

@@ -85,6 +85,7 @@ def render_prompt(
     global_instruction: str | None = None,
     extra_context: dict | None = None,
     previous: PreviousRun | None = None,
+    previous_of: "Callable[[str], PreviousRun | None] | None" = None,
     wrap_refs: "bool | Callable[[str, bool], str] | None" = None,
     template_context: TemplateContext | None = None,
 ) -> "tuple[str, _RenderState]":
@@ -111,6 +112,11 @@ def render_prompt(
         This model's result from its last run of the same template, exposed
         as ``{{ previous }}`` (``previous.prompt``, ``previous.output``), or
         None.
+    previous_of:
+        Looks up another model's last result the same way, exposed as
+        ``{{ previous_of('name') }}``.  It reads stored results from earlier
+        runs only, so it adds no dependency on that model.  Without one,
+        ``previous_of()`` returns None.
     wrap_refs:
         When truthy, every text value ``ref()`` returns is wrapped in tags
         naming what was referenced: ``[name]\n<output>\n[/name]``.  Pass a
@@ -166,6 +172,7 @@ def render_prompt(
         "config": lambda **_: "",   # no-op during real render; config already parsed
         "model": model_context,
         "previous": previous,
+        "previous_of": previous_of or (lambda name: None),
         **bound_functions(template_context or TemplateContext(model=model_name)),
         **template_functions(template_source + (global_instruction or "")),
         **(extra_context or {}),

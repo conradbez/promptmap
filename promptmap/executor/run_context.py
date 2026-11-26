@@ -246,6 +246,7 @@ class RunContext:
             global_instruction=self.global_instruction_for(spec),
             extra_context=extra_context,
             previous=self.previous_for(spec),
+            previous_of=self.previous_of,
             wrap_refs=self.wrap_refs,
             template_context=self.template_context(spec.name),
         )
@@ -280,6 +281,20 @@ class RunContext:
             if row is not None:
                 return dataclasses.replace(self._as_previous(spec, row), same_template=False)
         return None if row is None else self._as_previous(spec, row)
+
+    def previous_of(self, name: str) -> PreviousRun | None:
+        """``{{ previous_of('name') }}``: model *name*'s :meth:`previous_for`.
+
+        The same lookup as ``{{ previous }}`` — another run, the model's
+        current template (or any template with ``warm_start``) — but for any
+        model in the project.  It reads storage only, never this run's
+        outputs, so it creates no dependency and works for models outside
+        the current selection.
+        """
+        spec = self.all_specs.get(name)
+        if spec is None:
+            raise ValueError(f"previous_of('{name}') — no model named '{name}'.")
+        return self.previous_for(spec)
 
     def _previous_row(self, spec: ModelSpec, *, any_template: bool = False) -> Any:
         """The storage row behind :meth:`previous_for`, fetched once per model."""

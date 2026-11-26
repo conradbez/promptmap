@@ -515,3 +515,55 @@ def test_docs_cache_tags_cover_agent_verdicts_and_old_rows() -> None:
     assert _cache_tags(None, True)[0]["text"] == "cached"    # stored before labels existed
     assert _cache_tags(None, False) == []
     assert [t["verdict"] for t in _cache_tags("hit, warm", False)] == ["hit", "warm"]
+
+
+# -- {{ previous_of('name') }} ----------------------------------------------
+
+
+_PEEK = (
+    "{% set p = previous_of('a') %}"
+    "{% if p %}a said {{ p.output }} (run {{ p.run_id != '' }}){% else %}a never ran{% endif %}"
+)
+
+
+def test_previous_of_is_none_before_the_other_model_has_run(storage) -> None:
+    llm = EchoLLM()
+    _run({"a": "Hi", "b": _PEEK}, storage, llm)
+    assert "a never ran" in llm.prompts
+
+
+def test_previous_of_reads_another_models_last_run_not_this_one(storage) -> None:
+    llm = EchoLLM()
+    _run({"a": "Hi", "b": _PEEK}, storage, llm)
+    _run({"a": "Hi", "b": _PEEK}, storage, llm)
+
+    # Run 1 answered "answer 1" for whichever of a/b ran first; the second
+    # run's b must see a's stored run-1 output, not a's run-2 output.
+    run1 = storage.get_latest_runs(2)[1]
+    a_run1 = _row(storage, run1["run_id"], "a")["llm_output"]
+    assert f"a said {a_run1} (run True)" in llm.prompts[2:]
+
+
+def test_previous_of_adds_no_dependency() -> None:
+    models = build_models_from_dict({"a": "Hi", "b": _PEEK})
+    assert not models["b"].depends_on
+
+
+def test_previous_of_is_hidden_after_the_other_template_changes(storage) -> None:
+    llm = EchoLLM()
+    _run({"a": "Hi", "b": _PEEK}, storage, llm)
+    _run({"a": "Hi v2", "b": _PEEK}, storage, llm)
+    run = _latest_run(storage)
+    assert _row(storage, run["run_id"], "b")["prompt_rendered"] == "a never ran"
+
+
+def test_previous_of_works_for_a_model_outside_the_selection(storage) -> None:
+    llm = EchoLLM()
+    _run({"a": "Hi", "b": "x"}, storage, llm)
+    _run({"a": "Hi", "b": _PEEK}, storage, llm, select=["b"])
+    assert llm.prompts[-1].startswith("a said answer")
+
+
+def test_previous_of_an_unknown_model_fails(storage) -> None:
+    result = _run({"b": "{{ previous_of('zzz') }}"}, storage, EchoLLM())
+    assert "no model named 'zzz'" in str(result["b"])

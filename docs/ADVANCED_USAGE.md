@@ -464,6 +464,32 @@ Because the rendered prompt now includes the last output, it usually differs
 from run to run, so a model that reads `previous` is rarely a prompt-cache
 hit.
 
+### `{{ previous_of('name') }}`
+
+The same lookup for any other model in the project. It returns the same
+object as `previous` (`.prompt`, `.output`, `.run_id`, `.same_template`), or
+`None`:
+
+```jinja
+{% set last = previous_of('summary') %}
+{% if last %}
+Last run's summary was:
+{{ last.output }}
+
+Explain what changed in today's summary:
+{% endif %}
+{{ ref('summary') }}
+```
+
+- It reads stored results from **earlier runs only**, never this run's
+  output (use `ref()` for that). `previous_of('x')` and `ref('x')` in one
+  template give you last run's and this run's answers side by side.
+- It adds **no dependency** on the named model, so it never changes run
+  order and works for models outside `--select`.
+- The match rules are the same as `previous`, based on the *named* model:
+  its current template hash, plus that model's `warm_start` fallback.
+- An unknown model name fails the render.
+
 ### Editing a prompt without a cold start (`warm_start`)
 
 `coding_agent` models have it **on by default**. Any other model opts in:

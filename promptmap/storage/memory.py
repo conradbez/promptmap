@@ -19,6 +19,9 @@ class MemoryStorageBackend:
         self._tests: dict[str, list[dict[str, Any]]] = {}
         self._cache: dict[str, str] = {}
         self._cache_rows: dict[str, dict[str, Any]] = {}
+        #: (model_name, thread) -> turns; model_name -> current thread.
+        self._chat_turns: dict[tuple[str, int], list[dict[str, Any]]] = {}
+        self._chat_threads: dict[str, int] = {}
         from promptmap.files import MemoryBlobStore
         self._blob_store = MemoryBlobStore()
 
@@ -267,7 +270,51 @@ class MemoryStorageBackend:
                 before_after = hashes.get(row.get("model_name"))
                 if before_after and row.get("template_hash") == before_after[0]:
                     row["template_hash"], row["prompt_template"] = before_after[1], before_after[2]
+
+        def renamed(name: str) -> str | None:
+            if name == old or name.startswith(old + "["):
+                return new + name[len(old):]
+            return None
+
+        for name, thread in list(self._chat_turns):
+            target = renamed(name)
+            if target is not None:
+                self._chat_turns[(target, thread)] = self._chat_turns.pop((name, thread))
+        for name in list(self._chat_threads):
+            target = renamed(name)
+            if target is not None:
+                self._chat_threads[target] = self._chat_threads.pop(name)
         return moved
+
+    # -- chat turns — see SQLiteStorageBackend -------------------------------
+
+    def chat_thread(self, model_name: str) -> int:
+        return self._chat_threads.get(model_name, 0)
+
+    def get_chat_turns(self, model_name: str, thread: int | None = None) -> list[dict]:
+        if thread is None:
+            thread = self.chat_thread(model_name)
+        return [dict(turn) for turn in self._chat_turns.get((model_name, thread), [])]
+
+    def commit_chat_turns(
+        self, model_name: str, run_id: str, append: list[dict], replace_last: str | None = None
+    ) -> None:
+        turns = self._chat_turns.setdefault((model_name, self.chat_thread(model_name)), [])
+        if replace_last is not None and turns:
+            turns[-1] = {**turns[-1], "content": replace_last, "run_id": run_id}
+        turns.extend({"role": t["role"], "content": t["content"], "run_id": run_id} for t in append)
+
+    def reset_chat(self, model_name: str) -> int:
+        names = {model_name} | {
+            name for name, _ in self._chat_turns if name.startswith(model_name + "[")
+        }
+        new_thread = 0
+        for name in sorted(names):
+            used = [t for n, t in self._chat_turns if n == name] + [self._chat_threads.get(name, -1)]
+            self._chat_threads[name] = max(used) + 1
+            if name == model_name:
+                new_thread = self._chat_threads[name]
+        return new_thread
 
     def clear_cache(self, models: list[str] | None = None, previous: bool = False) -> int:
         """Forget cached outputs (and with *previous*, previous runs) — see

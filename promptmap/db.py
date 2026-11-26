@@ -134,3 +134,17 @@ def rename_model(old: str, new: str, retemplate: dict[str, tuple[str, str]] | No
 
 def model_has_results(model_name: str) -> bool:
     return _DEFAULT_BACKEND.model_has_results(model_name)
+
+
+def backend() -> SQLiteStorageBackend:
+    """The CLI's default storage backend itself (``.promptmap/promptmap.db``)."""
+    return _DEFAULT_BACKEND
+
+
+def reset_chat(model_name: str) -> int:
+    """Start a new conversation thread for a chat model; old turns are kept."""
+    return _DEFAULT_BACKEND.reset_chat(model_name)
+
+
+def get_chat_turns(model_name: str, thread: int | None = None) -> list[dict]:
+    return _DEFAULT_BACKEND.get_chat_turns(model_name, thread)

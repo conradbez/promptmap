@@ -654,6 +654,108 @@ Details:
 
 ---
 
+## Refining an answer over several turns (`model_type="chat"`)
+
+A `chat` model's `.prompt` file is the **request**, and only the request.
+It is rendered fresh on every run with the current `ref()`s and promptdata,
+like a plain LLM model. Follow-ups and the replies to them are kept in the
+run database, never in the file, and each run sends the LLM real
+`user`/`assistant` messages:
+
+```jinja
+{{ config(model_type="chat") }}
+Write a short poem about {{ ref('topic') }}.
+```
+
+```
+system:    chat_instruction
+user:      <request, rendered now>
+assistant: reply 1
+user:      follow-up 1
+assistant: reply 2
+user:      follow-up 2        <- the new one, if this run brought one
+```
+
+Only the **latest reply** is the model's output (a string, or parsed JSON
+with `output_format="json"`), so downstream models never see the history.
+
+```bash
+promptmap chat poem "Shorter please"   # add a follow-up; runs poem and its upstream; prints the reply
+promptmap chat poem                    # no message: redo the last reply (picks up upstream changes)
+promptmap chat poem -i                 # a back-and-forth loop in the terminal
+promptmap chat poem --new              # start a new conversation (the old one is kept)
+promptmap chat poem --history          # print the current conversation
+promptmap clear-cache poem --chat      # also start a new conversation
+```
+
+From Python:
+
+```python
+promptmap.run(
+    chat_input={"poem": "Shorter please"},  # one new follow-up per chat model, for this run
+    chat_reset={"poem"},                    # start a new thread before running
+)
+promptmap.get_chat("poem")  # [{"role": "assistant" | "user", "content": ..., "run_id": ...}, ...]
+```
+
+`chat_input` carries only the new message; the history is already stored.
+A name in `chat_input` / `chat_reset` that isn't a chat model, or (for
+`chat_input`) isn't part of the run, is an error.
+
+**Rules**
+
+- **A run with a new follow-up** adds that follow-up and its reply to the
+  conversation.
+- **A run without one** (a plain `promptmap run`, an upstream change)
+  regenerates the last reply in place and adds no turn. A plain
+  `promptmap run` never adds turns.
+- **Turns are recorded only when the model succeeds.** A failed LLM call,
+  an invalid JSON reply or a failing validator leaves the conversation as it
+  was.
+- **Inputs are never stored in the history.** The request is always
+  rendered from the current inputs; earlier replies stay as they were.
+- **Cache key:** the whole conversation sent. A rerun with nothing changed
+  is a cache hit.
+- `get_chat()` starts with the reply to the request: the request itself is
+  not a turn, since it is rendered from the file on every run.
+
+| `config()` key | Default | Meaning |
+| --- | --- | --- |
+| `chat_instruction` | "Only your most recent reply is passed on to the rest of the pipeline, so always reply with the complete, updated answer, never just the changes. Each follow-up amends your answer; where they conflict, the later one wins." | the system message; `false` sends none |
+| `max_turns` | none | send only the last N turns (the window never starts on a follow-up) |
+
+**LLM backends.** The default (settings.yml / LiteLLM) backend sends real
+chat messages. An `llm_call` in `client.py` that declares a `messages`
+parameter gets them too, alongside a flattened prompt. One that takes only
+`prompt` gets the conversation flattened into one string:
+
+```
+<chat_instruction>
+
+<request>
+
+[your earlier reply]
+...
+[/your earlier reply]
+
+[follow-up 1]
+...
+[/follow-up 1]
+```
+
+**With other features**
+
+- `promptmap rename` moves the conversation along with the model's history.
+- `clear-cache MODEL` leaves conversations alone; `--chat` starts new ones.
+- With `each=`, every item keeps its own conversation, stored as
+  `model[i]`. `chat_input={"poem": ...}` sends the follow-up to every item;
+  `{"poem[2]": ...}` to one.
+- A model kind of your own can keep a conversation too: register it with
+  `chat=True` and use `call.chat_turns`, `call.chat_input`,
+  `call.llm_messages(messages)` and `call.stage_chat(append, replace_last)`.
+
+---
+
 ## Map and reduce (`each=`)
 
 Set `each` in `config()` to run a model once per item of an upstream list, then collect the results back into a list. It works on any `model_type`.

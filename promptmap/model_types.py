@@ -120,6 +120,27 @@ class ModelCall:
     #: ``call.llm`` (an agent's workspace) reads the rest from here.
     promptfiles: "Mapping[str, Any]" = field(default_factory=dict, repr=False)
 
+    #: For a kind with ``chat=True``: the current thread of this model's
+    #: conversation (``{"role", "content", "run_id"}``, oldest first),
+    #: read-only.  For an ``each=`` model it is this item's thread.
+    chat_turns: "tuple[dict, ...]" = ()
+
+    #: The new follow-up this run brought for this model
+    #: (``run(chat_input=...)``), or None.
+    chat_input: str | None = None
+
+    #: ``await call.llm_messages([{"role": ..., "content": ...}, ...])`` —
+    #: send a conversation to the LLM backend; cached on the whole
+    #: conversation.  A backend without a ``messages`` parameter gets it
+    #: flattened into one prompt.
+    llm_messages: "Callable[[list[dict]], Awaitable[Any]]" = field(default=None, repr=False)  # type: ignore[assignment]
+
+    #: ``call.stage_chat(append, replace_last)`` — the turns this run adds to
+    #: the thread (``append``) and/or the new content of its last turn
+    #: (``replace_last``).  promptmap commits them only if the model's result
+    #: is stored successfully.
+    stage_chat: "Callable[[list[dict], str | None], None]" = field(default=lambda append, replace_last: None, repr=False)
+
 
 #: Who hears progress from inside a running model: ``(model_name, step, total)``.
 #: ``total`` is 0 when the model has no fixed limit.  Set by a front end (the
@@ -173,6 +194,12 @@ class ModelKind:
     #: it, e.g. ``{"warm_start": True}`` for ``coding_agent``.  Read through
     #: :func:`config_value`, so a model can still set the key either way.
     config_defaults: dict[str, Any] = field(default_factory=dict, hash=False, compare=False)
+
+    #: Whether the model keeps a conversation in the run database: the
+    #: executor loads its thread into ``call.chat_turns``, passes the run's
+    #: follow-up as ``call.chat_input`` and commits what ``call.stage_chat``
+    #: staged once the result is stored.  True for the built-in ``chat`` kind.
+    chat: bool = False
 
 
 # ---------------------------------------------------------------------------

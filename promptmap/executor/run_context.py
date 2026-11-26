@@ -208,6 +208,14 @@ class RunContext:
     #: functions receive.  Empty means "the models being run".
     all_specs: dict[str, ModelSpec] = field(default_factory=dict)
 
+    #: The run's new follow-up per chat model (``run(chat_input=...)``).  A
+    #: key may name an ``each=`` item, ``model[i]``, or the whole model.
+    chat_input: dict[str, str] = field(default_factory=dict)
+
+    #: model name → ``(thread key, append, replace_last)`` staged by its
+    #: chat kind, committed once the model's result is stored.
+    _chat_staged: dict[str, list] = field(default_factory=dict)
+
     #: model name → output value.  A JSON-format model's entry is the parsed
     #: object, so downstream templates can do ``{{ ref('m').key }}``.
     outputs: dict[str, Any] = field(default_factory=dict)
@@ -421,6 +429,37 @@ class RunContext:
             return None
         return self.global_instruction
 
+    # -- chat models --------------------------------------------------------
+
+    def chat_turns(self, key: str) -> tuple[dict, ...]:
+        """The current thread of *key* (a model, or an each= item ``model[i]``)."""
+        lookup = getattr(self.storage, "get_chat_turns", None)
+        return tuple(lookup(key)) if lookup is not None else ()
+
+    def chat_input_for(self, key: str, model: str) -> str | None:
+        """This run's follow-up for *key*: its own, else the whole model's."""
+        found = self.chat_input.get(key)
+        if found is None and key != model:
+            found = self.chat_input.get(model)
+        return found or None
+
+    def stage_chat(self, model: str, key: str, append: list[dict], replace_last: str | None) -> None:
+        self._chat_staged.setdefault(model, []).append((key, list(append), replace_last))
+
+    def commit_chat(self, model: str) -> None:
+        """Write the turns *model* staged this run.  Called only after its
+        result was stored successfully, so a failed run changes no thread."""
+        staged = self._chat_staged.pop(model, [])
+        commit = getattr(self.storage, "commit_chat_turns", None)
+        if commit is None:
+            return
+        for key, append, replace_last in staged:
+            if append or replace_last is not None:
+                commit(key, self.run_id, append, replace_last)
+
+    def discard_chat(self, model: str) -> None:
+        self._chat_staged.pop(model, None)
+
     # -- the LLM call -------------------------------------------------------
 
     def cache_key(self, spec: ModelSpec, rendered: str, files: list | None) -> str:
@@ -568,11 +607,41 @@ class RunContext:
             rendered, spec, state, compute=lambda: self._invoke_llm(rendered, spec, state), check=True
         )
 
+    async def call_llm_messages(
+        self,
+        messages: list[dict],
+        spec: ModelSpec,
+        state: _RenderState | None = None,
+    ) -> str:
+        """Send a chat conversation (``[{"role", "content"}, ...]``) to the
+        LLM backend, or serve it from the prompt cache.
+
+        The cache key is the whole conversation, so a rerun that sends the
+        same messages is a hit.  An ``llm_call`` that declares ``messages``
+        receives them, along with their flattened text as the prompt; one
+        that takes only a prompt gets the flattened text alone (see
+        :func:`promptmap.executor.chat.flatten_messages`).
+        """
+        from promptmap.executor.chat import flatten_messages
+
+        key_text = "\x00chat\x00" + json.dumps(messages, sort_keys=True, ensure_ascii=False)
+        prompt = flatten_messages(messages)
+        return await self.cached(
+            key_text, spec, state,
+            compute=lambda: self._invoke_llm(prompt, spec, state, messages=messages),
+        )
+
     async def _invoke_llm(
-        self, rendered: str, spec: ModelSpec, state: _RenderState | None = None
+        self,
+        rendered: str,
+        spec: ModelSpec,
+        state: _RenderState | None = None,
+        messages: list[dict] | None = None,
     ) -> str:
         kwargs: dict = {}
         params = inspect.signature(self.llm_call).parameters
+        if messages is not None and "messages" in params:
+            kwargs["messages"] = messages
         files = self.files_for(spec, state)
         if files and "files" in params:
             kwargs["files"] = files

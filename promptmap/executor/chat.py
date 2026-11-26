@@ -1,0 +1,158 @@
+"""
+``model_type="chat"`` — an answer refined over several turns.
+
+The ``.prompt`` file is the **request**, rendered fresh on every run with the
+current ``ref()``s and promptdata.  Follow-ups and the replies to them are kept
+in the run database (``chat_turns``), never in the file, and each run sends
+the LLM real ``user`` / ``assistant`` messages::
+
+    system:    chat_instruction
+    user:      <request, rendered now>
+    assistant: reply 1
+    user:      follow-up 1
+    assistant: reply 2
+    user:      follow-up 2        <- the new one, if this run brought one
+
+Only the latest reply is the model's output.
+
+Rules
+-----
+- A run with a new follow-up (``run(chat_input={"model": "..."})``) appends
+  that follow-up and its reply to the thread.
+- A run without one regenerates the last reply in place and adds no turn.
+- Turns are committed only when the model's result is stored successfully.
+- Inputs never enter the history: the request is always rendered from the
+  current inputs, while earlier replies stay exactly as they were.
+- The cache key is the conversation sent, so a rerun with nothing changed is
+  a prompt-cache hit.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from promptmap.model_types import ModelCall, ModelKind, register_model_kind
+
+#: The system message when a model sets no ``chat_instruction``.
+DEFAULT_CHAT_INSTRUCTION = (
+    "Only your most recent reply is passed on to the rest of the pipeline, so "
+    "always reply with the complete, updated answer, never just the changes. "
+    "Each follow-up amends your answer; where they conflict, the later one wins."
+)
+
+#: ``chat_instruction`` values that send no system message at all.
+_NO_INSTRUCTION = frozenset({"", "false", "none", "no", "off", "0"})
+
+
+def build_messages(
+    request: str,
+    turns: "list[dict] | tuple[dict, ...]",
+    follow_up: str | None = None,
+    instruction: str | None = DEFAULT_CHAT_INSTRUCTION,
+    max_turns: int | None = None,
+) -> tuple[list[dict], bool]:
+    """The messages for one run, and whether its reply replaces the last turn.
+
+    *turns* is the current thread (``role`` / ``content``).  With a
+    *follow_up* the whole thread is sent and the follow-up appended; without
+    one the last reply is left out, since this run regenerates it.
+
+    *max_turns* keeps only that many of the most recent turns before the new
+    follow-up (never starting on a follow-up, so the messages still
+    alternate after the request).
+    """
+    history = [{"role": t["role"], "content": t["content"]} for t in turns]
+    replace_last = False
+    if not follow_up and history and history[-1]["role"] == "assistant":
+        history = history[:-1]
+        replace_last = True
+
+    if max_turns is not None:
+        history = history[-max_turns:] if max_turns > 0 else []
+        while history and history[0]["role"] == "user":
+            history = history[1:]
+
+    messages: list[dict] = []
+    if instruction is not None and str(instruction).strip().lower() not in _NO_INSTRUCTION:
+        messages.append({"role": "system", "content": str(instruction)})
+    messages.append({"role": "user", "content": request})
+    messages.extend(history)
+    if follow_up:
+        messages.append({"role": "user", "content": follow_up})
+    return messages, replace_last
+
+
+def flatten_messages(messages: list[dict]) -> str:
+    """The conversation as one prompt, for an ``llm_call(prompt)`` that takes
+    no ``messages``::
+
+        <system>
+
+        <request>
+
+        [your earlier reply]
+        ...
+        [/your earlier reply]
+
+        [follow-up 1]
+        ...
+        [/follow-up 1]
+
+    A conversation that is only the request flattens to the request itself
+    (after the system message, if any).
+    """
+    parts: list[str] = []
+    seen_request = False
+    follow_ups = 0
+    for message in messages:
+        role, content = message["role"], str(message["content"])
+        if role == "system":
+            parts.append(content)
+        elif role == "user" and not seen_request:
+            parts.append(content)
+            seen_request = True
+        elif role == "assistant":
+            parts.append(f"[your earlier reply]\n{content}\n[/your earlier reply]")
+        else:
+            follow_ups += 1
+            parts.append(f"[follow-up {follow_ups}]\n{content}\n[/follow-up {follow_ups}]")
+    return "\n\n".join(parts)
+
+
+def _max_turns(value: Any) -> int | None:
+    if value is None or str(value).strip().lower() in ("", "none"):
+        return None
+    return int(value)
+
+
+async def chat_exec(rendered: str, call: ModelCall) -> Any:
+    """Send the request plus the thread to the LLM and stage the new turns."""
+    config = call.spec.config
+    messages, replace_last = build_messages(
+        rendered,
+        call.chat_turns,
+        call.chat_input,
+        config.get("chat_instruction", DEFAULT_CHAT_INSTRUCTION),
+        _max_turns(config.get("max_turns")),
+    )
+    reply = await call.llm_messages(messages)
+    text = reply if isinstance(reply, str) else json.dumps(reply, ensure_ascii=False)
+
+    append: list[dict] = []
+    if call.chat_input:
+        append.append({"role": "user", "content": call.chat_input})
+    if replace_last:
+        call.stage_chat(append, text)
+    else:
+        call.stage_chat(append + [{"role": "assistant", "content": text}], None)
+    return reply
+
+
+KIND = register_model_kind(ModelKind(
+    name="chat",
+    exec_fn=chat_exec,
+    config_keys=frozenset({"chat_instruction", "max_turns"}),
+    accepts_global_instruction=True,
+    chat=True,
+))

@@ -13,6 +13,8 @@ including the ones you register yourself.
                      promptfiles / outputs/) — :mod:`promptmap.executor.agent`
 ``coding_agent``     mini-swe-agent as a pure function: Dir in, patched Dir
                      out, with diff-aware reuse — :mod:`promptmap.executor.coding_agent`
+``chat``             an answer refined over several turns, with follow-ups
+                     kept in the run database — :mod:`promptmap.executor.chat`
 
 ``execute_python`` and the multi-harness agent (mini-swe-agent / opencode / pi)
 live in ``promptmap[extras]``.
@@ -50,3 +52,4 @@ for _kind in (LLM, TEMPLATE):
 
 from promptmap.executor.agent import KIND as AGENT  # noqa: E402  (registers "agent")
 from promptmap.executor.coding_agent import KIND as CODING_AGENT  # noqa: E402,F401
+from promptmap.executor.chat import KIND as CHAT  # noqa: E402,F401  (registers "chat")

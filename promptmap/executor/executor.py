@@ -164,8 +164,12 @@ async def _produce_one(
     ctx: RunContext,
     rendered: str,
     state: _RenderState,
+    item: str | None = None,
 ) -> Any:
     """Run *kind*'s exec_fn over one rendered prompt.
+
+    *item* names an ``each=`` item (``model[i]``); a chat kind keeps a
+    thread per item under that name.
 
     ``exec_fn=None`` means the rendered text is itself the output, so nothing
     runs.  Otherwise the cached LLM call and cached compute are bound to this
@@ -181,6 +185,15 @@ async def _produce_one(
     # An each= item overlays the iterated model with the current item, for
     # code that reads call.outputs (Python ref()) just as for Jinja ref().
     overlay = state.extra_outputs
+    chat_fields: dict = {}
+    if kind.chat:
+        key = item or spec.name
+        chat_fields = {
+            "chat_turns": ctx.chat_turns(key),
+            "chat_input": ctx.chat_input_for(key, spec.name),
+            "llm_messages": partial(ctx.call_llm_messages, spec=spec, state=state),
+            "stage_chat": partial(ctx.stage_chat, spec.name, key),
+        }
     call = ModelCall(
         spec=spec,
         outputs={**ctx.outputs, **overlay} if overlay else ctx.outputs,
@@ -190,6 +203,7 @@ async def _produce_one(
         previous=ctx.previous_for(spec),
         report_cache=partial(ctx.report_cache, spec.name),
         promptfiles=ctx.promptfiles or {},
+        **chat_fields,
     )
     return await kind.exec_fn(rendered, call)
 
@@ -219,14 +233,14 @@ async def _produce(kind: ModelKind, spec: ModelSpec, ctx: RunContext) -> Any:
         for row in rows
     ]
 
-    async def one(rendered: str, state: _RenderState) -> Any:
-        value = await _produce_one(kind, spec, ctx, rendered, state)
+    async def one(index: int, rendered: str, state: _RenderState) -> Any:
+        value = await _produce_one(kind, spec, ctx, rendered, state, item=f"{spec.name}[{index}]")
         if state.skip_value is None and isinstance(value, str) and spec.output_format == "json":
             return parse_json_output(value)
         return value
 
     values = list(await asyncio.gather(
-        *(one(rendered, state) for rendered, state in renders)
+        *(one(index, rendered, state) for index, (rendered, state) in enumerate(renders))
     ))
     for index, ((rendered, state), value) in enumerate(zip(renders, values)):
         _store_item(spec, ctx, index, rendered, state, value)
@@ -241,6 +255,16 @@ async def execute_model(spec: ModelSpec, ctx: RunContext) -> ModelRunResult:
     for built-in and user-registered model kinds alike.
     """
     kind = get_model_kind(spec.model_type) or get_model_kind("")
+    try:
+        result = await _execute_model(kind, spec, ctx)
+    except BaseException:
+        ctx.discard_chat(spec.name)  # a failed run leaves the thread unchanged
+        raise
+    ctx.commit_chat(spec.name)
+    return result
+
+
+async def _execute_model(kind: ModelKind, spec: ModelSpec, ctx: RunContext) -> ModelRunResult:
     value = await _produce(kind, spec, ctx)
     # Files a kind built itself, outside the cached call, still need storing.
     persist_files(value, ctx.blobs)
@@ -371,6 +395,7 @@ async def execute_run(
     wrap_refs: bool | Callable[[str, bool], str] | None = None,
     max_parallel: int = DEFAULT_MAX_PARALLEL,
     all_models: "Mapping[str, ModelSpec] | None" = None,
+    chat_input: "Mapping[str, str] | None" = None,
 ) -> list[ModelRunResult]:
     """
     Execute all *ordered_models* in dependency order, independent ones in parallel.
@@ -424,6 +449,10 @@ async def execute_run(
     all_models:
         Every model in the project, by name — what template functions such as
         ``org_outline()`` see.  Defaults to *ordered_models*.
+    chat_input:
+        The new follow-up for each ``chat`` model this run, by model name (or
+        ``model[i]`` for one ``each=`` item).  Committed to the model's thread
+        only if the model succeeds.
 
     Returns
     -------
@@ -463,6 +492,7 @@ async def execute_run(
         cache_check=cache_check,
         wrap_refs=wrap_refs,
         all_specs=dict(all_models) if all_models else {m.name: m for m in ordered_models},
+        chat_input=dict(chat_input or {}),
     )
     if skipped is not None:
         ctx.skipped = skipped

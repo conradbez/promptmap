@@ -15,6 +15,7 @@ promptmap type-hints   Write jinja-lsp autocomplete stubs for .prompt files.
 promptmap clear-cache  Make models start cold on the next run.
 promptmap rename       Rename a model, keeping its references and history.
 promptmap edit         Edit promptdata, a model's config() or its template.
+promptmap chat         Send a follow-up to a chat model and print its reply.
 """
 
 from __future__ import annotations
@@ -71,6 +72,7 @@ from promptmap.cli.type_hints import register_command as _register_type_hints, g
 from promptmap.cli.init_files import register_command as _register_init
 from promptmap.cli.test import register_command as _register_test
 from promptmap.cli.edit import register_command as _register_edit
+from promptmap.cli.chat import register_command as _register_chat
 from promptmap.cli import pretty_print
 from promptmap.cli.pretty_print import console, err_console, format_duration
 
@@ -578,6 +580,7 @@ def run(map_dir: str, select: tuple[str, ...], no_color: bool, promptdata: tuple
 
 _register_test(main)
 _register_edit(main)
+_register_chat(main)
 
 
 # ---------------------------------------------------------------------------
@@ -628,7 +631,11 @@ def show_runs(limit: int) -> None:
     help="Only clear the prompt cache; keep previous results for {{ previous }}, "
          "coding_agent reuse and warm_start.",
 )
-def clear_cache_cmd(models: tuple[str, ...], all_models: bool, keep_previous: bool) -> None:
+@click.option(
+    "--chat", "reset_chat", is_flag=True,
+    help="Also start chat models' conversations over (a new thread; old turns are kept).",
+)
+def clear_cache_cmd(models: tuple[str, ...], all_models: bool, keep_previous: bool, reset_chat: bool) -> None:
     """Forget cached results so the named models start cold on the next run.
 
     Clears the prompt cache for MODEL and, unless --keep-previous, its
@@ -640,14 +647,20 @@ def clear_cache_cmd(models: tuple[str, ...], all_models: bool, keep_previous: bo
     To turn warm starts off for good, set {{ config(warm_start=false) }}
     in the model's .prompt file instead.
 
+    Chat models keep their conversation unless you pass --chat, which starts
+    a new thread for each named chat model.
+
     \b
     Examples:
       promptmap clear-cache add_health
       promptmap clear-cache add_health api_tests --keep-previous
       promptmap clear-cache --all
+      promptmap clear-cache poem --chat
     """
     if bool(models) == all_models:
         raise click.UsageError("Name one or more models, or pass --all (not both).")
+    if reset_chat and all_models:
+        raise click.UsageError("--chat needs the chat models named, not --all.")
     init_db_or_exit()
     changed = db.clear_cache(None if all_models else list(models), previous=not keep_previous)
     what = "prompt cache" if keep_previous else "prompt cache and previous results"
@@ -656,6 +669,10 @@ def clear_cache_cmd(models: tuple[str, ...], all_models: bool, keep_previous: bo
                   f"({changed} row{'s' if changed != 1 else ''})")
     if not changed and models:
         console.print("  [dim]Nothing to clear: already cleared, or never run (check `promptmap ls`).[/dim]")
+    if reset_chat:
+        for name in models:
+            db.reset_chat(name)
+        console.print(f"  [yellow]Started a new conversation[/yellow] for {', '.join(models)}")
 
 
 # ---------------------------------------------------------------------------

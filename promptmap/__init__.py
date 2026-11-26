@@ -15,7 +15,7 @@ import re
 from enum import Enum
 from importlib.metadata import PackageNotFoundError, version as package_version
 from pathlib import Path
-from typing import Awaitable, Callable, Mapping
+from typing import Awaitable, Callable, Iterable, Mapping
 
 from promptmap.executor.parser_initial import (
     UnknownConfigKeyWarning,
@@ -77,6 +77,7 @@ __all__ = [
     "import_from_json",
     "run",
     "async_run",
+    "get_chat",
     "ModelSpec",
     "ModelKind",
     "ModelCall",
@@ -176,6 +177,8 @@ async def async_run(
     cache_check: Callable[..., bool | Awaitable[bool]] | None = None,
     wrap_refs: bool | Callable[[str, bool], str] | None = None,
     max_parallel: int = 4,
+    chat_input: Mapping[str, str] | None = None,
+    chat_reset: "Iterable[str] | None" = None,
 ):
     """
     Execute prompt models as a Python library call.
@@ -267,6 +270,16 @@ async def async_run(
         Most models running at once (default 4).  Models that do not depend
         on each other run concurrently, e.g. two independent coding agents;
         ``1`` runs them one at a time.
+    chat_input:
+        One new follow-up per ``chat`` model for this run, e.g.
+        ``{"poem": "Shorter please"}`` (``"poem[2]"`` targets one ``each=``
+        item).  Only the new message: the history is already in the run
+        database.  Added to the model's thread, with its reply, only if the
+        model succeeds.  Naming a model that is not a chat model, or one this
+        run does not include, is an error.
+    chat_reset:
+        ``chat`` models whose conversation starts over (a new thread) before
+        this run.  The old turns are kept.
 
     Returns
     -------
@@ -327,6 +340,10 @@ async def async_run(
     else:
         ordered = list(all_models.values())
 
+    chat_input = dict(chat_input or {})
+    chat_reset = list(chat_reset or [])
+    _check_chat_names(chat_input, chat_reset, all_models, {spec.name for spec in ordered})
+
     git_sha = None
     if models_from_dict is None:
         import subprocess
@@ -370,6 +387,11 @@ async def async_run(
     if validation_dir is not None and models_from_dict is None:
         from promptmap.validator import load_validators
         validators = load_validators(validation_dir)
+
+    reset = getattr(storage_backend, "reset_chat", None)
+    for name in chat_reset:
+        if reset is not None:
+            reset(name)
 
     run_id = storage_backend.create_run(
         model_count=len(ordered),
@@ -456,6 +478,7 @@ async def async_run(
         cache_check=cache_check,
         wrap_refs=wrap_refs,
         max_parallel=max_parallel,
+        chat_input=chat_input,
     )
 
     errors = sum(1 for r in results if r.status == "error")
@@ -511,6 +534,8 @@ def run(
     cache_check: "Callable[..., bool | Awaitable[bool]] | None" = None,
     wrap_refs: "bool | Callable[[str, bool], str] | None" = None,
     max_parallel: int = 4,
+    chat_input: "Mapping[str, str] | None" = None,
+    chat_reset: "Iterable[str] | None" = None,
 ):
     """Run prompt models synchronously.
 
@@ -538,4 +563,50 @@ def run(
         cache_check=cache_check,
         wrap_refs=wrap_refs,
         max_parallel=max_parallel,
+        chat_input=chat_input,
+        chat_reset=chat_reset,
     ))
+
+
+def _check_chat_names(
+    chat_input: dict, chat_reset: list, all_models: dict, running: set[str]
+) -> None:
+    """Fail on a chat_input / chat_reset name that is not a chat model (a typo)."""
+    from promptmap.model_types import get_model_kind
+
+    for name in [*chat_input, *chat_reset]:
+        model = name.split("[", 1)[0]
+        spec = all_models.get(model)
+        if spec is None:
+            raise ValueError(f"chat_input/chat_reset names '{name}', but there is no model '{model}'.")
+        kind = get_model_kind(spec.model_type)
+        if kind is None or not kind.chat:
+            raise ValueError(
+                f"chat_input/chat_reset names '{name}', but '{model}' is not a chat model. "
+                f"Add {{{{ config(model_type=\"chat\") }}}} to it."
+            )
+        if name in chat_input and model not in running:
+            raise ValueError(
+                f"chat_input names '{name}', but '{model}' is not part of this run (see select=)."
+            )
+
+
+def get_chat(
+    model: str,
+    thread: int | None = None,
+    storage_backend: "StorageBackend | None" = None,
+) -> list[dict]:
+    """The conversation of the ``chat`` model *model*: its current thread, or
+    *thread*.
+
+    Returns ``[{"role": "user" | "assistant", "content": str, "run_id": str}, ...]``,
+    oldest first.  The request itself is not a turn: it is rendered from the
+    ``.prompt`` file on every run.  The first turn is the reply to it.
+    Defaults to ``.promptmap/promptmap.db``.
+    """
+    if storage_backend is None:
+        from promptmap.storage.sqlite import SQLiteStorageBackend
+        storage_backend = SQLiteStorageBackend()
+        storage_backend.init_db()
+    lookup = getattr(storage_backend, "get_chat_turns", None)
+    return list(lookup(model, thread)) if lookup is not None else []

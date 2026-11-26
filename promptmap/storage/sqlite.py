@@ -141,6 +141,24 @@ class SQLiteStorageBackend:
 
                 CREATE INDEX IF NOT EXISTS idx_test_results_run
                     ON test_results (run_id, test_name);
+
+                CREATE TABLE IF NOT EXISTS chat_turns (
+                    id          INTEGER   PRIMARY KEY AUTOINCREMENT,
+                    model_name  TEXT      NOT NULL,
+                    thread      INTEGER   NOT NULL DEFAULT 0,
+                    idx         INTEGER   NOT NULL,
+                    role        TEXT      NOT NULL,
+                    content     TEXT      NOT NULL,
+                    run_id      TEXT
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_chat_turns_model
+                    ON chat_turns (model_name, thread, idx);
+
+                CREATE TABLE IF NOT EXISTS chat_threads (
+                    model_name  TEXT      PRIMARY KEY,
+                    thread      INTEGER   NOT NULL
+                );
             """)
             self._check_schema(conn)
             # After _check_schema: an older database gains template_hash there.
@@ -488,6 +506,14 @@ class SQLiteStorageBackend:
                     "WHERE model_name = ? AND template_hash = ?",
                     (after, template_hash(after), name, template_hash(before)),
                 )
+            # A chat model's conversation moves with it (its each= items too).
+            for table in ("chat_turns", "chat_threads"):
+                conn.execute(f"UPDATE {table} SET model_name = ? WHERE model_name = ?", (new, old))
+                conn.execute(
+                    f"UPDATE {table} SET model_name = ? || substr(model_name, ?) "
+                    "WHERE model_name LIKE ? ESCAPE '\\'",
+                    (new, len(old) + 1, _like_prefix(old) + "[%"),
+                )
             return moved
 
     def clear_cache(self, models: list[str] | None = None, previous: bool = False) -> int:
@@ -512,6 +538,82 @@ class SQLiteStorageBackend:
             params = list(models)
         with self.get_conn() as conn:
             return conn.execute(sql, params).rowcount
+
+    # -- chat turns (model_type="chat") --------------------------------------
+
+    def chat_thread(self, model_name: str) -> int:
+        """The current thread of *model_name*'s conversation (0 until a reset)."""
+        with self.get_conn() as conn:
+            row = conn.execute(
+                "SELECT thread FROM chat_threads WHERE model_name = ?", (model_name,)
+            ).fetchone()
+        return row["thread"] if row else 0
+
+    def get_chat_turns(self, model_name: str, thread: int | None = None) -> list[dict]:
+        """The turns of one thread (the current one by default), in order."""
+        if thread is None:
+            thread = self.chat_thread(model_name)
+        with self.get_conn() as conn:
+            rows = conn.execute(
+                "SELECT role, content, run_id FROM chat_turns "
+                "WHERE model_name = ? AND thread = ? ORDER BY idx",
+                (model_name, thread),
+            ).fetchall()
+        return [{"role": r["role"], "content": r["content"], "run_id": r["run_id"]} for r in rows]
+
+    def commit_chat_turns(
+        self, model_name: str, run_id: str, append: list[dict], replace_last: str | None = None
+    ) -> None:
+        """Record one successful run's change to the current thread: replace
+        the last (assistant) turn's content with *replace_last*, and/or append
+        the *append* turns (``{"role", "content"}``)."""
+        thread = self.chat_thread(model_name)
+        with self.get_conn() as conn:
+            last = conn.execute(
+                "SELECT id, idx FROM chat_turns WHERE model_name = ? AND thread = ? "
+                "ORDER BY idx DESC LIMIT 1",
+                (model_name, thread),
+            ).fetchone()
+            next_idx = last["idx"] + 1 if last else 0
+            if replace_last is not None and last is not None:
+                conn.execute(
+                    "UPDATE chat_turns SET content = ?, run_id = ? WHERE id = ?",
+                    (replace_last, run_id, last["id"]),
+                )
+            for offset, turn in enumerate(append):
+                conn.execute(
+                    "INSERT INTO chat_turns (model_name, thread, idx, role, content, run_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (model_name, thread, next_idx + offset, turn["role"], turn["content"], run_id),
+                )
+
+    def reset_chat(self, model_name: str) -> int:
+        """Start a new thread for *model_name* and its ``each=`` items.  The
+        old turns are kept.  Returns the model's new thread number."""
+        with self.get_conn() as conn:
+            names = {model_name} | {
+                r["model_name"] for r in conn.execute(
+                    "SELECT DISTINCT model_name FROM chat_turns WHERE model_name LIKE ? ESCAPE '\\'",
+                    (_like_prefix(model_name) + "[%",),
+                )
+            }
+        new_thread = 0
+        for name in sorted(names):
+            with self.get_conn() as conn:
+                row = conn.execute(
+                    "SELECT MAX(t) AS t FROM (SELECT MAX(thread) AS t FROM chat_turns WHERE model_name = ? "
+                    "UNION ALL SELECT thread FROM chat_threads WHERE model_name = ?)",
+                    (name, name),
+                ).fetchone()
+                thread = (row["t"] if row and row["t"] is not None else -1) + 1
+                conn.execute(
+                    "INSERT INTO chat_threads (model_name, thread) VALUES (?, ?) "
+                    "ON CONFLICT(model_name) DO UPDATE SET thread = excluded.thread",
+                    (name, thread),
+                )
+            if name == model_name:
+                new_thread = thread
+        return new_thread
 
 
 def _like_prefix(text: str) -> str:

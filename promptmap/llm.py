@@ -182,7 +182,8 @@ def litellm_llm_call(
     provider: str, model: str, aliases: dict[str, tuple[str, str]] | None = None,
     api_key: str | None = None,
 ) -> Callable:
-    """The default ``llm_call``: one user message to *provider*/*model* via LiteLLM.
+    """The default ``llm_call``: one user message to *provider*/*model* via LiteLLM
+    — or, for a ``chat`` model, its whole conversation as ``messages``.
 
     Values are passed through unchecked, so settings.yml can name any model
     LiteLLM accepts.  A .prompt file can override either for itself with
@@ -206,16 +207,31 @@ def litellm_llm_call(
             return litellm_model(str(config.get("provider") or provider), chosen or model)
         return default_target
 
-    def llm_call(prompt: str, files: list | None = None, config: dict | None = None):
+    def llm_call(
+        prompt: str,
+        files: list | None = None,
+        config: dict | None = None,
+        messages: list[dict] | None = None,
+    ):
         from promptmap.tokens import LLMResult
 
         target = target_for(config)
-        content: str | list = prompt
-        if files:
-            content = [{"type": "text", "text": prompt}] + [_file_block(f) for f in files]
+        if messages:
+            # A chat model's conversation: sent as real chat messages, with
+            # attached files on the first user message (the request).
+            sent = [dict(m) for m in messages]
+            if files:
+                first = next(i for i, m in enumerate(sent) if m["role"] == "user")
+                text = sent[first]["content"]
+                sent[first]["content"] = [{"type": "text", "text": text}] + [_file_block(f) for f in files]
+        else:
+            content: str | list = prompt
+            if files:
+                content = [{"type": "text", "text": prompt}] + [_file_block(f) for f in files]
+            sent = [{"role": "user", "content": content}]
         response = quiet_litellm().completion(
             model=target,
-            messages=[{"role": "user", "content": content}],
+            messages=sent,
             **({"api_key": api_key} if api_key else {}),
         )
         usage = getattr(response, "usage", None)

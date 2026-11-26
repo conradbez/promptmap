@@ -100,6 +100,7 @@ Set with `{{ config(model_type="...") }}` at the top of the file.
 | **prompt** (default LLM call) | the step needs judgement or generation | plain `.prompt` file |
 | **`template`** | reshaping, joining or selecting upstream outputs; no LLM needed | `{{ config(model_type="template") }}` |
 | **`agent`** | the step needs tools (run code, fetch, inspect files) but the result is an answer | `{{ config(model_type="agent") }}` |
+| **`chat`** | a person refines the answer over several turns (follow-ups via `promptmap chat MODEL "..."` or `run(chat_input=...)`) | `{{ config(model_type="chat") }}` |
 | **`coding_agent`** | the step produces or patches a file tree (code, a board, a repo) | `{{ config(model_type="coding_agent", inherit_coding_folder="repo") }}` |
 
 Prefer the cheapest type that works: `template` before prompt, prompt before
@@ -255,7 +256,7 @@ Advanced — `docs/ADVANCED_USAGE.md`:
 | Run a model once per item, then reduce | `each=` | `#map-and-reduce-each` |
 | Replay a known input / assert fields | YAML `given`, `expect` | `#bulk-testing-with-yaml-cases-promptmap-test` |
 | Models that write files or folders | `promptmap.File`, `Dir`, `Output` | `#models-that-produce-files-promptmapfile-promptmapdir-promptmapoutput` |
-| Refine last run's answer | `{{ previous }}`, `previous_of('name')`, `cache_check` | `#run-ids-and-iterating-on-the-last-answer-previous` |
+| Refine last run's answer | `{{ previous }}`, `previous_of('name')`, `cache_check`; for follow-ups from a person, `model_type="chat"` | `#run-ids-and-iterating-on-the-last-answer-previous` |
 | Edit a `coding_agent` prompt, keep its previous run | `warm_start` (default on for `coding_agent`) | `#editing-a-prompt-without-a-cold-start-warm_start` |
 | Write a `coding_agent`'s tree to a real folder / `outputs/` | `project="../app"`, `write_folder=true` | INTERMEDIATE_USAGE `#where-file-outputs-go-write_folder-project` |
 | Make one model start cold next run | `promptmap clear-cache MODEL` | `#editing-a-prompt-without-a-cold-start-warm_start` |

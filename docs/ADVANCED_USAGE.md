@@ -497,7 +497,9 @@ Explain what changed in today's summary:
   order and works for models outside `--select`.
 - The match rules are the same as `previous`, based on the *named* model:
   its current template hash, plus that model's `warm_start` fallback.
-- An unknown model name fails the render.
+- An unknown model name fails gracefully too: it renders empty and logs a
+  warning. Pass `strict=true` (`previous_of('x', strict=true)`) to make it
+  fail the model instead, which catches typos.
 
 ### Editing a prompt without a cold start (`warm_start`)
 

@@ -306,7 +306,7 @@ class RunContext:
             logger.warning("Could not load the previous result of '%s': %s", spec.name, exc)
             return None
 
-    def previous_of(self, name: str) -> PreviousRun | None:
+    def previous_of(self, name: str, strict: bool = False) -> PreviousRun | None:
         """``{{ previous_of('name') }}``: model *name*'s :meth:`previous_for`.
 
         The same lookup as ``{{ previous }}`` — another run, the model's
@@ -314,10 +314,18 @@ class RunContext:
         model in the project.  It reads storage only, never this run's
         outputs, so it creates no dependency and works for models outside
         the current selection.
+
+        Fails gracefully by default: an unknown model name is logged and
+        gives None like a model that never ran.  ``strict=True`` raises
+        instead, for catching typos.
         """
         spec = self.all_specs.get(name)
         if spec is None:
-            raise ValueError(f"previous_of('{name}') — no model named '{name}'.")
+            message = f"previous_of('{name}') — no model named '{name}'."
+            if strict:
+                raise ValueError(message)
+            logger.warning("%s Treating it as no previous result.", message)
+            return None
         return self.previous_for(spec)
 
     def _previous_row(self, spec: ModelSpec, *, any_template: bool = False) -> Any:

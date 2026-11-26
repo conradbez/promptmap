@@ -1,6 +1,11 @@
 """
 ``model_type="chat"`` — an answer refined over several turns.
 
+Shipped in ``promptmap[extras]``.  The storage, the commit-on-success rule,
+``run(chat_input=..., chat_reset=...)``, ``get_chat()`` and ``promptmap chat``
+live in promptmap itself and work for any kind registered with ``chat=True``;
+this module is the kind.
+
 The ``.prompt`` file is the **request**, rendered fresh on every run with the
 current ``ref()``s and promptdata.  Follow-ups and the replies to them are kept
 in the run database (``chat_turns``), never in the file, and each run sends
@@ -32,6 +37,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from promptmap.chat_messages import flatten_messages  # noqa: F401  (re-exported)
 from promptmap.model_types import ModelCall, ModelKind, register_model_kind
 
 #: The system message when a model sets no ``chat_instruction``.
@@ -81,43 +87,6 @@ def build_messages(
     if follow_up:
         messages.append({"role": "user", "content": follow_up})
     return messages, replace_last
-
-
-def flatten_messages(messages: list[dict]) -> str:
-    """The conversation as one prompt, for an ``llm_call(prompt)`` that takes
-    no ``messages``::
-
-        <system>
-
-        <request>
-
-        [your earlier reply]
-        ...
-        [/your earlier reply]
-
-        [follow-up 1]
-        ...
-        [/follow-up 1]
-
-    A conversation that is only the request flattens to the request itself
-    (after the system message, if any).
-    """
-    parts: list[str] = []
-    seen_request = False
-    follow_ups = 0
-    for message in messages:
-        role, content = message["role"], str(message["content"])
-        if role == "system":
-            parts.append(content)
-        elif role == "user" and not seen_request:
-            parts.append(content)
-            seen_request = True
-        elif role == "assistant":
-            parts.append(f"[your earlier reply]\n{content}\n[/your earlier reply]")
-        else:
-            follow_ups += 1
-            parts.append(f"[follow-up {follow_ups}]\n{content}\n[/follow-up {follow_ups}]")
-    return "\n\n".join(parts)
 
 
 def _max_turns(value: Any) -> int | None:

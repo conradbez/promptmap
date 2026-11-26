@@ -100,7 +100,7 @@ Set with `{{ config(model_type="...") }}` at the top of the file.
 | **prompt** (default LLM call) | the step needs judgement or generation | plain `.prompt` file |
 | **`template`** | reshaping, joining or selecting upstream outputs; no LLM needed | `{{ config(model_type="template") }}` |
 | **`agent`** | the step needs tools (run code, fetch, inspect files) but the result is an answer | `{{ config(model_type="agent") }}` |
-| **`chat`** | a person refines the answer over several turns (follow-ups via `promptmap chat MODEL "..."` or `run(chat_input=...)`) | `{{ config(model_type="chat") }}` |
+| **`chat`** *(promptmap[extras])* | a person refines the answer over several turns (follow-ups via `promptmap chat MODEL "..."` or `run(chat_input=...)`) | `{{ config(model_type="chat") }}` |
 | **`coding_agent`** | the step produces or patches a file tree (code, a board, a repo) | `{{ config(model_type="coding_agent", inherit_coding_folder="repo") }}` |
 
 Prefer the cheapest type that works: `template` before prompt, prompt before

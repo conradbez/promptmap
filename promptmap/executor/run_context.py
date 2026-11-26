@@ -620,9 +620,9 @@ class RunContext:
         same messages is a hit.  An ``llm_call`` that declares ``messages``
         receives them, along with their flattened text as the prompt; one
         that takes only a prompt gets the flattened text alone (see
-        :func:`promptmap.executor.chat.flatten_messages`).
+        :func:`promptmap.chat_messages.flatten_messages`).
         """
-        from promptmap.executor.chat import flatten_messages
+        from promptmap.chat_messages import flatten_messages
 
         key_text = "\x00chat\x00" + json.dumps(messages, sort_keys=True, ensure_ascii=False)
         prompt = flatten_messages(messages)

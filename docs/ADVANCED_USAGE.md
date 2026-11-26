@@ -656,6 +656,10 @@ Details:
 
 ## Refining an answer over several turns (`model_type="chat"`)
 
+`chat` ships with `pip install "promptmap[extras]"`. The conversation
+storage, `chat_input` / `chat_reset`, `get_chat()` and `promptmap chat` are
+part of promptmap itself and work for any kind registered with `chat=True`.
+
 A `chat` model's `.prompt` file is the **request**, and only the request.
 It is rendered fresh on every run with the current `ref()`s and promptdata,
 like a plain LLM model. Follow-ups and the replies to them are kept in the
@@ -750,8 +754,8 @@ parameter gets them too, alongside a flattened prompt. One that takes only
 - With `each=`, every item keeps its own conversation, stored as
   `model[i]`. `chat_input={"poem": ...}` sends the follow-up to every item;
   `{"poem[2]": ...}` to one.
-- A model kind of your own can keep a conversation too: register it with
-  `chat=True` and use `call.chat_turns`, `call.chat_input`,
+- A model kind of your own can keep a conversation too (this is how
+  `chat` itself is built): register it with `chat=True` and use `call.chat_turns`, `call.chat_input`,
   `call.llm_messages(messages)` and `call.stage_chat(append, replace_last)`.
 
 ---

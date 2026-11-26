@@ -1,4 +1,4 @@
-"""``model_type="chat"``: an answer refined over several turns."""
+"""``model_type="chat"`` (promptmap[extras]): an answer refined over several turns."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import pytest
 from click.testing import CliRunner
 
 import promptmap
-from promptmap.executor.chat import DEFAULT_CHAT_INSTRUCTION, build_messages, flatten_messages
+from promptmap_extra_model_kinds.chat_exec import DEFAULT_CHAT_INSTRUCTION, build_messages, flatten_messages
 from promptmap.storage import MemoryStorageBackend
 from promptmap.storage.sqlite import SQLiteStorageBackend
 
@@ -295,27 +295,6 @@ def test_flatten_numbers_follow_ups() -> None:
     text = flatten_messages(messages)
     assert "[follow-up 1]\nf1\n[/follow-up 1]" in text
     assert text.endswith("[follow-up 2]\nf2\n[/follow-up 2]")
-
-
-def test_litellm_sends_real_messages(monkeypatch) -> None:
-    from promptmap import llm as llm_module
-
-    captured: dict = {}
-
-    class Fake:
-        def completion(self, **kwargs):
-            captured.update(kwargs)
-
-            class R:
-                choices = [type("C", (), {"message": type("M", (), {"content": "ok"})()})()]
-                usage = None
-            return R()
-
-    monkeypatch.setattr(llm_module, "quiet_litellm", lambda: Fake())
-    call = llm_module.litellm_llm_call("openai", "gpt-x")
-    messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
-    call("flattened", messages=messages)
-    assert captured["messages"] == messages
 
 
 # -- CLI ------------------------------------------------------------------------

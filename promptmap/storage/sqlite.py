@@ -288,6 +288,19 @@ class SQLiteStorageBackend:
             ).fetchone()
         return row["llm_output"] if row else None
 
+    def get_latest_output(self, model_name: str, run_id: str | None = None) -> Optional[sqlite3.Row]:
+        """The latest successful row of *model_name* (in *run_id* when given):
+        ``run_id``, ``llm_output``, ``llm_output_validated``, ``completed_at``."""
+        with self.get_conn() as conn:
+            return conn.execute(
+                """SELECT run_id, llm_output, llm_output_validated, completed_at
+                   FROM model_results
+                   WHERE model_name = ? AND status = 'success' AND (? IS NULL OR run_id = ?)
+                   ORDER BY completed_at DESC, id DESC
+                   LIMIT 1""",
+                (model_name, run_id, run_id),
+            ).fetchone()
+
     def get_previous_result(
         self, model_name: str, template_hash: str | None, exclude_run_id: str | None = None
     ) -> Optional[sqlite3.Row]:

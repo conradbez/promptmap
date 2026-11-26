@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.15' and sys_platform == 'win32'",
@@ -2771,7 +2771,7 @@ wheels = [
 
 [[package]]
 name = "promptmap"
-version = "0.9.0"
+version = "0.9.1"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
@@ -2791,6 +2791,9 @@ dependencies = [
 [package.optional-dependencies]
 browser = [
     { name = "promptmap-extra-model-kinds", extra = ["browser"], marker = "python_full_version >= '3.11'" },
+]
+code = [
+    { name = "promptmap-code", marker = "python_full_version >= '3.11'" },
 ]
 extras = [
     { name = "promptmap-extra-model-kinds", marker = "python_full_version >= '3.11'" },
@@ -2819,6 +2822,7 @@ requires-dist = [
     { name = "litellm", specifier = "==1.109.1" },
     { name = "mini-swe-agent", specifier = ">=2.0" },
     { name = "networkx", specifier = ">=3.0" },
+    { name = "promptmap-code", marker = "python_full_version >= '3.11' and extra == 'code'", editable = "promptmap-code" },
     { name = "promptmap-extra-model-kinds", marker = "python_full_version >= '3.11' and extra == 'extras'", editable = "promptmap-extra-model-kinds" },
     { name = "promptmap-extra-model-kinds", extras = ["browser"], marker = "python_full_version >= '3.11' and extra == 'browser'", editable = "promptmap-extra-model-kinds" },
     { name = "promptmap-extra-model-kinds", extras = ["npm"], marker = "python_full_version >= '3.12' and extra == 'npm'", editable = "promptmap-extra-model-kinds" },
@@ -2828,7 +2832,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0" },
     { name = "tree-sitter-language-pack", specifier = ">=1.23" },
 ]
-provides-extras = ["extras", "browser", "npm"]
+provides-extras = ["extras", "browser", "npm", "code"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -2840,6 +2844,30 @@ dev = [
     { name = "python-multipart", specifier = ">=0.0.22" },
     { name = "uvicorn", specifier = ">=0.41.0" },
 ]
+
+[[package]]
+name = "promptmap-code"
+version = "0.1.0"
+source = { editable = "promptmap-code" }
+dependencies = [
+    { name = "click" },
+    { name = "mini-swe-agent" },
+    { name = "promptmap" },
+    { name = "promptmap-extra-model-kinds" },
+    { name = "rich" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.1" },
+    { name = "mini-swe-agent", specifier = ">=2.0" },
+    { name = "promptmap", editable = "." },
+    { name = "promptmap-extra-model-kinds", editable = "promptmap-extra-model-kinds" },
+    { name = "rich", specifier = ">=13.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8" }]
 
 [[package]]
 name = "promptmap-extra-model-kinds"

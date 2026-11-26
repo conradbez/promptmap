@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "promptmap"
-version = "0.9.0"
+version = "0.9.1"
 description = "A dbt-inspired prompt orchestration tool for LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -37,6 +37,8 @@ extras = ["promptmap-extra-model-kinds; python_version >= '3.11'"]
 browser = ["promptmap-extra-model-kinds[browser]; python_version >= '3.11'"]
 # agent_multi_harness's opencode / pi: npm-install their CLIs on first use.
 npm = ["promptmap-extra-model-kinds[npm]>=0.7.4; python_version >= '3.12'"]
+# pm-code: a CLI agent that builds pipelines of chat / coding_agent nodes.
+code = ["promptmap-code; python_version >= '3.11'"]
 
 [project.scripts]
 promptmap = "promptmap.cli:main"
@@ -61,6 +63,7 @@ dev = [
 
 [tool.uv.sources]
 promptmap-extra-model-kinds = { path = "promptmap-extra-model-kinds", editable = true }
+promptmap-code = { path = "promptmap-code", editable = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

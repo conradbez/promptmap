@@ -150,6 +150,19 @@ def test_last_reply_connects_and_sets_models_after_creating(ws):
     assert {st for _, st in s.apply("app")[0]} == {"unchanged"}
 
 
+def test_connect_between_coding_agents_continues_code(ws):
+    reply = ("### coding_agent: a\nmake a\n### coding_agent: b\nmake b\n### coding_agent: c\nmake c\n"
+             "### connect: a -> b\n### connect: c -> b\n")
+    s = Session(ws, llm_call=FakeLLM(reply))
+    s.create_chat("app", "Build.")
+    s.reply("app")
+    done = dict((c.label, st) for c, st in s.apply("app")[0])
+    assert done["connect a -> b"] == "continues code"
+    assert done["connect c -> b"].startswith("skipped") and "continues one other" in done["connect c -> b"]
+    assert 'inherit_coding_folder="a"' in ws.source("b")
+    assert dict((c.label, st) for c, st in s.apply("app")[0])["connect a -> b"] == "unchanged"
+
+
 def test_a_reply_cannot_change_its_own_chat(ws):
     s = Session(ws, llm_call=FakeLLM("### model: app -> openai/x\n### connect: other -> app"))
     ws.add_node("other", "x", {"model_type": "template"})

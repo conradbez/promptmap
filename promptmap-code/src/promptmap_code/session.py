@@ -55,7 +55,8 @@ MAX_CHATS = 5
 OUTPUT_TOOLS = {
     "coding_agent": "create (or update) a coding agent: '### coding_agent: <name>', the task under it",
     "chat": "create (or update) a chat: '### chat: <name>', what it should work out under it",
-    "connect": "feed one node's output into another: '### connect: <upstream> -> <downstream>'",
+    "connect": "feed one node's output into another; between two coding agents the downstream one continues "
+               "the upstream's code: '### connect: <upstream> -> <downstream>'",
     "model": "set a node's model: '### model: <node> -> <provider>/<model>'",
 }
 
@@ -79,6 +80,15 @@ latest answer is read, so always repeat every heading you still want.
 ### connect: <upstream node> -> <downstream node>
 
 ### model: <node> -> <provider>/<model>
+
+Each coding agent starts from an empty folder and its files are written into the
+project when it finishes. Coding agents that are not connected run at the same time:
+give them separate folders. When one needs another's files, connect them: between two
+coding agents, connect makes the downstream one continue the upstream's code. A coding
+agent continues at most one other, so chain dependent steps (a -> b -> c).
+
+model sets the LLM that runs a node (for a coding agent: the agent writing the code).
+It is not a model the software you are designing calls; put that in the task text.
 
 Give 1 to 5 coding_agent headings, chat headings only where a part is still open,
 and connect / model only when needed. Names use letters, digits, '_' and '-'. Every
@@ -320,7 +330,18 @@ class Session:
         if call.tool == "connect":
             if call.target == chat:
                 raise WorkspaceError(f"a chat's reply cannot change the chat itself; use /connect in '{chat}'.")
-            if call.name in self._node(call.target)["depends_on"]:
+            up, down = self._node(call.name), self._node(call.target)
+            if up["model_type"] == down["model_type"] == "coding_agent":
+                # Code builds on code: the downstream agent starts from the upstream's tree.
+                inherits = self.ws.construct().get_config(call.target).get("inherit_coding_folder")
+                if inherits == call.name:
+                    return "unchanged"
+                if inherits:
+                    raise WorkspaceError(f"'{call.target}' already continues '{inherits}'s code; "
+                                         "a coding agent continues one other.")
+                self.ws.connect(call.name, call.target, as_folder=True)
+                return "continues code"
+            if call.name in down["depends_on"]:
                 return "unchanged"
             self.ws.connect(call.name, call.target)
             return "connected"

@@ -56,8 +56,12 @@ Work out how tasks are stored.
   with `{{ ref('<chat>') }}`, so it reads the chat's whole answer. At most 5 of each.
   A later `/done` updates them from the newer reply and keeps their connected inputs.
   A name already used elsewhere in the map is skipped.
-- `connect` adds a `ref()` from one node to another.
-- `model` sets a node's model (`agent_model=` for a coding agent).
+- `connect` adds a `ref()` from one node to another. Between two coding agents it makes the
+  downstream one continue the upstream's code (`inherit_coding_folder`); each coding agent
+  continues at most one other, so dependent steps form a chain. Unconnected coding agents
+  each start from an empty folder and run at the same time.
+- `model` sets the LLM that runs a node (`agent_model=` for a coding agent), not a model
+  the software being built calls.
 - A reply cannot connect into, or change the model of, its own chat. Use `/connect` and `/model` for that.
 
 ## The map

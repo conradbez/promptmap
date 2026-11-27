@@ -91,6 +91,40 @@ Background research:
 Return only JSON: {"headings": ["..."], "key_claim": "..."}
 ```
 
+## Folders: a file named like its folder sums it up
+
+Folders group models; the folder is not part of the name (`2_build/parts.prompt`
+is `ref('parts')`), and names stay unique across the map. A file named like
+its folder is that **folder model**: every model directly inside the folder is
+appended to its end as `{{ ref('child') }}` unless it already refs that child.
+A sub-folder counts as one child, its own folder model.
+
+```
+map/
+  node_1/
+    node_1.prompt        # gets research, critique, node_a appended
+    research.prompt
+    critique.prompt
+    node_a/
+      node_a.prompt      # gets fact_1, fact_2 appended
+      fact_1.prompt
+      fact_2.prompt
+  final.prompt           # {{ ref('node_1') }} = the whole folder's result
+```
+
+Write the folder model as the instruction only ("Merge the findings below into
+one recommendation"); the inputs arrive after it. Files on disk are never
+edited. A child must not `ref()` its own folder model (cycle).
+
+## Ref tags: on by default
+
+Every `{{ ref('x') }}` an LLM sees arrives tagged so it can tell inputs apart:
+`[x]\n<output>\n[/x]`, so no need for your own delimiters around refs. Text you
+process stays plain: `ref('x') | upper`, `.split()`, JSON paths
+(`ref('m.key')`), `each=` items, and non-LLM kinds (`template`,
+`execute_python`). Off: `promptmap run --no-wrap-refs`; custom tags:
+`wrap_refs=lambda name, is_open: ...` in Python.
+
 ## Model types: `prompt`, `template`, `agent`, `coding_agent`
 
 Set with `{{ config(model_type="...") }}` at the top of the file.

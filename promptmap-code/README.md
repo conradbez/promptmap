@@ -37,6 +37,7 @@ pm-code todo                                  # go straight into chat 'todo' (ne
 | `/redo` | answer again now, e.g. after `/connect` or `/model` |
 | `/map` | where this chat sits in the pipeline |
 | `/intent`, `/history` | the original intent; the intent, refinements and replies |
+| `/instructions` | the system message every chat gets (`PM_CODE.md`) |
 | `/back`, empty line | back to the chat list (Ctrl-D quits) |
 
 ### pm tools (the chat, in its last reply)
@@ -63,6 +64,26 @@ Work out how tasks are stored.
 - `model` sets the LLM that runs a node (`agent_model=` for a coding agent), not a model
   the software being built calls.
 - A reply cannot connect into, or change the model of, its own chat. Use `/connect` and `/model` for that.
+
+## What a chat is told
+
+Each chat's conversation is:
+
+```
+system:     PM_CODE.md            ← what a chat can and cannot do, and the pm tools
+user:       original intent       ← the chat's .prompt file: your intent, the map, connected inputs
+assistant:  reply
+user:       refinement
+...
+```
+
+Every pm-code chat has `chat_instruction_file="PM_CODE.md"`, so all of them read the
+project's `PM_CODE.md` on every run. pm-code writes the default there when the file is
+missing. Edit it to change what every chat is told, existing chats included; `/instructions`
+shows it. Keep the pm tool headings in it, or `/done` has nothing to read.
+
+Chats from pm-code 0.2.0–0.2.2 carried a "How to finish" guide in their `.prompt` file.
+pm-code moves them to `PM_CODE.md` at startup. Chats it did not write are left alone.
 
 ## The map
 

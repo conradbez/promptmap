@@ -20,6 +20,13 @@ the LLM real ``user`` / ``assistant`` messages::
 
 Only the latest reply is the model's output.
 
+The system message is ``chat_instruction``, or the text of the file named by
+``chat_instruction_file`` (relative to the directory promptmap runs in — the
+project root), read on every run: many chats can share one instructions file,
+and editing it changes what all of them are told.  The file's text is part of
+the conversation sent, so editing it is a cache miss.  A missing file is an
+error, not a silent fallback.
+
 Rules
 -----
 - A run with a new follow-up (``run(chat_input={"model": "..."})``) appends
@@ -95,6 +102,21 @@ def _max_turns(value: Any) -> int | None:
     return int(value)
 
 
+def chat_instruction(config: dict) -> str | None:
+    """The system message: ``chat_instruction_file``'s text, else ``chat_instruction``, else the default."""
+    path = config.get("chat_instruction_file")
+    if path:
+        from pathlib import Path
+
+        file = Path(str(path)).expanduser()
+        if not file.is_file():
+            raise FileNotFoundError(
+                f"chat_instruction_file={str(path)!r}: no such file (relative to {Path.cwd()})."
+            )
+        return file.read_text(encoding="utf-8").strip()
+    return config.get("chat_instruction", DEFAULT_CHAT_INSTRUCTION)
+
+
 async def chat_exec(rendered: str, call: ModelCall) -> Any:
     """Send the request plus the thread to the LLM and stage the new turns."""
     config = call.spec.config
@@ -102,7 +124,7 @@ async def chat_exec(rendered: str, call: ModelCall) -> Any:
         rendered,
         call.chat_turns,
         call.chat_input,
-        config.get("chat_instruction", DEFAULT_CHAT_INSTRUCTION),
+        chat_instruction(config),
         _max_turns(config.get("max_turns")),
     )
     reply = await call.llm_messages(messages)
@@ -121,7 +143,7 @@ async def chat_exec(rendered: str, call: ModelCall) -> Any:
 KIND = register_model_kind(ModelKind(
     name="chat",
     exec_fn=chat_exec,
-    config_keys=frozenset({"chat_instruction", "max_turns"}),
+    config_keys=frozenset({"chat_instruction", "chat_instruction_file", "max_turns"}),
     accepts_global_instruction=True,
     chat=True,
 ))

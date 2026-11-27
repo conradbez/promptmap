@@ -1,8 +1,14 @@
 """
 pm-code's model of a project: chats you refine, and the pm tools their final replies call.
 
-A chat, in three parts
-----------------------
+A chat, in four parts
+---------------------
+0. **Instructions** (the system message): what a chat can and cannot do,
+   and how to call pm tools.  Every pm-code chat has
+   ``chat_instruction_file="PM_CODE.md"``, so they all read the project's
+   ``PM_CODE.md`` on every run; pm-code writes :data:`DEFAULT_INSTRUCTIONS`
+   there when the file is missing.  Edit it to change what every chat is
+   told.  The ``.prompt`` file holds none of it.
 1. **Original intent.** The chat's ``.prompt`` file is the first user message
    of the conversation: what the user set out to get, in their own words, as
    typed when the chat was created.  It is rendered fresh on every run (with
@@ -63,13 +69,37 @@ OUTPUT_TOOLS = {
 #: The map line added to every node pm-code writes.
 OUTLINE = "Where you are in the pipeline:\n{{ org_outline(up=0, used_by=False) }}"
 
-#: Appended to every chat's original intent: how to end the conversation.
-FINISH_GUIDE = """\
-## How to finish
-You are one chat in a pipeline that builds software. The text above is the user's
-original intent; their follow-ups refine it. Work out your part with them. Once it
-is clear, end your answer with the pm tools to call, each as a heading. Only your
-latest answer is read, so always repeat every heading you still want.
+#: The project file every pm-code chat reads as its system message.
+INSTRUCTIONS_FILE = "PM_CODE.md"
+
+#: What PM_CODE.md starts as: what a chat can and cannot do, and the pm tools.
+DEFAULT_INSTRUCTIONS = """\
+# pm-code chat instructions
+
+You are a chat in pm-code, a tool that builds software as a promptmap pipeline of
+chats and coding agents. This file is your system message; the user can edit it.
+
+## The conversation
+- The first user message is the user's **original intent**, followed by a map of where
+  you sit in the pipeline and the outputs of nodes you read.
+- Every later user message **refines** that intent. Where they conflict, the later one wins.
+- Only your **latest reply** is used. Always reply with the complete, updated answer,
+  never just the changes.
+
+## You can
+- Discuss, plan and decide with the user; ask questions when the intent is unclear.
+- Use what your first message contains: the intent, the map, connected nodes' outputs.
+- Call pm tools, by ending your reply with the headings below. They run when the user
+  types /done, and only the ones in your latest reply: repeat every heading you still want.
+
+## You cannot
+- Write, run or test code. Only coding agents change code.
+- See the project's files, the code folder or coding agents' results, unless a node
+  that holds them is connected to you.
+- Browse the web or call APIs.
+- Change your own inputs or model. The user does that with /connect and /model.
+
+## pm tools
 
 ### coding_agent: <name>
 <one self-contained coding task: what to build or change, file paths from the project root>
@@ -81,18 +111,35 @@ latest answer is read, so always repeat every heading you still want.
 
 ### model: <node> -> <provider>/<model>
 
-Each coding agent starts from an empty folder and its files are written into the
-project when it finishes. Coding agents that are not connected run at the same time:
-give them separate folders. When one needs another's files, connect them: between two
-coding agents, connect makes the downstream one continue the upstream's code. A coding
-agent continues at most one other, so chain dependent steps (a -> b -> c).
+- Give 1 to 5 coding_agent headings, chat headings only where a part is still open, and
+  connect / model only when needed. Names use letters, digits, '_' and '-'.
+- Every node you create receives your whole latest answer, so do not repeat shared
+  context in each task.
+- Each coding agent starts from an empty folder; its files are written into the project
+  when it finishes. Coding agents that are not connected run at the same time: give them
+  separate folders.
+- connect between two coding agents makes the downstream one continue the upstream's
+  code. A coding agent continues at most one other, so chain dependent steps (a -> b -> c).
+- model sets the LLM that runs a node (for a coding agent: the agent writing the code).
+  It is not a model the software you are designing calls; put that in the task text.
+- You cannot connect into, or set the model of, yourself.
+"""
 
-model sets the LLM that runs a node (for a coding agent: the agent writing the code).
-It is not a model the software you are designing calls; put that in the task text.
+#: The "## How to finish" guide pm-code 0.2.0-0.2.2 wrote into chats' .prompt files.
+_OLD_GUIDE = re.compile(r"\n*## How to finish\nYou are one chat in a pipeline.*?shared context in each one\.\n?",
+                        re.DOTALL)
 
-Give 1 to 5 coding_agent headings, chat headings only where a part is still open,
-and connect / model only when needed. Names use letters, digits, '_' and '-'. Every
-new node also receives your whole answer, so do not repeat shared context in each one."""
+
+def ensure_instructions(root) -> bool:
+    """Write :data:`DEFAULT_INSTRUCTIONS` to ``<root>/PM_CODE.md`` if missing; True when written."""
+    from pathlib import Path
+
+    path = Path(root) / INSTRUCTIONS_FILE
+    if path.exists():
+        return False
+    path.write_text(DEFAULT_INSTRUCTIONS, encoding="utf-8")
+    return True
+
 
 _HEADING = re.compile(r"^#{2,4}[ \t]*(coding_agent|chat|connect|model)[ \t]*:[ \t]*(.+?)[ \t]*$",
                       re.IGNORECASE | re.MULTILINE)
@@ -159,11 +206,13 @@ def parse_plan(reply: str) -> Plan:
 
 
 def chat_body(intent: str, parent: str | None = None) -> str:
-    """A chat's ``.prompt`` text: the original intent first, then the map, the parent, how to finish."""
+    """A chat's ``.prompt`` text: the original intent, the map and the parent's answer.
+
+    The instructions are not here: they are the system message, from PM_CODE.md.
+    """
     parts = [intent.strip(), OUTLINE]
     if parent:
         parts.append(_ref_block(parent))
-    parts.append(FINISH_GUIDE)
     return "\n\n".join(parts)
 
 
@@ -197,7 +246,42 @@ class Session:
     def create_chat(self, name: str, intent: str, parent: str | None = None) -> None:
         """A new chat whose ``.prompt`` file starts with *intent*: the user's original intent."""
         folder = self.child_folder(parent) if parent else ""
-        self.ws.add_chat_node(name, chat_body(intent, parent), folder=folder)
+        self._add_chat(name, chat_body(intent, parent), folder)
+
+    def _add_chat(self, name: str, body: str, folder: str) -> None:
+        ensure_instructions(self.ws.root)
+        self.ws.add_node(name, body, {"model_type": "chat", "chat_instruction_file": INSTRUCTIONS_FILE}, folder)
+
+    def instructions_path(self):
+        return self.ws.root / INSTRUCTIONS_FILE
+
+    def sync_chat(self, name: str) -> bool:
+        """Bring a chat pm-code wrote up to date: PM_CODE.md as its system message, no guide in its text.
+
+        Chats from pm-code 0.2.0-0.2.2 carry a "## How to finish" guide in their
+        .prompt file and no ``chat_instruction_file``.  Chats pm-code did not
+        write (no map line in their text) are left alone.  True when changed.
+        """
+        from promptmap.workspace import split_config
+
+        body = split_config(self.ws.source(name))[1]
+        if OUTLINE not in body:
+            return False
+        changed = False
+        stripped = _OLD_GUIDE.sub("\n", body).rstrip() + "\n"
+        if stripped != body.rstrip() + "\n":
+            self.ws.set_body(name, stripped)
+            changed = True
+        config = self.ws.construct().get_config(name)
+        if config.get("chat_instruction_file") != INSTRUCTIONS_FILE:
+            ensure_instructions(self.ws.root)
+            self.ws.set_config(name, chat_instruction_file=INSTRUCTIONS_FILE, chat_instruction=None)
+            changed = True
+        return changed
+
+    def sync_all(self) -> list[str]:
+        """:meth:`sync_chat` every chat; the names of those changed."""
+        return [n["name"] for n in self.chats() if self.sync_chat(n["name"])]
 
     def reply(self, name: str, refinement: str | None = None) -> str:
         """Send a *refinement* of the intent to chat *name*; returns its new, complete answer.
@@ -207,6 +291,7 @@ class Session:
         """
         import promptmap
 
+        ensure_instructions(self.ws.root)
         kwargs = {"chat_input": {name: refinement}} if refinement else {}
         value = self._run([name], **kwargs).get(name)
         if isinstance(value, promptmap.ModelError):
@@ -232,18 +317,9 @@ class Session:
     # -- slash tools ----------------------------------------------------------
 
     def connect_into(self, chat: str, upstream: str) -> str:
-        """Make *chat* read *upstream*: a ref() added after its intent, before the finish guide.
-
-        Returns what was added.
-        """
-        from promptmap.workspace import split_config
-
-        added = self.ws.connect(upstream, chat)
-        body = split_config(self.ws.source(chat))[1]
-        guide = "\n\n" + FINISH_GUIDE
-        if guide in body:
-            self.ws.set_body(chat, body.replace(guide, "", 1).rstrip() + guide)
-        return added
+        """Make *chat* read *upstream*: a ref() added after its intent. Returns what was added."""
+        self.sync_chat(chat)
+        return self.ws.connect(upstream, chat)
 
     def set_model(self, name: str, provider: str, model: str) -> None:
         """Give node *name* its own model; empty values go back to the project's.
@@ -367,6 +443,8 @@ class Session:
             if self.ws.source(call.name).endswith(body.rstrip() + "\n"):
                 return "unchanged"
             self.ws.set_body(call.name, body)
+            if call.tool == "chat":
+                self.sync_chat(call.name)
             return "updated"
         existing = {n["name"]: n for n in self.ws.nodes()}
         if call.name in existing:
@@ -375,7 +453,7 @@ class Session:
         if call.tool == "coding_agent":
             self.ws.add_coding_agent_node(call.name, body, folder=folder)
         else:
-            self.ws.add_chat_node(call.name, body, folder=folder)
+            self._add_chat(call.name, body, folder)
         return "created"
 
     def run(self, names: list[str]) -> dict[str, Any]:

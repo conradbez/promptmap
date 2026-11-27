@@ -364,6 +364,13 @@ def tool_history(session, chat: str, arg: str) -> None:
         console.print(f"[bold]{role}:[/bold] {escape(turn['content'])}\n")
 
 
+def tool_instructions(session, chat: str, arg: str) -> None:
+    path = session.instructions_path()
+    text = path.read_text(encoding="utf-8") if path.is_file() else "(missing: pm-code writes it on the next run)"
+    console.print(f"[bold]System message for every chat[/bold] [dim]({escape(str(path))}; edit it to change "
+                  f"what chats are told)[/dim]\n{escape(text)}")
+
+
 def tool_help(session, chat: str, arg: str) -> None:
     console.print("[dim]Type a refinement of the chat's intent, or a tool:[/dim]")
     for name, (help_, _) in SLASH.items():
@@ -381,6 +388,7 @@ SLASH: dict[str, tuple[str, Callable]] = {
     "map": ("where this chat sits in the pipeline", tool_map),
     "intent": ("show the original intent (the .prompt file)", tool_intent),
     "history": ("the intent, refinements and replies", tool_history),
+    "instructions": ("show the system message every chat gets (PM_CODE.md)", tool_instructions),
     "back": ("back to the chat list", None),
     "help": ("list the tools", tool_help),
 }
@@ -470,7 +478,14 @@ def main(chat, model, root, map_dir, code_dir):
         console.print(f"[green]{escape(note)}[/green]")
 
     workspace = Workspace(root_path, map_dir=map_dir, code_dir=code_dir)
+    from promptmap_code.session import INSTRUCTIONS_FILE, ensure_instructions
+
     session = Session(workspace, progress=NodeProgress())
+    if ensure_instructions(root_path):
+        console.print(f"[green]wrote {INSTRUCTIONS_FILE}: what every chat is told (edit it to change that)[/green]")
+    updated = session.sync_all()
+    if updated:
+        console.print(f"[green]moved the finish guide into {INSTRUCTIONS_FILE} for: {escape(', '.join(updated))}[/green]")
     console.print(f"[bold]pm-code[/bold] [dim]{escape(model_name)} · map {escape(str(workspace.root / map_dir))} "
                   f"· code {escape(str(workspace.code_dir))}[/dim]")
 

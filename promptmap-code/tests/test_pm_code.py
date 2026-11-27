@@ -6,7 +6,7 @@ import pytest
 from click.testing import CliRunner
 
 from promptmap.workspace import Workspace
-from promptmap_code.session import MAX_CODING_AGENTS, Session, parse_plan
+from promptmap_code.session import DEFAULT_INSTRUCTIONS, MAX_CODING_AGENTS, OUTLINE, Session, parse_plan
 
 FINAL = """Here is the plan for the todo app.
 
@@ -56,7 +56,9 @@ def test_a_chat_carries_the_map_and_the_finish_guide(ws):
     s.create_chat("app", "Build a todo app.")
     src = ws.source("app")
     assert 'model_type="chat"' in src or "model_type='chat'" in src
-    assert "{{ org_outline(up=0, used_by=False) }}" in src and "### coding_agent: <name>" in src
+    assert "{{ org_outline(up=0, used_by=False) }}" in src and "### coding_agent" not in src
+    assert 'chat_instruction_file="PM_CODE.md"' in src
+    assert (ws.root / "PM_CODE.md").read_text().startswith("# pm-code chat instructions")
 
 
 def test_final_reply_creates_children_that_ref_the_chat(ws):
@@ -171,6 +173,33 @@ def test_a_reply_cannot_change_its_own_chat(ws):
     assert all(st.startswith("skipped") for _, st in s.apply("app")[0])
 
 
+def test_the_system_message_is_pm_code_md(ws):
+    llm = FakeLLM("A", "B")
+    s = Session(ws, llm_call=llm)
+    s.create_chat("app", "Build.")
+    s.reply("app")
+    assert llm.calls[0][0] == {"role": "system", "content": DEFAULT_INSTRUCTIONS.strip()}
+    (ws.root / "PM_CODE.md").write_text("Project rules.")
+    s.reply("app")
+    assert llm.calls[1][0] == {"role": "system", "content": "Project rules."}
+
+
+def test_old_chats_are_migrated(ws):
+    old_guide = ("## How to finish\nYou are one chat in a pipeline that builds software.\n\n### coding_agent: <name>\n"
+                 "<task>\n\nEvery new node also receives your\nwhole answer, so do not repeat shared context in each one.")
+    body = f"Build.\n\n{OUTLINE}\n\n{old_guide}\n\nInput from notes:\n{{{{ ref('notes') }}}}"
+    ws.add_node("notes", "x", {"model_type": "template"})
+    ws.add_node("old", body, {"model_type": "chat"})
+    ws.add_node("mine", "My own chat.", {"model_type": "chat", "chat_instruction": "Be brief."})
+    s = Session(ws)
+    assert s.sync_all() == ["old"]
+    src = ws.source("old")
+    assert "How to finish" not in src and "ref('notes')" in src and s.intent("old") == "Build."
+    assert 'chat_instruction_file="PM_CODE.md"' in src
+    assert "Be brief." in ws.source("mine")  # chats pm-code did not write are left alone
+    assert s.sync_all() == []
+
+
 def test_intent_is_the_prompt_files_first_message(ws):
     s = Session(ws)
     s.create_chat("app", "Build a todo app.\nIn python.")
@@ -203,7 +232,7 @@ def test_slash_connect_and_model(ws, monkeypatch):
     monkeypatch.setattr(cli, "_choose", lambda label, options, allow_custom=False: options[0])
     cli.tool_connect(s, "app", "")
     src = ws.source("app")
-    assert src.index("ref('notes')") < src.index("## How to finish")  # inputs sit above the guide
+    assert "ref('notes')" in src and "How to finish" not in src
     assert s.intent("app") == "Build."
     cli.tool_model(s, "app", "openai/gpt-5")
     assert s.model_of("app") == "openai/gpt-5"

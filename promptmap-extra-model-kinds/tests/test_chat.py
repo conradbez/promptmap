@@ -90,6 +90,23 @@ def test_the_chat_instruction_is_the_system_message(storage) -> None:
     assert llm.sent[2][0]["role"] == "user"
 
 
+def test_chat_instruction_file_is_read_on_every_run(storage, tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "RULES.md").write_text("Rule one.\n")
+    llm = ChatLLM()
+    models = {"poem": "{{ config(model_type='chat', chat_instruction_file='RULES.md') }}Hi"}
+    _run(storage, llm, models=models)
+    assert llm.sent[0][0] == {"role": "system", "content": "Rule one."}
+    _run(storage, llm, models=models)
+    assert len(llm.sent) == 1  # unchanged file: a cache hit
+    (tmp_path / "RULES.md").write_text("Rule two.\n")
+    _run(storage, llm, models=models)
+    assert llm.sent[1][0] == {"role": "system", "content": "Rule two."}
+    (tmp_path / "RULES.md").unlink()
+    result = _run(storage, llm, models=models)
+    assert isinstance(result["poem"], promptmap.ModelError) and "RULES.md" in result["poem"].message
+
+
 def test_a_rerun_without_a_follow_up_replaces_the_last_reply(storage) -> None:
     llm = ChatLLM()
     _run(storage, llm)

@@ -726,6 +726,7 @@ A name in `chat_input` / `chat_reset` that isn't a chat model, or (for
 | `config()` key | Default | Meaning |
 | --- | --- | --- |
 | `chat_instruction` | "Only your most recent reply is passed on to the rest of the pipeline, so always reply with the complete, updated answer, never just the changes. Each follow-up amends your answer; where they conflict, the later one wins." | the system message; `false` sends none |
+| `chat_instruction_file` | none | a file (relative to the project root) whose text is the system message, read on every run; overrides `chat_instruction`. Many chats can share one file; editing it is a cache miss. A missing file is an error |
 | `max_turns` | none | send only the last N turns (the window never starts on a follow-up) |
 
 **LLM backends.** The default (settings.yml / LiteLLM) backend sends real

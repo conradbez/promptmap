@@ -87,6 +87,18 @@ def test_folder_model_may_sit_next_to_its_folder(tmp_path: Path) -> None:
     assert models["file2"].depends_on == ["y"]
 
 
+def test_children_that_ref_the_folder_model_are_downstream(tmp_path: Path) -> None:
+    # pm-code: a chat's nodes live in a folder named after it and ref() it.
+    write(tmp_path / "chat.prompt", "Plan it.")
+    write(tmp_path / "chat" / "agent_a.prompt", "Do A. {{ ref('chat') }}")
+    write(tmp_path / "chat" / "agent_b.prompt", "Do B after {{ ref('agent_a') }}")
+    write(tmp_path / "chat" / "notes.prompt", "Notes")
+    models = load_models(tmp_path)
+
+    assert models["chat"].depends_on == ["notes"]
+    assert models["agent_a"].depends_on == ["chat"]
+
+
 def test_folder_without_a_same_name_file_adds_nothing(tmp_path: Path) -> None:
     write(tmp_path / "stage" / "a.prompt", "A")
     write(tmp_path / "stage" / "b.prompt", "B")

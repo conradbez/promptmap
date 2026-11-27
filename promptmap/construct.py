@@ -159,14 +159,33 @@ def folder_children(paths: dict[str, str]) -> dict[str, list[str]]:
 
 
 def with_folder_refs(paths: dict[str, str], sources: dict[str, str]) -> dict[str, str]:
-    """Append ``{{ ref('child') }}`` to each folder model for children it does not ref() itself."""
+    """Append ``{{ ref('child') }}`` to each folder model for its children.
+
+    Skipped: children the folder model already refs, and children that depend
+    on the folder model themselves (directly or through other models) — those
+    are downstream of it, e.g. nodes a chat created in its own folder, and
+    reffing them would make a cycle.
+    """
     from promptmap.executor.parser_initial import extract_dependencies
+
+    deps = {n: set(extract_dependencies(src)) for n, src in sources.items()}
+
+    def reaches(start: str, target: str) -> bool:
+        seen, todo = set(), [start]
+        while todo:
+            n = todo.pop()
+            if n == target:
+                return True
+            if n not in seen:
+                seen.add(n)
+                todo.extend(deps.get(n, ()))
+        return False
 
     out = dict(sources)
     for owner, kids in folder_children(paths).items():
-        already = set(extract_dependencies(sources[owner]))
-        missing = [k for k in kids if k not in already]
+        missing = [k for k in kids if k not in deps[owner] and not reaches(k, owner)]
         if missing:
+            deps[owner].update(missing)
             out[owner] = sources[owner].rstrip("\n") + "\n\n" + "\n".join(
                 "{{ ref('%s') }}" % k for k in missing
             ) + "\n"

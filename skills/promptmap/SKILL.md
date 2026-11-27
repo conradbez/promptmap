@@ -115,7 +115,7 @@ map/
 
 Write the folder model as the instruction only ("Merge the findings below into
 one recommendation"); the inputs arrive after it. Files on disk are never
-edited. A child must not `ref()` its own folder model (cycle).
+edited. A child that `ref()`s its folder model is downstream of it and is not appended.
 
 ## Ref tags: on by default
 

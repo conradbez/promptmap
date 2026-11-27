@@ -64,7 +64,8 @@ map/
 ```
 
 Files in the folder come first, then sub-folders, each in alphabetical order.
-Your files on disk are never changed. A folder with no same-name file works as
+A child that already depends on the folder model (it `ref()`s it, directly
+or through other models) is downstream, so it is not appended. Your files on disk are never changed. A folder with no same-name file works as
 plain grouping.
 
 ### Ref tags

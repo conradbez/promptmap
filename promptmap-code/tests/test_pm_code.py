@@ -1,16 +1,36 @@
-"""pm-code: tools act through the Workspace; the agent loop drives them from tool calls."""
+"""pm-code: pick a chat, talk to it, and its final reply creates the next nodes."""
 
 from __future__ import annotations
-
-import json
-from types import SimpleNamespace
 
 import pytest
 from click.testing import CliRunner
 
 from promptmap.workspace import Workspace
-from promptmap_code.agent import PmCodeAgent, PromptmapEnvironment, ToolModel
-from promptmap_code.tools import TOOLS, Toolbox
+from promptmap_code.session import MAX_CODING_AGENTS, Session, parse_plan
+
+FINAL = """Here is the plan for the todo app.
+
+### coding_agent: build_cli
+Create todo.py with add, list and done commands.
+
+### coding_agent: `write_tests`
+Add tests/test_todo.py.
+
+### chat: storage
+Decide how tasks are stored.
+"""
+
+
+class FakeLLM:
+    """A scripted chat model: replies in order, recording the messages it was sent."""
+
+    def __init__(self, *replies):
+        self.replies = list(replies)
+        self.calls = []
+
+    def __call__(self, prompt, messages=None):
+        self.calls.append(messages)
+        return self.replies.pop(0) if self.replies else "ok"
 
 
 @pytest.fixture
@@ -19,115 +39,92 @@ def ws(tmp_path):
     return Workspace(tmp_path)
 
 
-@pytest.fixture
-def box(ws):
-    return Toolbox(ws)
+def test_parse_plan_reads_headings_and_limits():
+    plan = parse_plan(FINAL)
+    assert [(c.kind, c.name) for c in plan.children] == [
+        ("coding_agent", "build_cli"), ("coding_agent", "write_tests"), ("chat", "storage")]
+    assert plan.children[0].text == "Create todo.py with add, list and done commands."
+    many = "\n".join(f"## coding_agent: a{i}\ntask {i}" for i in range(MAX_CODING_AGENTS + 1))
+    plan = parse_plan(many + "\n## Coding_Agent: a0\nagain")
+    assert len(plan.children) == MAX_CODING_AGENTS
+    assert any("more than" in d for d in plan.dropped) and any("twice" in d for d in plan.dropped)
+    assert parse_plan("no headings here").children == []
 
 
-def test_every_tool_has_a_handler(box):
-    assert sorted(t["function"]["name"] for t in TOOLS) == sorted(box.names)
+def test_a_chat_carries_the_map_and_the_finish_guide(ws):
+    s = Session(ws)
+    s.create_chat("app", "Build a todo app.")
+    src = ws.source("app")
+    assert 'model_type="chat"' in src or "model_type='chat'" in src
+    assert "{{ org_outline(up=0, used_by=False) }}" in src and "### coding_agent: <name>" in src
 
 
-def test_build_and_inspect_a_pipeline(box, ws):
-    assert box.call("create_chat_node", {"name": "spec", "request": "Spec a todo CLI.", "folder": "1_plan"}).ok
-    assert box.call("create_coding_agent_node", {"name": "build", "task": "Build it.", "folder": "2_build"}).ok
-    r = box.call("connect_nodes", {"upstream": "spec", "downstream": "build"})
-    assert r.ok and "ref('spec')" in r.output
-    listing = box.call("list_nodes", {}).output
-    assert "build  [coding_agent]  2_build/build.prompt  <- spec" in listing
-    assert box.call("list_nodes", {"prefix": "1_plan/*"}).output.startswith("spec  [chat]")
-    assert box.call("rename_node", {"old": "spec", "new": "plan"}).ok
-    assert "ref('plan')" in box.call("show_node", {"name": "build"}).output
+def test_final_reply_creates_children_that_ref_the_chat(ws):
+    llm = FakeLLM("What storage?", FINAL)
+    s = Session(ws, llm_call=llm)
+    s.create_chat("app", "Build a todo app.")
+    assert s.reply("app") == "What storage?"
+    assert s.reply("app", "JSON file") == FINAL
+    assert llm.calls[-1][-1] == {"role": "user", "content": "JSON file"}
+
+    done, plan = s.spawn("app")
+    assert [(c.name, st) for c, st in done] == [
+        ("build_cli", "created"), ("write_tests", "created"), ("storage", "created")]
+    nodes = {n["name"]: n for n in ws.nodes()}
+    assert nodes["build_cli"]["path"] == "app/build_cli.prompt"
+    assert nodes["build_cli"]["model_type"] == "coding_agent"
+    assert nodes["storage"]["model_type"] == "chat"
+    assert all(nodes[n]["depends_on"] == ["app"] for n in ("build_cli", "write_tests", "storage"))
+    assert "Create todo.py" in ws.source("build_cli") and "ref('app')" in ws.source("build_cli")
+    assert {n["name"] for n in s.children("app")} == {"build_cli", "write_tests", "storage"}
+
+    # A child chat makes its own children one folder deeper.
+    assert s.child_folder("storage") == "app/storage"
+    # Spawning again from the same reply changes nothing.
+    assert {st for _, st in s.spawn("app")[0]} == {"unchanged"}
 
 
-def test_errors_come_back_as_failed_results(box):
-    r = box.call("show_node", {"name": "nope"})
-    assert not r.ok and "No model named 'nope'" in r.output
-    assert not box.call("no_such_tool", {}).ok
-    assert not box.call("show_node", {"wrong": 1}).ok
+def test_children_do_not_change_the_chats_prompt(ws):
+    """org_outline(up=0, used_by=False) leaves consumers out: the chat's reply is still a cache hit after spawning."""
+    llm = FakeLLM(FINAL, "SHOULD NOT BE ASKED")
+    s = Session(ws, llm_call=llm)
+    s.create_chat("app", "Build a todo app.")
+    s.reply("app")
+    s.spawn("app")
+    assert s.reply("app") == FINAL and len(llm.calls) == 1
 
 
-def test_jinja_tools(box):
-    box.call("create_chat_node", {"name": "n", "request": "Hi."})
-    assert "previous_of" in box.call("list_jinja_functions", {}).output
-    assert box.call("add_jinja", {"name": "n", "jinja": "{{ promptdata('tone') }}"}).ok
-    assert not box.call("add_jinja", {"name": "n", "jinja": "{% if %}"}).ok
+def test_spawn_skips_names_taken_elsewhere(ws):
+    s = Session(ws, llm_call=FakeLLM(FINAL))
+    ws.add_chat_node("storage", "elsewhere")
+    s.create_chat("app", "Build a todo app.")
+    s.reply("app")
+    status = dict((c.name, st) for c, st in s.spawn("app")[0])
+    assert status["storage"].startswith("skipped") and status["build_cli"] == "created"
 
 
-def test_read_code_dir_is_read_only_and_confined(box, ws):
-    (ws.code_dir / "app.py").write_text("print('hi')\n")
-    (ws.code_dir / ".git").mkdir()
-    (ws.code_dir / ".git" / "HEAD").write_text("x")
-    listing = box.call("read_code_dir", {}).output
-    assert "app.py" in listing and ".git" not in listing
-    assert box.call("read_code_dir", {"path": "app.py"}).output == "print('hi')\n"
-    assert "outside" in box.call("read_code_dir", {"path": "../"}).output
+def test_outline_marks_where_you_are(ws):
+    s = Session(ws, llm_call=FakeLLM(FINAL))
+    s.create_chat("app", "Build a todo app.")
+    s.reply("app")
+    s.spawn("app")
+    text = s.outline("app")
+    assert "app [you are here]" in text and "build_cli" in text and "- " in text
 
 
-def test_run_and_read_output(box, ws, monkeypatch):
-    box.call("create_chat_node", {"name": "spec", "request": "Spec."})
-    monkeypatch.setattr(ws, "run", lambda select=None, **kw: {"spec": "THE SPEC"})
-    assert box.call("run_nodes", {}).output == "spec: ok — THE SPEC"
-    assert "no successful output" in box.call("read_node_output", {"name": "spec"}).output
-
-
-# -- the agent loop, with scripted LLM replies ----------------------------------
-
-def _response(content=None, calls=()):
-    tool_calls = [SimpleNamespace(id=f"c{i}", type="function",
-                                  function=SimpleNamespace(name=name, arguments=json.dumps(args)))
-                  for i, (name, args) in enumerate(calls)]
-    message = SimpleNamespace(
-        tool_calls=tool_calls or None,
-        model_dump=lambda: {"role": "assistant", "content": content, "tool_calls": [
-            {"id": c.id, "type": "function", "function": {"name": c.function.name, "arguments": c.function.arguments}}
-            for c in tool_calls] or None},
-    )
-    choice = SimpleNamespace(message=message, finish_reason="tool_calls" if tool_calls else "stop")
-    return SimpleNamespace(choices=[choice], model_dump=lambda **_: {})
-
-
-def test_agent_calls_tools_until_it_answers(ws, monkeypatch):
-    script = [
-        _response(calls=[("create_chat_node", {"name": "spec", "request": "Spec."}),
-                         ("create_coding_agent_node", {"name": "build", "task": "Build."})]),
-        _response(calls=[("connect_nodes", {"upstream": "spec", "downstream": "build"})]),
-        _response(content="Pipeline ready: spec -> build."),
-    ]
-    sent = []
-
-    def fake_query(self, messages, **kw):
-        sent.append(messages)
-        return script.pop(0)
-
-    monkeypatch.setattr(ToolModel, "_query", fake_query)
-    seen = []
-    agent = PmCodeAgent(ToolModel(model_name="test/model"),
-                        PromptmapEnvironment(Toolbox(ws), on_action=lambda a, o: seen.append(a["tool"])))
-    assert agent.send("Build a todo app") == "Pipeline ready: spec -> build."
-    assert seen == ["create_chat_node", "create_coding_agent_node", "connect_nodes"]
-    assert [n["name"] for n in ws.nodes()] == ["build", "spec"]
-    assert ws.nodes()[0]["depends_on"] == ["spec"]
-    # tool results go back as role=tool messages answering each call
-    tool_msgs = [m for m in sent[-1] if m.get("role") == "tool"]
-    assert [m["tool_call_id"] for m in tool_msgs] == ["c0", "c1", "c0"]
-    assert sent[0][0]["role"] == "system" and str(ws.code_dir) in sent[0][0]["content"]
-
-
-def test_agent_stops_at_max_steps(ws, monkeypatch):
-    monkeypatch.setattr(ToolModel, "_query", lambda self, m, **kw: _response(calls=[("list_nodes", {})]))
-    agent = PmCodeAgent(ToolModel(model_name="test/model"), PromptmapEnvironment(Toolbox(ws)), max_steps=3)
-    assert "Stopped after 3 tool steps" in agent.send("loop")
-
-
-def test_cli_one_shot(tmp_path, monkeypatch):
+def test_cli_new_chat_done_and_quit(tmp_path, monkeypatch):
     from promptmap_code import cli
 
+    llm = FakeLLM(FINAL)
+    real_run = Workspace.run
+    monkeypatch.setattr(Workspace, "run", lambda self, select=None, **kw: real_run(self, select, llm_call=llm, **kw))
     monkeypatch.setenv("OPENAI_API_KEY", "test")
-    monkeypatch.setattr(ToolModel, "_query", lambda self, m, **kw: _response(content="Hello."))
-    result = CliRunner().invoke(cli.main, ["--root", str(tmp_path), "--model", "openai/gpt-test", "hi"])
+    keys = "app\nBuild a todo app.\n/done\nn\n\n\n"
+    result = CliRunner().invoke(cli.main, ["--root", str(tmp_path), "-m", "openai/gpt-test"], input=keys)
     assert result.exit_code == 0, result.output
-    assert "Hello." in result.output
+    assert "created chat 'app'" in result.output and "Here is the plan" in result.output
+    assert "created coding_agent build_cli" in result.output
+    assert (tmp_path / "map" / "app" / "build_cli.prompt").is_file()
     assert (tmp_path / "settings.yml").read_text() == "provider: openai\nmodel: gpt-test\n"
 
 
@@ -136,39 +133,9 @@ def test_cli_needs_a_model(tmp_path, monkeypatch):
 
     monkeypatch.delenv("PM_CODE_MODEL", raising=False)
     monkeypatch.delenv("MSWEA_MODEL_NAME", raising=False)
-    result = CliRunner().invoke(cli.main, ["--root", str(tmp_path), "hi"])
+    result = CliRunner().invoke(cli.main, ["--root", str(tmp_path)])
     assert result.exit_code == 2 and "no model" in result.output
 
-
-# -- system prompt layering ------------------------------------------------------
-
-def test_system_prompt_layers_rules_project_then_skill(ws):
-    from promptmap_code.agent import build_system_prompt
-
-    (ws.root / "PM_CODE.md").write_text("Always use Python 3.12.")
-    prompt = build_system_prompt(ws.code_dir, ws.root)
-    rules = prompt.index("You are pm-code")
-    project = prompt.index("Always use Python 3.12.")
-    skill = prompt.index("# Reference: the promptmap skill")
-    assert rules < project < skill
-    assert "{{ config(...) }}" in prompt and "name: promptmap" not in prompt  # formatted; frontmatter gone
-    assert "# Reference" not in build_system_prompt(ws.code_dir, ws.root, skill=False)
-
-
-def test_packaged_skill_matches_repo_copy():
-    from pathlib import Path
-
-    import promptmap_code
-
-    repo = Path(__file__).resolve().parents[2] / "skills" / "promptmap" / "SKILL.md"
-    packaged = Path(promptmap_code.__file__).parent / "promptmap_skill.md"
-    if not repo.is_file():
-        pytest.skip("not in the promptmap repo")
-    assert packaged.read_text() == repo.read_text(), (
-        "Copy skills/promptmap/SKILL.md to promptmap-code/src/promptmap_code/promptmap_skill.md")
-
-
-# -- progress while nodes run ----------------------------------------------------
 
 def test_run_reports_progress(ws):
     import asyncio
@@ -184,18 +151,13 @@ def test_run_reports_progress(ws):
 
         register_model_kind(ModelKind("stepper_test", stepper))
     events = []
-    box = Toolbox(ws, progress=lambda *e: events.append(e))
+    s = Session(ws, progress=lambda *e: events.append(e), llm_call=lambda p: "unused")
     ws.add_node("topic", "cats", {"model_type": "template"})
     ws.add_node("poem", "Poem about:", {"model_type": "stepper_test"})
     ws.connect("topic", "poem")
-
-    original = ws.run
-    ws.run = lambda select=None, **kw: original(select, llm_call=lambda p: "unused", **kw)
-    out = box.call("run_nodes", {"names": ["poem"]}).output
-    assert "poem: ok — POEM" in out
+    assert s.run(["poem"])["poem"] == "POEM"
     assert ("start", "poem", "") in events and ("step", "poem", "2/5") in events
     assert ("done", "poem", "success") in events
-    assert events.index(("start", "topic", "")) < events.index(("done", "topic", "success"))
 
 
 def test_cli_progress_printer():
@@ -226,17 +188,17 @@ def test_cli_fails_fast_on_a_missing_key(tmp_path, monkeypatch):
     from promptmap_code import cli
 
     monkeypatch.delenv("SARVAM_API_KEY", raising=False)
-    result = CliRunner().invoke(cli.main, ["--root", str(tmp_path), "-m", "sarvam/sarvam-m", "hi"])
+    result = CliRunner().invoke(cli.main, ["--root", str(tmp_path), "-m", "sarvam/sarvam-m"])
     assert result.exit_code == 2 and "SARVAM_API_KEY" in result.output
 
 
 def test_cli_loads_the_project_env(tmp_path, monkeypatch):
+    import os
+
     from promptmap_code import cli
 
     monkeypatch.delenv("SARVAM_API_KEY", raising=False)
     (tmp_path / ".env").write_text("SARVAM_API_KEY=from-dotenv\n")
-    monkeypatch.setattr(ToolModel, "_query", lambda self, m, **kw: _response(content="Hello."))
-    result = CliRunner().invoke(cli.main, ["--root", str(tmp_path), "-m", "sarvam/sarvam-m", "hi"])
+    result = CliRunner().invoke(cli.main, ["--root", str(tmp_path), "-m", "sarvam/sarvam-m"], input="\n")
     assert result.exit_code == 0, result.output
-    import os
     assert os.environ.pop("SARVAM_API_KEY") == "from-dotenv"

@@ -1,23 +1,24 @@
 """
-``pm-code`` — build software by building a promptmap pipeline, in conversation.
+``pm-code`` — pick a chat, talk it through, and let its final answer create the next nodes.
 
 ::
 
-    pm-code                              # chat in the terminal
-    pm-code "build a todo CLI in python" # one request, then exit
-    pm-code -i "build a todo CLI"        # one request, then keep chatting
+    pm-code              # pick a chat (or name a new one)
+    pm-code spec         # go straight into chat 'spec' (created if new)
+
+In a chat, each line is a follow-up.  ``/done`` reads the chat's final reply
+for ``### coding_agent: name`` and ``### chat: name`` headings and creates those
+nodes in the chat's folder, each ``ref()``ing the chat; then it offers to run
+the coding agents.  ``/map`` shows where the chat sits, ``/back`` returns to
+the list.
 
 The project is the current directory (``--root``): nodes go in ``map/``, runs in
-``.promptmap/``, and coding_agent nodes write code into ``--code-dir``
-(default: the current directory).
-
-The system prompt is pm-code's rules, then ``PM_CODE.md`` from the project root
-(if any), then promptmap's skill guide as reference (``--no-skill`` drops it).
+``.promptmap/``, and coding_agent nodes write code into ``--code-dir``.
 """
 
 from __future__ import annotations
 
-import json
+import json  # noqa: F401  (used by missing_api_keys)
 import os
 import sys
 from pathlib import Path
@@ -91,21 +92,6 @@ def ensure_project(root: Path, map_dir: str, model_name: str) -> list[str]:
     return notes
 
 
-def _announce(action: dict) -> None:
-    args = ", ".join(f"{k}={_short(v)}" for k, v in action.get("args", {}).items())
-    console.print(f"[cyan]⏺ {escape(action.get('tool', '?'))}[/cyan]([dim]{escape(args)}[/dim])")
-
-
-def _describe(action: dict, output: dict) -> None:
-    if output.get("returncode"):
-        console.print("  [red]⎿ failed:[/red]")
-    lines = str(output.get("output", "")).splitlines()
-    for line in lines[:6]:
-        console.print(f"  [dim]⎿ {escape(line[:160])}[/dim]")
-    if len(lines) > 6:
-        console.print(f"  [dim]⎿ … {len(lines) - 6} more lines[/dim]")
-
-
 class NodeProgress:
     """Prints node starts and finishes; a spinner shows the running nodes' agent steps."""
 
@@ -143,36 +129,179 @@ class NodeProgress:
             self.status.update(escape(text))
 
 
-def _short(value) -> str:
-    text = value if isinstance(value, str) else json.dumps(value)
-    text = " ".join(text.split())
-    return repr(text[:60] + "…") if len(text) > 60 else repr(text)
+
+
+HELP = ("[dim]Type a follow-up. /done: create the nodes the final reply names · /run: run this chat's coding "
+        "agents · /map · /history · /back · empty line: back to the list[/dim]")
+
+
+def _print_reply(text: str) -> None:
+    console.print()
+    console.print(escape(text))
+    console.print()
+
+
+def _ask(label: str) -> str | None:
+    """A line from the terminal; None on Ctrl-D / Ctrl-C."""
+    try:
+        return click.prompt(label, prompt_suffix="> ", default="", show_default=False).strip()
+    except (EOFError, click.Abort):
+        return None
+
+
+def _print_chats(session) -> list[str]:
+    chats = session.chats()
+    if not chats:
+        console.print("[dim]No chats yet.[/dim]")
+        return []
+    console.print("[bold]Chats[/bold]")
+    for i, n in enumerate(chats, 1):
+        depth = n["path"].count("/")
+        kids = session.children(n["name"])
+        note = f" [dim]→ {len(kids)} node{'s' if len(kids) != 1 else ''}[/dim]" if kids else ""
+        console.print(f"  {'  ' * depth}{i}. [cyan]{escape(n['name'])}[/cyan] [dim]{escape(n['path'])}[/dim]{note}")
+    return [n["name"] for n in chats]
+
+
+def select_chat(session) -> str | None:
+    """The chat list; returns the picked or newly created chat, or None to quit."""
+    names = _print_chats(session)
+    label = "Chat number or name (new name starts a chat; empty quits)" if names else "Name a new chat (empty quits)"
+    while True:
+        choice = _ask(label)
+        if not choice:
+            return None
+        if choice.isdigit() and 1 <= int(choice) <= len(names):
+            return names[int(choice) - 1]
+        if choice in names:
+            return choice
+        if new_chat(session, choice):
+            return choice
+
+
+def new_chat(session, name: str) -> bool:
+    from promptmap.workspace import WorkspaceError
+
+    request = _ask(f"What should '{name}' work out")
+    if not request:
+        return False
+    try:
+        session.create_chat(name, request)
+    except WorkspaceError as exc:
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
+        return False
+    console.print(f"[green]created chat '{escape(name)}'[/green]")
+    return True
+
+
+def spawn(session, chat: str) -> None:
+    from promptmap.workspace import WorkspaceError
+
+    try:
+        done, plan = session.spawn(chat)
+    except WorkspaceError as exc:
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
+        return
+    if not done:
+        console.print("[yellow]The final reply names no nodes.[/yellow] Ask the chat to finish with "
+                      "'### coding_agent: <name>' headings (and '### chat: <name>' for open parts).")
+    for child, status in done:
+        colour = "green" if status in ("created", "updated") else "dim" if status == "unchanged" else "yellow"
+        console.print(f"  [{colour}]{escape(status)}[/{colour}] {child.kind} [cyan]{escape(child.name)}[/cyan]")
+    for note in plan.dropped:
+        console.print(f"  [yellow]left out[/yellow] {escape(note)}")
+    agents = [c.name for c, s in done if c.kind == "coding_agent" and s in ("created", "updated")]
+    if agents and click.confirm(f"Run {len(agents)} coding agent{'s' if len(agents) > 1 else ''} now?",
+                                default=True):
+        run_nodes(session, agents)
+
+
+def run_nodes(session, names: list[str]) -> None:
+    import promptmap
+
+    try:
+        results = session.run(names)
+    except KeyboardInterrupt:
+        console.print("[yellow]Interrupted.[/yellow]")
+        return
+    except Exception as exc:  # noqa: BLE001 — shown, the session continues
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
+        return
+    for name in names:
+        value = results.get(name)
+        if isinstance(value, promptmap.ModelError):
+            console.print(f"[red]{escape(name)}: {escape(value.message)}[/red]")
+        else:
+            out = session.ws.output(name)
+            if out:
+                console.print(f"[bold]{escape(name)}[/bold]\n{escape(out)}")
+
+
+def chat_loop(session, chat: str) -> bool:
+    """Talk to *chat*; returns False to quit pm-code, True to go back to the list."""
+    from promptmap.workspace import WorkspaceError
+
+    def send(message: str | None) -> None:
+        try:
+            _print_reply(session.reply(chat, message))
+        except KeyboardInterrupt:
+            console.print("[yellow]Interrupted.[/yellow]")
+        except Exception as exc:  # noqa: BLE001 — shown, the session continues
+            console.print(f"[red]Error:[/red] {escape(str(exc))}")
+
+    console.print(f"\n[bold]{escape(chat)}[/bold]")
+    console.print(escape(session.outline(chat)))
+    if session.final(chat) is None:
+        send(None)
+    else:
+        _print_reply(session.final(chat))
+    console.print(HELP)
+    while True:
+        text = _ask(chat)
+        if text is None:
+            return False
+        if not text or text == "/back":
+            return True
+        if text == "/done":
+            spawn(session, chat)
+        elif text == "/run":
+            agents = [n["name"] for n in session.children(chat) if n["model_type"] == "coding_agent"]
+            if agents:
+                run_nodes(session, agents)
+            else:
+                console.print("[dim]No coding agents yet: /done creates them from the final reply.[/dim]")
+        elif text == "/map":
+            console.print(escape(session.outline(chat)))
+        elif text == "/history":
+            try:
+                for turn in session.history(chat):
+                    console.print(f"[bold]{turn['role']}:[/bold] {escape(turn['content'])}\n")
+            except WorkspaceError as exc:
+                console.print(f"[red]Error:[/red] {escape(str(exc))}")
+        elif text.startswith("/"):
+            console.print(HELP)
+        else:
+            send(text)
 
 
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
-@click.argument("request", required=False)
+@click.argument("chat", required=False)
 @click.option("--model", "-m", default=None, metavar="PROVIDER/MODEL",
-              help="LiteLLM model that drives pm-code. Default: settings.yml's, then $PM_CODE_MODEL.")
+              help="LiteLLM model for the nodes, written to settings.yml when the project has none. "
+                   "Default: settings.yml's, then $PM_CODE_MODEL.")
 @click.option("--root", default=".", show_default=True, type=click.Path(file_okay=False),
               help="The promptmap project (map/, settings.yml, .promptmap/).")
 @click.option("--map-dir", default="map", show_default=True, help="Directory of .prompt files, under --root.")
 @click.option("--code-dir", default=".", show_default=True,
               help="Where coding_agent nodes write their code, relative to --root.")
-@click.option("--max-steps", default=40, show_default=True, help="Most tool calls per request.")
-@click.option("--cost-limit", default=0.0, show_default=True, help="Stop pm-code itself after this many dollars (0: none).")
-@click.option("--no-skill", is_flag=True, help="Leave promptmap's skill guide out of the system prompt.")
-@click.option("-i", "--interactive", is_flag=True, help="Keep chatting after REQUEST.")
-@click.option("--log", "log_path", default=None, type=click.Path(dir_okay=False),
-              help="Write the conversation (with tool calls) to this JSON file on exit.")
-def main(request, model, root, map_dir, code_dir, max_steps, cost_limit, no_skill, interactive, log_path):
-    """Build a promptmap pipeline of chat and coding_agent nodes by talking to it.
+def main(chat, model, root, map_dir, code_dir):
+    """Pick a chat, talk it through, and turn its final answer into coding agents and more chats.
 
-    pm-code never writes files itself: it creates, connects, renames and runs
-    nodes through promptmap. Code appears in --code-dir when coding_agent nodes run.
+    CHAT goes straight into that chat (a new name starts one).
     """
     from promptmap.workspace import Workspace
 
-    from promptmap_code.agent import build_agent
+    from promptmap_code.session import Session
 
     root_path = Path(root).resolve()
     root_path.mkdir(parents=True, exist_ok=True)
@@ -191,42 +320,21 @@ def main(request, model, root, map_dir, code_dir, max_steps, cost_limit, no_skil
         console.print(f"[green]{escape(note)}[/green]")
 
     workspace = Workspace(root_path, map_dir=map_dir, code_dir=code_dir)
-    agent = build_agent(workspace, model_name, max_steps=max_steps, cost_limit=cost_limit,
-                        skill=not no_skill, on_action=_describe, on_progress=NodeProgress(),
-                        on_action_start=_announce)
+    session = Session(workspace, progress=NodeProgress())
     console.print(f"[bold]pm-code[/bold] [dim]{escape(model_name)} · map {escape(str(workspace.root / map_dir))} "
                   f"· code {escape(str(workspace.code_dir))}[/dim]")
 
-    def turn(text: str) -> None:
-        try:
-            reply = agent.send(text)
-        except KeyboardInterrupt:
-            console.print("[yellow]Interrupted.[/yellow]")
-            return
-        except Exception as exc:  # noqa: BLE001 — shown, the session continues
-            console.print(f"[red]Error:[/red] {escape(str(exc))}")
-            return
-        console.print()
-        console.print(escape(reply))
-        console.print()
-
-    try:
-        if request:
-            turn(request)
-            if not interactive:
+    current = chat
+    if current and not session.is_chat(current) and not new_chat(session, current):
+        current = None
+    while True:
+        if current is None:
+            current = select_chat(session)
+            if current is None:
                 return
-        console.print("[dim]Describe what to build. Empty line or Ctrl-D quits.[/dim]")
-        while True:
-            try:
-                text = click.prompt("", prompt_suffix="> ", default="", show_default=False)
-            except (EOFError, click.Abort):
-                break
-            if not text.strip():
-                break
-            turn(text)
-    finally:
-        if log_path:
-            Path(log_path).write_text(json.dumps(agent.log(), indent=2), encoding="utf-8")
+        if not chat_loop(session, current):
+            return
+        current = None
 
 
 if __name__ == "__main__":

@@ -1883,7 +1883,7 @@ wheels = [
 
 [[package]]
 name = "promptmap"
-version = "0.9.2"
+version = "0.9.3"
 source = { editable = "../" }
 dependencies = [
     { name = "click" },
@@ -1931,11 +1931,10 @@ dev = [
 
 [[package]]
 name = "promptmap-code"
-version = "0.1.2"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
-    { name = "mini-swe-agent" },
     { name = "promptmap" },
     { name = "promptmap-extra-model-kinds" },
     { name = "python-dotenv" },
@@ -1950,7 +1949,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.1" },
-    { name = "mini-swe-agent", specifier = ">=2.0" },
     { name = "promptmap", editable = "../" },
     { name = "promptmap-extra-model-kinds", editable = "../promptmap-extra-model-kinds" },
     { name = "python-dotenv", specifier = ">=1.0" },

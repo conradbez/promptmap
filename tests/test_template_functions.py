@@ -92,6 +92,12 @@ def test_outline_is_declarative_final_outputs_on_top():
     ])
 
 
+def test_used_by_false_leaves_consumers_out():
+    """up=0 still names hidden consumers; used_by=False drops them, so new consumers change nothing."""
+    assert outline("a", up=0) == "a (used by a2, a1) [you are here]\n- n1"
+    assert outline("a", up=0, used_by=False) == "a [you are here]\n- n1"
+
+
 def test_top_bullets_have_no_dependents():
     specs = build_models_from_dict(PIPELINE)
     dag = TemplateContext(specs=specs).dag

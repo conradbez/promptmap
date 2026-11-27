@@ -5,6 +5,7 @@
     {{ org_outline(up=1, down=1) }}           {# a window around me #}
     {{ org_outline(up=0, down=1, zoom=1) }}   {# window + the final outputs #}
     {{ org_outline(up=1, lines=2) }}          {# 2 template lines each #}
+    {{ org_outline(up=0, used_by=False) }}    {# me and my inputs; unchanged by new consumers #}
 
 The outline reads like a set of definitions: the top-level bullets are the
 pipeline's final outputs — models nothing ref()s — and under each model are
@@ -46,6 +47,11 @@ zoom:
 lines:
     How many lines of each model's raw template to show under its name —
     the first non-blank lines, with ``config()`` calls removed.  Default 0.
+used_by:
+    Name the consumers a top bullet hides in ``(used by ...)``.  Default
+    True.  With ``up=0, used_by=False`` the outline depends only on this
+    model's inputs, so adding a model that refs it does not change it (nor
+    this model's rendered prompt, nor its cache key).
 """
 
 from __future__ import annotations
@@ -63,6 +69,7 @@ def org_outline(
     down: int | None = None,
     zoom: int | None = None,
     lines: int = 0,
+    used_by: bool = True,
 ) -> str:
     import networkx as nx
 
@@ -115,11 +122,11 @@ def org_outline(
             notes.append(f"also refs {', '.join(extra)}")
         # A top bullet with hidden consumers is not a final output: name
         # them, minus those downstream of another one.
-        hidden = {c for c in dag.successors(node) if c not in shown} if level == 0 else set()
+        hidden = {c for c in dag.successors(node) if c not in shown} if level == 0 and used_by else set()
         downstream = set().union(*(nx.descendants(dag, c) for c in hidden))
-        used_by = sorted(hidden - downstream, key=order.get)
-        if used_by:
-            notes.append(f"used by {', '.join(used_by)}")
+        users = sorted(hidden - downstream, key=order.get)
+        if users:
+            notes.append(f"used by {', '.join(users)}")
 
         label = node + (f" ({'; '.join(notes)})" if notes else "")
         if node == me:

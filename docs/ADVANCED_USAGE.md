@@ -1167,6 +1167,7 @@ models it is built from.
 {{ org_outline(up=1, down=1) }}           {# a window around this model #}
 {{ org_outline(up=0, down=1, zoom=1) }}   {# that window plus the final outputs #}
 {{ org_outline(up=1, lines=2) }}          {# 2 template lines each #}
+{{ org_outline(up=0, used_by=False) }}    {# this model and its inputs only #}
 ```
 
 For `n1 → a, b`, `a, b → a1`, `a, n1 → a2`, as seen from `a2`:
@@ -1203,6 +1204,10 @@ n2
   summary (also refs side)
   ```
 - `lines=N` shows each model's first N raw template lines (default 0).
+- `used_by=False` drops the `(used by ...)` note. With `up=0` the outline then
+  depends only on this model's inputs: adding a model that refs this one does
+  not change its rendered prompt, so its cached output stays valid. `pm-code`
+  writes this into every node it creates.
 
 ## Writing your own model kind (`model_type=`)
 

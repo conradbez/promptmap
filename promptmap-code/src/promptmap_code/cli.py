@@ -6,11 +6,13 @@
     pm-code              # pick a chat (or name a new one)
     pm-code spec         # go straight into chat 'spec' (created if new)
 
-In a chat, each line is a follow-up.  ``/done`` reads the chat's final reply
-for ``### coding_agent: name`` and ``### chat: name`` headings and creates those
-nodes in the chat's folder, each ``ref()``ing the chat; then it offers to run
-the coding agents.  ``/map`` shows where the chat sits, ``/back`` returns to
-the list.
+A chat's ``.prompt`` file is the user's **original intent**: the first
+message of the conversation.  Each line typed in the chat is a
+**refinement**.  A line starting with ``/`` is a tool (typing ``/`` drops
+them down): ``/connect`` picks another node for the chat to read (nearest in
+the map first), ``/model`` changes the chat's model, ``/done`` calls the pm
+tools named in the chat's **last** reply (create coding agents and chats,
+connect nodes, set models; see :mod:`promptmap_code.session`).
 
 The project is the current directory (``--root``): nodes go in ``map/``, runs in
 ``.promptmap/``, and coding_agent nodes write code into ``--code-dir``.
@@ -22,6 +24,7 @@ import json  # noqa: F401  (used by missing_api_keys)
 import os
 import sys
 from pathlib import Path
+from typing import Callable
 
 import click
 from rich.console import Console
@@ -131,10 +134,6 @@ class NodeProgress:
 
 
 
-HELP = ("[dim]Type a follow-up. /done: create the nodes the final reply names · /run: run this chat's coding "
-        "agents · /map · /history · /back · empty line: back to the list[/dim]")
-
-
 def _print_reply(text: str) -> None:
     console.print()
     console.print(escape(text))
@@ -147,6 +146,44 @@ def _ask(label: str) -> str | None:
         return click.prompt(label, prompt_suffix="> ", default="", show_default=False).strip()
     except (EOFError, click.Abort):
         return None
+
+
+def _live_terminal() -> bool:
+    from promptmap.settings import _live_terminal as live
+
+    return live()
+
+
+def _ask_follow_up(chat: str) -> str | None:
+    """A refinement or a /tool; in a real terminal, typing '/' drops down the tools."""
+    if not _live_terminal():
+        return _ask(chat)
+    from prompt_toolkit import prompt
+    from prompt_toolkit.completion import Completer, Completion
+
+    class Tools(Completer):
+        def get_completions(self, document, complete_event):
+            text = document.text_before_cursor
+            if not text.startswith("/") or " " in text:
+                return
+            for name, (help_, _) in SLASH.items():
+                if name.startswith(text[1:]):
+                    yield Completion("/" + name, start_position=-len(text), display_meta=help_)
+
+    try:
+        return prompt(f"{chat}> ", completer=Tools(), complete_while_typing=True).strip()
+    except (EOFError, KeyboardInterrupt):
+        return None
+
+
+def _choose(label: str, options: list[str], allow_custom: bool = False) -> str:
+    """Searchable pick (promptmap's own picker): "" when skipped."""
+    from promptmap.settings import choose
+
+    try:
+        return choose(label, options, allow_custom=allow_custom)
+    except click.Abort:
+        return ""
 
 
 def _print_chats(session) -> list[str]:
@@ -180,40 +217,19 @@ def select_chat(session) -> str | None:
 
 
 def new_chat(session, name: str) -> bool:
+    """Ask for the chat's original intent: it becomes the chat's .prompt file (its first message)."""
     from promptmap.workspace import WorkspaceError
 
-    request = _ask(f"What should '{name}' work out")
-    if not request:
+    intent = _ask(f"What do you want from '{name}'")
+    if not intent:
         return False
     try:
-        session.create_chat(name, request)
+        session.create_chat(name, intent)
     except WorkspaceError as exc:
         console.print(f"[red]Error:[/red] {escape(str(exc))}")
         return False
     console.print(f"[green]created chat '{escape(name)}'[/green]")
     return True
-
-
-def spawn(session, chat: str) -> None:
-    from promptmap.workspace import WorkspaceError
-
-    try:
-        done, plan = session.spawn(chat)
-    except WorkspaceError as exc:
-        console.print(f"[red]Error:[/red] {escape(str(exc))}")
-        return
-    if not done:
-        console.print("[yellow]The final reply names no nodes.[/yellow] Ask the chat to finish with "
-                      "'### coding_agent: <name>' headings (and '### chat: <name>' for open parts).")
-    for child, status in done:
-        colour = "green" if status in ("created", "updated") else "dim" if status == "unchanged" else "yellow"
-        console.print(f"  [{colour}]{escape(status)}[/{colour}] {child.kind} [cyan]{escape(child.name)}[/cyan]")
-    for note in plan.dropped:
-        console.print(f"  [yellow]left out[/yellow] {escape(note)}")
-    agents = [c.name for c, s in done if c.kind == "coding_agent" and s in ("created", "updated")]
-    if agents and click.confirm(f"Run {len(agents)} coding agent{'s' if len(agents) > 1 else ''} now?",
-                                default=True):
-        run_nodes(session, agents)
 
 
 def run_nodes(session, names: list[str]) -> None:
@@ -237,51 +253,185 @@ def run_nodes(session, names: list[str]) -> None:
                 console.print(f"[bold]{escape(name)}[/bold]\n{escape(out)}")
 
 
-def chat_loop(session, chat: str) -> bool:
-    """Talk to *chat*; returns False to quit pm-code, True to go back to the list."""
+# -- slash tools: each takes (session, chat, argument) -------------------------------
+
+def _send(session, chat: str, refinement: str | None) -> None:
+    try:
+        _print_reply(session.reply(chat, refinement))
+    except KeyboardInterrupt:
+        console.print("[yellow]Interrupted.[/yellow]")
+        return
+    except Exception as exc:  # noqa: BLE001 — shown, the session continues
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
+        return
+    pending = session.pending(chat).calls
+    if pending:
+        console.print(f"[dim]{len(pending)} pm tool call{'s' if len(pending) > 1 else ''} in this reply "
+                      f"({escape(', '.join(c.label for c in pending))}). /done applies them.[/dim]")
+
+
+def tool_done(session, chat: str, arg: str) -> None:
     from promptmap.workspace import WorkspaceError
 
-    def send(message: str | None) -> None:
-        try:
-            _print_reply(session.reply(chat, message))
-        except KeyboardInterrupt:
-            console.print("[yellow]Interrupted.[/yellow]")
-        except Exception as exc:  # noqa: BLE001 — shown, the session continues
-            console.print(f"[red]Error:[/red] {escape(str(exc))}")
+    try:
+        done, plan = session.apply(chat)
+    except WorkspaceError as exc:
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
+        return
+    if not done:
+        console.print("[yellow]The last reply calls no pm tools.[/yellow] Ask the chat to finish with "
+                      "'### coding_agent: <name>' headings (and '### chat: <name>' for open parts).")
+    for call, status in done:
+        colour = "dim" if status == "unchanged" else "yellow" if status.startswith("skipped") else "green"
+        console.print(f"  [{colour}]{escape(status)}[/{colour}] {escape(call.label)}")
+    for note in plan.dropped:
+        console.print(f"  [yellow]left out[/yellow] {escape(note)}")
+    agents = [c.name for c, s in done if c.tool == "coding_agent" and s in ("created", "updated")]
+    if agents and click.confirm(f"Run {len(agents)} coding agent{'s' if len(agents) > 1 else ''} now?",
+                                default=True):
+        run_nodes(session, agents)
 
+
+def tool_run(session, chat: str, arg: str) -> None:
+    agents = [n["name"] for n in session.children(chat) if n["model_type"] == "coding_agent"]
+    if agents:
+        run_nodes(session, agents)
+    else:
+        console.print("[dim]No coding agents yet: /done creates them from the last reply.[/dim]")
+
+
+def tool_connect(session, chat: str, arg: str) -> None:
+    """Pick a node (nearest in the map first); the chat's intent gets a ref() to it."""
+    from promptmap.workspace import WorkspaceError
+
+    options = session.nearby(chat)
+    if not options:
+        console.print("[dim]No other nodes to connect.[/dim]")
+        return
+    node = arg if arg in options else _choose("Node", options)
+    if not node:
+        return
+    try:
+        added = session.connect_into(chat, node)
+    except WorkspaceError as exc:
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
+        return
+    console.print(f"[green]'{escape(chat)}' now reads '{escape(node)}'[/green] [dim]({escape(added.splitlines()[-1])})[/dim]")
+    console.print("[dim]Your next refinement uses it; /redo answers again now.[/dim]")
+
+
+def tool_model(session, chat: str, arg: str) -> None:
+    """Set the chat's own model (config provider= / model=); 'default' goes back to settings.yml's."""
+    from promptmap.settings import ask_model, ask_provider
+
+    current = session.model_of(chat) or "project default"
+    if arg == "default":
+        session.set_model(chat, "", "")
+        console.print(f"[green]'{escape(chat)}' uses the project's model[/green]")
+        return
+    if "/" in arg:
+        provider, _, model = arg.partition("/")
+    else:
+        console.print(f"[dim]Now: {escape(current)}. Empty skips.[/dim]")
+        try:
+            provider = ask_provider()
+            model = ask_model(provider) if provider else ""
+        except click.Abort:
+            return
+    if not provider or not model:
+        return
+    session.set_model(chat, provider, model)
+    console.print(f"[green]'{escape(chat)}' now uses {escape(provider)}/{escape(model)}[/green] "
+                  "[dim]Your next refinement uses it; /redo answers again now.[/dim]")
+
+
+def tool_redo(session, chat: str, arg: str) -> None:
+    _send(session, chat, None)
+
+
+def tool_map(session, chat: str, arg: str) -> None:
+    console.print(escape(session.outline(chat)))
+
+
+def tool_intent(session, chat: str, arg: str) -> None:
+    console.print(f"[bold]Original intent[/bold] [dim]({escape(session.path(chat))})[/dim]\n{escape(session.intent(chat))}")
+
+
+def tool_history(session, chat: str, arg: str) -> None:
+    console.print(f"[bold]intent:[/bold] {escape(session.intent(chat))}\n")
+    for turn in session.history(chat):
+        role = "refinement" if turn["role"] == "user" else "reply"
+        console.print(f"[bold]{role}:[/bold] {escape(turn['content'])}\n")
+
+
+def tool_help(session, chat: str, arg: str) -> None:
+    console.print("[dim]Type a refinement of the chat's intent, or a tool:[/dim]")
+    for name, (help_, _) in SLASH.items():
+        console.print(f"  [cyan]/{name}[/cyan] [dim]{escape(help_)}[/dim]")
+    console.print("  [dim]empty line: back to the chat list · Ctrl-D: quit[/dim]")
+
+
+#: Slash tools, in the order the dropdown and /help show them.
+SLASH: dict[str, tuple[str, Callable]] = {
+    "done": ("call the pm tools in the last reply (create nodes, connect, set models)", tool_done),
+    "connect": ("make this chat read another node: pick one, nearest first", tool_connect),
+    "model": ("change this chat's model ('/model default' resets it)", tool_model),
+    "run": ("run this chat's coding agents", tool_run),
+    "redo": ("answer again, e.g. after /connect or /model", tool_redo),
+    "map": ("where this chat sits in the pipeline", tool_map),
+    "intent": ("show the original intent (the .prompt file)", tool_intent),
+    "history": ("the intent, refinements and replies", tool_history),
+    "back": ("back to the chat list", None),
+    "help": ("list the tools", tool_help),
+}
+
+
+def resolve_tool(text: str) -> tuple[str | None, str]:
+    """('/con nodeA') -> ('connect', 'nodeA'): a tool name, a unique prefix or a pick from the list."""
+    from promptmap.settings import filter_options
+
+    word, _, arg = text[1:].strip().partition(" ")
+    if word in SLASH:
+        return word, arg.strip()
+    matches = [n for n in SLASH if n.startswith(word)] if word else []
+    if len(matches) == 1:
+        return matches[0], arg.strip()
+    picked = _choose("Tool", matches or filter_options(list(SLASH), word) or list(SLASH))
+    return (picked or None), arg.strip()
+
+
+def chat_loop(session, chat: str) -> bool:
+    """Talk to *chat*; returns False to quit pm-code, True to go back to the list.
+
+    The chat's .prompt file is the user's original intent (the first
+    message); each line typed here is a refinement of it, or a /tool.
+    """
     console.print(f"\n[bold]{escape(chat)}[/bold]")
     console.print(escape(session.outline(chat)))
+    console.print(f"[dim]Intent:[/dim] {escape(session.intent(chat))}")
     if session.final(chat) is None:
-        send(None)
+        _send(session, chat, None)
     else:
         _print_reply(session.final(chat))
-    console.print(HELP)
+    console.print("[dim]Type a refinement, or / for tools (/help). Empty line: back to the list.[/dim]")
     while True:
-        text = _ask(chat)
+        text = _ask_follow_up(chat)
         if text is None:
             return False
-        if not text or text == "/back":
+        if not text:
             return True
-        if text == "/done":
-            spawn(session, chat)
-        elif text == "/run":
-            agents = [n["name"] for n in session.children(chat) if n["model_type"] == "coding_agent"]
-            if agents:
-                run_nodes(session, agents)
-            else:
-                console.print("[dim]No coding agents yet: /done creates them from the final reply.[/dim]")
-        elif text == "/map":
-            console.print(escape(session.outline(chat)))
-        elif text == "/history":
-            try:
-                for turn in session.history(chat):
-                    console.print(f"[bold]{turn['role']}:[/bold] {escape(turn['content'])}\n")
-            except WorkspaceError as exc:
-                console.print(f"[red]Error:[/red] {escape(str(exc))}")
-        elif text.startswith("/"):
-            console.print(HELP)
-        else:
-            send(text)
+        if not text.startswith("/"):
+            _send(session, chat, text)
+            continue
+        name, arg = resolve_tool(text)
+        if name is None:
+            continue
+        if name == "back":
+            return True
+        try:
+            SLASH[name][1](session, chat, arg)
+        except Exception as exc:  # noqa: BLE001 — shown, the session continues
+            console.print(f"[red]Error:[/red] {escape(str(exc))}")
 
 
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})

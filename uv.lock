@@ -2847,7 +2847,7 @@ dev = [
 
 [[package]]
 name = "promptmap-code"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "promptmap-code" }
 dependencies = [
     { name = "click" },

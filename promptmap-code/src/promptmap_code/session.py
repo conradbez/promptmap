@@ -1,24 +1,42 @@
 """
-pm-code's model of a project: chat nodes you talk to, and the nodes their final answers create.
+pm-code's model of a project: chats you refine, and the pm tools their final replies call.
 
-A chat's **final** reply (its latest one, when you say ``/done``) is read for
-headings that name the nodes to make next::
+A chat, in three parts
+----------------------
+1. **Original intent.** The chat's ``.prompt`` file is the first user message
+   of the conversation: what the user set out to get, in their own words, as
+   typed when the chat was created.  It is rendered fresh on every run (with
+   its ``ref()``s), so changing what the chat reads — ``/connect`` — changes
+   this message, never the history.
+2. **Refinements.** Every follow-up the user types after that is a
+   refinement of the intent.  Follow-ups and replies live in the run
+   database (``chat_turns``), not in the file; the chat always answers with
+   its complete, updated answer.
+3. **pm tools.** Only the chat's **last** reply is evaluated, when the user
+   says ``/done``.  Headings in it call pm tools (:data:`OUTPUT_TOOLS`)::
 
-    ### coding_agent: build_cli
-    Create todo.py with add/list/done commands.
+       ### coding_agent: build_cli
+       Create todo.py with add, list and done commands.
 
-    ### chat: storage
-    Work out how tasks are stored.
+       ### chat: storage
+       Work out how tasks are stored.
 
-:meth:`Session.spawn` creates each one in the chat's own folder
-(``<chat's folder>/<chat>/``) with ``{{ ref('<chat>') }}``, so it reads the
-chat's whole answer.  At most :data:`MAX_CODING_AGENTS` coding agents and
-:data:`MAX_CHATS` chats per chat.
+       ### connect: storage -> build_cli
+       ### model: build_cli -> anthropic/claude-sonnet-5-5
 
-Every node pm-code writes carries ``{{ org_outline(up=0, used_by=False) }}``: a bullet map
-of where it sits — itself and the nodes it was built from.  ``up=0`` keeps
-consumers out, so making a chat's children does not change the chat's own
-prompt (which would regenerate its reply).
+   New nodes go in the chat's own folder (``<chat's folder>/<chat>/``) with
+   ``{{ ref('<chat>') }}``, so each reads the chat's whole answer.  At most
+   :data:`MAX_CODING_AGENTS` coding agents and :data:`MAX_CHATS` chats.
+   Earlier replies are never evaluated: a draft that named nodes creates none.
+
+The map
+-------
+Every node pm-code writes carries ``{{ org_outline(up=0, used_by=False) }}``:
+a bullet map of where it sits — itself and the nodes it was built from.
+``up=0, used_by=False`` keeps consumers out, so creating a chat's children
+does not change the chat's own prompt (which would regenerate its reply).
+:meth:`Session.nearby` orders other nodes by distance in that map, for the
+``/connect`` picker.
 """
 
 from __future__ import annotations
@@ -33,15 +51,24 @@ from promptmap.workspace import Workspace, WorkspaceError
 MAX_CODING_AGENTS = 5
 MAX_CHATS = 5
 
+#: The tools a chat's last reply can call, as ``### <tool>: <argument>`` headings.
+OUTPUT_TOOLS = {
+    "coding_agent": "create (or update) a coding agent: '### coding_agent: <name>', the task under it",
+    "chat": "create (or update) a chat: '### chat: <name>', what it should work out under it",
+    "connect": "feed one node's output into another: '### connect: <upstream> -> <downstream>'",
+    "model": "set a node's model: '### model: <node> -> <provider>/<model>'",
+}
+
 #: The map line added to every node pm-code writes.
 OUTLINE = "Where you are in the pipeline:\n{{ org_outline(up=0, used_by=False) }}"
 
-#: Appended to every chat's request: how to end the conversation.
+#: Appended to every chat's original intent: how to end the conversation.
 FINISH_GUIDE = """\
 ## How to finish
-You are one chat in a pipeline that builds software. Work out your part with the
-user. Once it is clear, end your answer with the nodes to create next, each under
-a heading of its own:
+You are one chat in a pipeline that builds software. The text above is the user's
+original intent; their follow-ups refine it. Work out your part with them. Once it
+is clear, end your answer with the pm tools to call, each as a heading. Only your
+latest answer is read, so always repeat every heading you still want.
 
 ### coding_agent: <name>
 <one self-contained coding task: what to build or change, file paths from the project root>
@@ -49,58 +76,81 @@ a heading of its own:
 ### chat: <name>
 <a part that needs its own discussion: what that chat should work out>
 
-Give 1 to 5 coding_agent headings, and chat headings only where a part is still
-open. Names use letters, digits, '_' and '-'. Every new node also receives your
-whole answer, so do not repeat shared context in each one."""
+### connect: <upstream node> -> <downstream node>
 
-_HEADING = re.compile(r"^#{2,4}[ \t]*(coding_agent|chat)[ \t]*:[ \t]*`?([A-Za-z0-9_-]+)`?[ \t]*$",
+### model: <node> -> <provider>/<model>
+
+Give 1 to 5 coding_agent headings, chat headings only where a part is still open,
+and connect / model only when needed. Names use letters, digits, '_' and '-'. Every
+new node also receives your whole answer, so do not repeat shared context in each one."""
+
+_HEADING = re.compile(r"^#{2,4}[ \t]*(coding_agent|chat|connect|model)[ \t]*:[ \t]*(.+?)[ \t]*$",
                       re.IGNORECASE | re.MULTILINE)
+_NAME = re.compile(r"^`?([A-Za-z0-9_-]+)`?$")
+#: A ref() block ``Workspace.connect`` appends: "Input from x:\n{{ ref('x') }}".
+_CONNECTED = re.compile(r"^Input from [^\n]*:\n\{\{ ref\('[^']+'\) \}\}$", re.MULTILINE)
+_ARROW = re.compile(r"^`?([A-Za-z0-9_-]+)`?\s*->\s*`?([^`\s]+)`?$")
 
 
 @dataclass
-class Child:
-    kind: str  # "coding_agent" or "chat"
-    name: str
-    text: str
+class Call:
+    """One pm tool call from a chat's last reply."""
+
+    tool: str  # a key of OUTPUT_TOOLS
+    name: str  # the node created / connected from / given a model
+    text: str = ""  # coding_agent task or chat request
+    target: str = ""  # connect: the downstream node; model: "provider/model"
+
+    @property
+    def label(self) -> str:
+        return f"{self.tool} {self.name}" + (f" -> {self.target}" if self.target else "")
 
 
 @dataclass
 class Plan:
-    children: list[Child]
-    #: Headings left out: over the limit, or a name used twice.
+    calls: list[Call]
+    #: Headings left out, with why: over the limit, a name used twice, malformed.
     dropped: list[str]
 
 
 def parse_plan(reply: str) -> Plan:
-    """The ``### coding_agent: name`` / ``### chat: name`` sections of *reply*."""
+    """The pm tool calls (``### tool: argument`` headings) in *reply*."""
     matches = list(_HEADING.finditer(reply or ""))
-    children: list[Child] = []
+    calls: list[Call] = []
     dropped: list[str] = []
-    seen: set[str] = set()
+    created: set[str] = set()
     counts = {"coding_agent": 0, "chat": 0}
     limits = {"coding_agent": MAX_CODING_AGENTS, "chat": MAX_CHATS}
     for i, m in enumerate(matches):
-        kind, name = m.group(1).lower(), m.group(2)
+        tool, arg = m.group(1).lower(), m.group(2)
         end = matches[i + 1].start() if i + 1 < len(matches) else len(reply)
         text = reply[m.end():end].strip()
-        if name in seen:
-            dropped.append(f"{kind} {name}: name used twice")
-            continue
-        if counts[kind] >= limits[kind]:
-            dropped.append(f"{kind} {name}: more than {limits[kind]}")
-            continue
-        if not text:
-            dropped.append(f"{kind} {name}: no text under the heading")
-            continue
-        seen.add(name)
-        counts[kind] += 1
-        children.append(Child(kind, name, text))
-    return Plan(children, dropped)
+        if tool in counts:
+            name = _NAME.match(arg)
+            if not name:
+                dropped.append(f"{tool} {arg}: not a node name")
+            elif name.group(1) in created:
+                dropped.append(f"{tool} {name.group(1)}: name used twice")
+            elif counts[tool] >= limits[tool]:
+                dropped.append(f"{tool} {name.group(1)}: more than {limits[tool]}")
+            elif not text:
+                dropped.append(f"{tool} {name.group(1)}: no text under the heading")
+            else:
+                created.add(name.group(1))
+                counts[tool] += 1
+                calls.append(Call(tool, name.group(1), text))
+        else:
+            pair = _ARROW.match(arg)
+            if pair:
+                calls.append(Call(tool, pair.group(1), target=pair.group(2)))
+            else:
+                dropped.append(f"{tool} {arg}: expected '<node> -> <{'node' if tool == 'connect' else 'provider/model'}>'")
+    return Plan(calls, dropped)
 
 
-def chat_body(request: str, parent: str | None = None) -> str:
-    """A chat node's text: the request, the map, the parent's answer, how to finish."""
-    parts = [request.strip(), OUTLINE]
+def chat_body(intent: str, parent: str | None = None) -> str:
+    """A chat's ``.prompt`` text: the original intent first, then the map, the parent, how to finish."""
+    parts = [intent.strip(), OUTLINE]
     if parent:
         parts.append(_ref_block(parent))
     parts.append(FINISH_GUIDE)
@@ -116,7 +166,7 @@ def _ref_block(parent: str) -> str:
 
 
 class Session:
-    """Chats, their final answers, and the nodes those create, on a :class:`Workspace`."""
+    """Chats, their refinements, and the pm tools their last replies call, on a :class:`Workspace`."""
 
     def __init__(self, workspace: Workspace, progress: Callable[[str, str, str], None] | None = None,
                  **run_kwargs: Any) -> None:
@@ -134,15 +184,20 @@ class Session:
     def is_chat(self, name: str) -> bool:
         return any(n["name"] == name for n in self.chats())
 
-    def create_chat(self, name: str, request: str, parent: str | None = None) -> None:
+    def create_chat(self, name: str, intent: str, parent: str | None = None) -> None:
+        """A new chat whose ``.prompt`` file starts with *intent*: the user's original intent."""
         folder = self.child_folder(parent) if parent else ""
-        self.ws.add_chat_node(name, chat_body(request, parent), folder=folder)
+        self.ws.add_chat_node(name, chat_body(intent, parent), folder=folder)
 
-    def reply(self, name: str, message: str | None = None) -> str:
-        """Send *message* to chat *name* (none: its first reply, or redo the last). Returns the reply."""
+    def reply(self, name: str, refinement: str | None = None) -> str:
+        """Send a *refinement* of the intent to chat *name*; returns its new, complete answer.
+
+        With none, the chat answers its original intent (first run) or redoes
+        its last reply — e.g. after ``/connect`` or ``/model`` changed what it reads.
+        """
         import promptmap
 
-        kwargs = {"chat_input": {name: message}} if message else {}
+        kwargs = {"chat_input": {name: refinement}} if refinement else {}
         value = self._run([name], **kwargs).get(name)
         if isinstance(value, promptmap.ModelError):
             raise WorkspaceError(value.message)
@@ -150,14 +205,82 @@ class Session:
             raise WorkspaceError(f"'{name}' was {value.value}.")
         return self.ws.output(name) or str(value)
 
+    def intent(self, name: str) -> str:
+        """The chat's original intent: its ``.prompt`` text, before the map and the finish guide."""
+        from promptmap.workspace import split_config
+
+        body = split_config(self.ws.source(name))[1]
+        return body.split("\n\n" + OUTLINE, 1)[0].strip()
+
     def history(self, name: str) -> list[dict]:
         return self.ws.chat_history(name)
 
     def final(self, name: str) -> str | None:
-        """The chat's latest reply: the one its children are made from."""
+        """The chat's last reply: the only one whose pm tool calls are evaluated."""
         return self.ws.output(name)
 
-    # -- what a final answer creates --------------------------------------------
+    # -- slash tools ----------------------------------------------------------
+
+    def connect_into(self, chat: str, upstream: str) -> str:
+        """Make *chat* read *upstream*: a ref() added after its intent, before the finish guide.
+
+        Returns what was added.
+        """
+        from promptmap.workspace import split_config
+
+        added = self.ws.connect(upstream, chat)
+        body = split_config(self.ws.source(chat))[1]
+        guide = "\n\n" + FINISH_GUIDE
+        if guide in body:
+            self.ws.set_body(chat, body.replace(guide, "", 1).rstrip() + guide)
+        return added
+
+    def set_model(self, name: str, provider: str, model: str) -> None:
+        """Give node *name* its own model; empty values go back to the project's.
+
+        Coding agents read ``agent_model="provider/model"``; chats and other
+        LLM nodes read ``provider=`` / ``model=``.
+        """
+        if self._node(name)["model_type"] == "coding_agent":
+            self.ws.set_config(name, agent_model=f"{provider}/{model}" if provider and model else None)
+        else:
+            self.ws.set_config(name, provider=provider or None, model=model or None)
+
+    def model_of(self, name: str) -> str:
+        """The node's own ``provider/model`` from its config, or "" for the project default."""
+        config = self.ws.construct().get_config(name)
+        if config.get("agent_model"):
+            return str(config["agent_model"])
+        provider, model = config.get("provider") or "", config.get("model") or ""
+        return f"{provider}/{model}" if provider and model else model
+
+    def path(self, name: str) -> str:
+        """The node's file, relative to the project root."""
+        return f"{self.ws.map_dir}/{self._node(name)['path']}"
+
+    def nearby(self, name: str) -> list[str]:
+        """Nodes *name* can ``ref()``, nearest first in the bullet map.
+
+        Distance is the number of ref() edges between the two nodes, either
+        direction; ties keep the order the full outline lists them in.  Nodes
+        not connected to *name* come last.  *name* itself, and nodes built on
+        it (a ref to one would make a cycle), are left out.
+        """
+        import networkx as nx
+
+        from promptmap.template_functions import dag_from_specs
+
+        c = self.ws.construct()
+        dag = dag_from_specs(c.specs())
+        if name not in dag:
+            return sorted(dag.nodes)
+        distance = nx.single_source_shortest_path_length(dag.to_undirected(), name)
+        outline_order = {n: i for i, n in enumerate(_outline_names(self.outline()))}
+        blocked = nx.descendants(dag, name) | {name}
+        candidates = [n for n in dag.nodes if n not in blocked]
+        return sorted(candidates, key=lambda n: (distance.get(n, len(dag) + 1), outline_order.get(n, len(dag)), n))
+
+    # -- what the last reply calls -----------------------------------------------
 
     def child_folder(self, chat: str) -> str:
         path = PurePosixPath(self._node(chat)["path"])
@@ -170,43 +293,69 @@ class Session:
         return [n for n in self.ws.nodes(folder)
                 if chat in n["depends_on"] and n["path"].count("/") == folder.count("/")]
 
-    def spawn(self, chat: str) -> tuple[list[tuple[Child, str]], Plan]:
-        """Create (or update) the nodes named in the chat's final reply.
+    def pending(self, chat: str) -> Plan:
+        """The pm tool calls in the chat's last reply, not yet applied."""
+        return parse_plan(self.final(chat) or "")
 
-        Returns ``[(child, "created" | "updated" | "skipped: why")]`` and the plan.
+    def apply(self, chat: str) -> tuple[list[tuple[Call, str]], Plan]:
+        """Call the pm tools named in the chat's last reply.
+
+        Nodes are created first, so connect / model can name them.  Returns
+        ``[(call, "created" | "updated" | "unchanged" | "connected" | "set" | "skipped: why")]``.
         """
         reply = self.final(chat)
         if reply is None:
             raise WorkspaceError(f"'{chat}' has no reply yet.")
         plan = parse_plan(reply)
-        mine = {n["name"]: n for n in self.children(chat)}
-        existing = {n["name"]: n for n in self.ws.nodes()}
-        folder = self.child_folder(chat)
-        done: list[tuple[Child, str]] = []
-        for child in plan.children:
-            body = (coding_agent_body(child.text, chat) if child.kind == "coding_agent"
-                    else chat_body(child.text, chat))
+        order = {"coding_agent": 0, "chat": 0, "connect": 1, "model": 2}
+        done = []
+        for call in sorted(plan.calls, key=lambda c: order[c.tool]):
             try:
-                if child.name in mine:
-                    if mine[child.name]["model_type"] != child.kind:
-                        done.append((child, f"skipped: it exists as a {mine[child.name]['model_type']}"))
-                        continue
-                    if self.ws.source(child.name).endswith(body.rstrip() + "\n"):
-                        done.append((child, "unchanged"))
-                        continue
-                    self.ws.set_body(child.name, body)
-                    done.append((child, "updated"))
-                elif child.name in existing:
-                    done.append((child, f"skipped: '{child.name}' already exists at {existing[child.name]['path']}"))
-                elif child.kind == "coding_agent":
-                    self.ws.add_coding_agent_node(child.name, body, folder=folder)
-                    done.append((child, "created"))
-                else:
-                    self.ws.add_chat_node(child.name, body, folder=folder)
-                    done.append((child, "created"))
+                done.append((call, self._apply_one(chat, call)))
             except WorkspaceError as exc:
-                done.append((child, f"skipped: {exc}"))
+                done.append((call, f"skipped: {exc}"))
         return done, plan
+
+    def _apply_one(self, chat: str, call: Call) -> str:
+        if call.tool == "connect":
+            if call.target == chat:
+                raise WorkspaceError(f"a chat's reply cannot change the chat itself; use /connect in '{chat}'.")
+            if call.name in self._node(call.target)["depends_on"]:
+                return "unchanged"
+            self.ws.connect(call.name, call.target)
+            return "connected"
+        if call.tool == "model":
+            if call.name == chat:
+                raise WorkspaceError(f"a chat's reply cannot change the chat itself; use /model in '{chat}'.")
+            provider, _, model = call.target.partition("/")
+            if not model:
+                raise WorkspaceError(f"'{call.target}' is not <provider>/<model>.")
+            self._node(call.name)
+            if self.model_of(call.name) == call.target:
+                return "unchanged"
+            self.set_model(call.name, provider, model)
+            return "set"
+
+        body = coding_agent_body(call.text, chat) if call.tool == "coding_agent" else chat_body(call.text, chat)
+        mine = {n["name"]: n for n in self.children(chat)}
+        if call.name in mine:
+            if mine[call.name]["model_type"] != call.tool:
+                raise WorkspaceError(f"it exists as a {mine[call.name]['model_type']}")
+            # Keep the inputs connected since (connect / /connect): they follow the body.
+            body = "\n\n".join([body, *_CONNECTED.findall(self.ws.source(call.name))])
+            if self.ws.source(call.name).endswith(body.rstrip() + "\n"):
+                return "unchanged"
+            self.ws.set_body(call.name, body)
+            return "updated"
+        existing = {n["name"]: n for n in self.ws.nodes()}
+        if call.name in existing:
+            raise WorkspaceError(f"'{call.name}' already exists at {existing[call.name]['path']}")
+        folder = self.child_folder(chat)
+        if call.tool == "coding_agent":
+            self.ws.add_coding_agent_node(call.name, body, folder=folder)
+        else:
+            self.ws.add_chat_node(call.name, body, folder=folder)
+        return "created"
 
     def run(self, names: list[str]) -> dict[str, Any]:
         """Run *names* (and their upstream), reporting progress."""
@@ -253,3 +402,13 @@ class Session:
                                on_model_done=done, **kwargs)
         finally:
             progress_listener.reset(token)
+
+
+def _outline_names(outline: str) -> list[str]:
+    """Node names in the order an outline lists them."""
+    names = []
+    for line in outline.splitlines():
+        token = line.strip().removeprefix("- ").split(" ", 1)[0]
+        if token and token not in names:
+            names.append(token)
+    return names

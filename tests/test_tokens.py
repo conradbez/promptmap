@@ -44,7 +44,7 @@ def storage(request, tmp_path):
 def test_llm_result_is_unwrapped_and_tokens_recorded(storage):
     run_id, results = run_once(storage)
     assert results["topic"].value == "re: Name a topic."
-    assert results["article"].value == "re: Write about re: Name a topic.."
+    assert results["article"].value == "re: Write about [topic]\nre: Name a topic.\n[/topic]."
     assert results["topic"].spent_tokens == 15
     assert results["topic"].cache_spent_tokens is None
     # A template makes no call, so its tokens stay unknown.

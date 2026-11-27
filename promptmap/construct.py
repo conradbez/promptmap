@@ -74,8 +74,10 @@ class Construct:
         """Parse every model into a ``ModelSpec`` (what ``load_models`` returns)."""
         from promptmap.executor.graph import _link_promptfile_deps, build_spec
 
+        sources = with_folder_refs({n: f.path for n, f in self.models.items()},
+                                   {n: f.source for n, f in self.models.items()})
         specs = {
-            name: build_spec(name, f.source, self.map_path / f.path)
+            name: build_spec(name, sources[name], self.map_path / f.path)
             for name, f in self.models.items()
         }
         return _link_promptfile_deps(specs)
@@ -125,6 +127,48 @@ class Construct:
 # ---------------------------------------------------------------------------
 # folder → construct
 # ---------------------------------------------------------------------------
+
+def folder_children(paths: dict[str, str]) -> dict[str, list[str]]:
+    """Map each folder model to the models directly inside its folder.
+
+    A folder model is a file named like its folder (``node_1/node_1.prompt``).
+    Its children are the other models in that folder plus the folder model of
+    each direct sub-folder (``node_1/node_a/node_a.prompt``) — never the files
+    deeper down, which reach it through that sub-folder's model.  *paths* maps
+    model name → path relative to the map dir.
+    """
+    by_dir: dict[str, str] = {}
+    for name, rel in paths.items():
+        parent = Path(rel).parent
+        if parent.name == name:
+            by_dir[parent.as_posix()] = name
+    children: dict[str, list[str]] = {owner: [] for owner in by_dir.values()}
+    # Files in the folder first, then sub-folders' models, each alphabetically.
+    for name, rel in sorted(paths.items(), key=lambda kv: (kv[1].count("/"), kv[1])):
+        parent = Path(rel).parent
+        if by_dir.get(parent.as_posix()) == name:
+            # A folder model belongs to the folder one level up.
+            parent = parent.parent
+        owner = by_dir.get(parent.as_posix())
+        if owner is not None and owner != name:
+            children[owner].append(name)
+    return children
+
+
+def with_folder_refs(paths: dict[str, str], sources: dict[str, str]) -> dict[str, str]:
+    """Append ``{{ ref('child') }}`` to each folder model for children it does not ref() itself."""
+    from promptmap.executor.parser_initial import extract_dependencies
+
+    out = dict(sources)
+    for owner, kids in folder_children(paths).items():
+        already = set(extract_dependencies(sources[owner]))
+        missing = [k for k in kids if k not in already]
+        if missing:
+            out[owner] = sources[owner].rstrip("\n") + "\n\n" + "\n".join(
+                "{{ ref('%s') }}" % k for k in missing
+            ) + "\n"
+    return out
+
 
 def model_name(path: Path) -> str:
     from promptmap.executor.graph import _prompt_name

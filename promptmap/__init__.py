@@ -175,7 +175,7 @@ async def async_run(
     on_model_done: Callable[[ModelRunResult], None] | None = None,
     secrets: Mapping[str, str] | None = None,
     cache_check: Callable[..., bool | Awaitable[bool]] | None = None,
-    wrap_refs: bool | Callable[[str, bool], str] | None = None,
+    wrap_refs: bool | Callable[[str, bool], str] | None = True,
     max_parallel: int = 4,
     chat_input: Mapping[str, str] | None = None,
     chat_reset: "Iterable[str] | None" = None,
@@ -256,7 +256,7 @@ async def async_run(
         ``secrets`` and ``model`` parameters.  Falls back to ``cache_check``
         in client.py.
     wrap_refs:
-        When truthy, the text each ``ref()`` returns is wrapped in tags naming
+        On by default: the text each ``ref()`` returns is wrapped in tags naming
         the referenced model, so the LLM can tell inputs apart::
 
             [outline]
@@ -265,7 +265,8 @@ async def async_run(
 
         Pass a callable ``(name, is_open) -> str`` to write the tags yourself,
         e.g. ``lambda name, is_open: f"<{'' if is_open else '/'}{name}>"``.
-        JSON and file outputs are passed through unwrapped.
+        JSON and file outputs are passed through unwrapped.  ``False`` turns
+        wrapping off.
     max_parallel:
         Most models running at once (default 4).  Models that do not depend
         on each other run concurrently, e.g. two independent coding agents;
@@ -532,7 +533,7 @@ def run(
     on_model_done: "Callable[[ModelRunResult], None] | None" = None,
     secrets: "Mapping[str, str] | None" = None,
     cache_check: "Callable[..., bool | Awaitable[bool]] | None" = None,
-    wrap_refs: "bool | Callable[[str, bool], str] | None" = None,
+    wrap_refs: "bool | Callable[[str, bool], str] | None" = True,
     max_parallel: int = 4,
     chat_input: "Mapping[str, str] | None" = None,
     chat_reset: "Iterable[str] | None" = None,

@@ -31,3 +31,69 @@ def test_same_name_in_two_folders_is_a_duplicate(tmp_path: Path) -> None:
     write(tmp_path / "b" / "parts.prompt", "y")
     with pytest.raises(ValueError, match="Duplicate model name 'parts'"):
         load_models(tmp_path)
+
+
+# -- folder inheritance ------------------------------------------------------
+
+def _tree(tmp_path: Path) -> None:
+    write(tmp_path / "intro.prompt", "Intro")
+    write(tmp_path / "node_1" / "node_1.prompt", "Summarise:")
+    write(tmp_path / "node_1" / "research.prompt", "R")
+    write(tmp_path / "node_1" / "critique.prompt", "C")
+    write(tmp_path / "node_1" / "node_a" / "node_a.prompt", "A")
+    write(tmp_path / "node_1" / "node_a" / "fact_1.prompt", "F1")
+    write(tmp_path / "node_1" / "node_a" / "fact_2.prompt", "F2")
+    write(tmp_path / "final.prompt", "{{ ref('node_1') }}")
+
+
+def test_folder_model_refs_its_direct_children(tmp_path: Path) -> None:
+    _tree(tmp_path)
+    models = load_models(tmp_path)
+
+    assert models["node_1"].depends_on == ["critique", "research", "node_a"]
+    assert models["node_a"].depends_on == ["fact_1", "fact_2"]
+    assert models["final"].depends_on == ["node_1"]
+    assert models["intro"].depends_on == []
+    assert models["node_1"].source.endswith(
+        "Summarise:\n\n{{ ref('critique') }}\n{{ ref('research') }}\n{{ ref('node_a') }}\n"
+    )
+
+
+def test_children_already_reffed_are_not_appended_again(tmp_path: Path) -> None:
+    write(tmp_path / "n" / "n.prompt", "Lead: {{ ref('a') }}")
+    write(tmp_path / "n" / "a.prompt", "A")
+    write(tmp_path / "n" / "b.prompt", "B")
+    models = load_models(tmp_path)
+
+    assert models["n"].depends_on == ["a", "b"]
+    assert models["n"].source.count("ref('a')") == 1
+
+
+def test_folder_without_a_same_name_file_adds_nothing(tmp_path: Path) -> None:
+    write(tmp_path / "stage" / "a.prompt", "A")
+    write(tmp_path / "stage" / "b.prompt", "B")
+    models = load_models(tmp_path)
+    assert models["a"].depends_on == [] and models["b"].depends_on == []
+
+
+def test_folder_inheritance_leaves_files_on_disk_alone(tmp_path: Path) -> None:
+    from promptmap.construct import construct_to_files, file_to_construct
+
+    _tree(tmp_path / "map")
+    c = file_to_construct(tmp_path)
+    c.specs()
+    construct_to_files(c)
+    assert (tmp_path / "map" / "node_1" / "node_1.prompt").read_text() == "Summarise:"
+
+
+def test_folder_model_renders_children_wrapped(tmp_path: Path) -> None:
+    import promptmap
+    from promptmap.storage import MemoryStorageBackend
+
+    _tree(tmp_path)
+    results = promptmap.run(str(tmp_path), llm_call=lambda prompt: prompt, verbose=False,
+                            storage_backend=MemoryStorageBackend())
+
+    assert "[node_a]\nA\n\n[fact_1]\nF1\n[/fact_1]" in results["node_1"]
+    assert "[research]\nR\n[/research]" in results["node_1"]
+    assert results["final"].startswith("[node_1]\nSummarise:")

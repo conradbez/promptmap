@@ -8,7 +8,7 @@ injecting upstream outputs via ref() and evaluating skip logic.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Collection
 
 from jinja2 import Environment, StrictUndefined, meta
 
@@ -135,6 +135,7 @@ def render_prompt(
     previous: PreviousRun | None = None,
     previous_of: "Callable[[str], PreviousRun | None] | None" = None,
     wrap_refs: "bool | Callable[[str, bool], str] | None" = None,
+    no_wrap: "Collection[str]" = (),
     template_context: TemplateContext | None = None,
 ) -> "tuple[str, _RenderState]":
     """
@@ -167,8 +168,11 @@ def render_prompt(
         runs only, so it adds no dependency on that model.  A None result
         (or no lookup at all) reaches the template as :data:`NO_PREVIOUS`.
     wrap_refs:
-        When truthy, every text value ``ref()`` returns is wrapped in tags
-        naming what was referenced: ``[name]\n<output>\n[/name]``.  Pass a
+        When truthy, a text value ``ref()`` returns is wrapped in tags naming
+        what was referenced, ``[name]\n<output>\n[/name]``, where the template
+        prints it as-is (``{{ ref('x') }}``).  Text the template processes
+        (``.split()``, filters), a JSON path (``ref('m.key')``) and the models
+        in *no_wrap* (an each= model's current item) stay unwrapped.  Pass a
         callable ``(name, is_open) -> str`` to produce the opening
         (``is_open=True``) and closing tags yourself.  Structured (JSON) and
         file values are returned unwrapped so ``ref('m').key`` keeps working.
@@ -196,8 +200,10 @@ def render_prompt(
                 "This is likely a missing dependency or execution-order bug."
             )
         value = jsonpath.resolve(model_outputs[name], steps, f"ref('{path}')")
-        if wrap_refs and isinstance(value, str):
-            return _wrap_ref(wrap_refs, path, value)
+        # A JSON path or an each= item is data picked out of an output, not
+        # a model's whole text, so it is never wrapped.
+        if wrap_refs and isinstance(value, str) and not steps and name not in no_wrap:
+            return RefText(value, _wrap_ref(wrap_refs, path, value))
         return value
 
     def _promptdata_fn(name: str):
@@ -267,6 +273,27 @@ def _previous_of_fn(lookup: "Callable[[str], PreviousRun | None] | None") -> Cal
     return previous_of
 
 
+class RefText(str):
+    """A ``ref()`` text value that knows its wrapped form.
+
+    It behaves as the plain output everywhere — ``.split()``, filters, ``each``
+    items, comparisons — and only an expression that prints it as-is
+    (``{{ ref('x') }}``) emits the tags, via the environment's ``finalize``.
+    String methods return plain ``str``, so processed text is never wrapped.
+    """
+
+    wrapped: str
+
+    def __new__(cls, value: str, wrapped: str) -> "RefText":
+        obj = super().__new__(cls, value)
+        obj.wrapped = wrapped
+        return obj
+
+
+def _finalize(value: Any) -> Any:
+    return value.wrapped if isinstance(value, RefText) else value
+
+
 def _wrap_ref(wrap_refs: "bool | Callable[[str, bool], str]", name: str, value: str) -> str:
     """Wrap *value* in the opening and closing tags for the referenced *name*."""
     if callable(wrap_refs):
@@ -314,4 +341,5 @@ def _make_env() -> Environment:
         comment_end_string="#}",
         trim_blocks=True,
         lstrip_blocks=True,
+        finalize=_finalize,
     )

@@ -79,7 +79,9 @@ def test_plan_refuses_bad_renames(project, old, new, msg):
 
 
 def test_cli_rename_keeps_the_cache(project):
-    run = lambda: CliRunner().invoke(main, ["run", "--no-color"])  # noqa: E731
+    # Wrapping off: with it on, the downstream prompt holds the tag "[draft]",
+    # which a rename changes, so that model would rightly re-run.
+    run = lambda: CliRunner().invoke(main, ["run", "--no-color", "--no-wrap-refs"])  # noqa: E731
     first = run()
     assert first.exit_code == 0, first.output
 

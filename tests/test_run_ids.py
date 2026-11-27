@@ -337,7 +337,7 @@ def test_cache_check_judges_a_changed_upstream_output(storage) -> None:
     _run(templates, storage, llm, **_topic("tea"))
     results = _run(templates, storage, llm, cache_check=check, **_topic("teas"))
 
-    assert check.asked == [("Slogan for teas", "Slogan for tea", "answer 1")]
+    assert check.asked == [("Slogan for [topic]\nteas\n[/topic]", "Slogan for [topic]\ntea\n[/topic]", "answer 1")]
     assert results["a"] == "answer 1"
 
 

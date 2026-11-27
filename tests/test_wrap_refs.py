@@ -34,10 +34,30 @@ async def _run(models: dict[str, str], llm, **kwargs) -> dict:
 CHAIN = {"topic": "Name a topic.", "essay": "Write about:\n{{ ref('topic') }}"}
 
 
-async def test_off_by_default() -> None:
+async def test_on_by_default() -> None:
     llm = RecordingLLM()
     await _run(CHAIN, llm)
+    assert llm.prompts[1] == "Write about:\n[topic]\nout\n[/topic]"
+
+
+async def test_false_turns_it_off() -> None:
+    llm = RecordingLLM()
+    await _run(CHAIN, llm, wrap_refs=False)
     assert llm.prompts[1] == "Write about:\nout"
+
+
+async def test_processed_text_is_not_wrapped() -> None:
+    llm = RecordingLLM()
+    models = {"topic": "Name a topic.", "a": "{{ ref('topic') | upper }}|{{ ref('topic').split('u')[0] }}"}
+    await _run(models, llm)
+    assert llm.prompts[1] == "OUT|o"
+
+
+async def test_template_kind_gets_plain_text() -> None:
+    llm = RecordingLLM()
+    models = {"topic": "Name a topic.", "t": "{{ config(model_type='template') }}got {{ ref('topic') }}"}
+    results = await _run(models, llm)
+    assert results["t"] == "got out"
 
 
 async def test_true_wraps_in_named_tags() -> None:
@@ -62,4 +82,5 @@ async def test_json_output_stays_structured() -> None:
     }
     await _run(models, llm, wrap_refs=True)
     assert "T" in llm.prompts
-    assert "[meta.title]\nT\n[/meta.title]" in llm.prompts
+    # A JSON path picks data out of an output, like .title — never wrapped.
+    assert llm.prompts.count("T") == 2

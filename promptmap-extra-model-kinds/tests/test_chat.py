@@ -39,6 +39,8 @@ def _models(topic: str = "cats", poem: str = POEM) -> dict[str, str]:
 
 
 def _run(storage, llm, models=None, **kwargs) -> dict:
+    # Plain ref() text keeps the expected turns readable; wrapping is tested in core.
+    kwargs.setdefault("wrap_refs", False)
     return promptmap.run(
         models_from_dict=models or _models(), storage_backend=storage, llm_call=llm,
         verbose=False, **kwargs,
@@ -170,7 +172,7 @@ def test_a_failing_validator_records_no_turns(storage, tmp_path) -> None:
     run_id = storage.create_run(model_count=2)
     results = asyncio.run(execute_run(
         run_id, list(specs.values()), storage, llm_call=llm,
-        validators={"poem": reject}, chat_input={"poem": "Shorter"},
+        validators={"poem": reject}, chat_input={"poem": "Shorter"}, wrap_refs=False,
     ))
     assert {r.model_name: r.status for r in results}["poem"] == "error"
     assert _chat(storage) == [("assistant", "reply 1")]

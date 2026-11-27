@@ -392,7 +392,7 @@ async def execute_run(
     skip_downstream: set[str] | None = None,
     secrets: Mapping[str, str] | None = None,
     cache_check: Callable[..., Any] | None = None,
-    wrap_refs: bool | Callable[[str, bool], str] | None = None,
+    wrap_refs: bool | Callable[[str, bool], str] | None = True,
     max_parallel: int = DEFAULT_MAX_PARALLEL,
     all_models: "Mapping[str, ModelSpec] | None" = None,
     chat_input: "Mapping[str, str] | None" = None,

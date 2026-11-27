@@ -248,10 +248,9 @@ def main() -> None:
     ),
 )
 @click.option(
-    "--wrap-refs",
-    is_flag=True,
-    default=False,
-    help="Wrap each ref() output in [model_name]...[/model_name] tags.",
+    "--wrap-refs/--no-wrap-refs",
+    default=True,
+    help="Wrap each ref() output in [model_name]...[/model_name] tags (default on).",
 )
 @click.option(
     "--threads", "-t",

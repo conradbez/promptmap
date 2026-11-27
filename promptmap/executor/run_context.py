@@ -187,7 +187,7 @@ class RunContext:
 
     #: Wrap each ref() output in ``[name]…[/name]`` tags — or, given a
     #: callable ``(name, is_open) -> str``, in the tags it returns.
-    wrap_refs: bool | Callable[[str, bool], str] | None = None
+    wrap_refs: bool | Callable[[str, bool], str] | None = True
 
     #: Run-scoped credentials.  Handed to kinds as ``call.secrets`` and to an
     #: ``llm_call`` that declares a ``secrets`` parameter — never to templates,
@@ -269,7 +269,8 @@ class RunContext:
             extra_context=extra_context,
             previous=self.previous_for(spec),
             previous_of=self.previous_of,
-            wrap_refs=self.wrap_refs,
+            wrap_refs=self.wrap_refs_for(spec),
+            no_wrap=tuple(extra_outputs or ()),
             template_context=self.template_context(spec.name),
         )
         state.extra_outputs = extra_outputs
@@ -409,6 +410,21 @@ class RunContext:
     def note(self, spec: ModelSpec, text: str) -> None:
         """Set a one-line header shown above a multi-prompt model's rendered text."""
         self._acct(spec.name).note = text
+
+    def wrap_refs_for(self, spec: ModelSpec) -> "bool | Callable[[str, bool], str] | None":
+        """Return the run's ``wrap_refs`` for *spec*, or False where tags would corrupt it.
+
+        Tags are for an LLM telling its inputs apart.  A kind whose rendered
+        text is the output (``exec_fn=None``, e.g. ``template``) or is not
+        natural language (``accepts_global_instruction=False``, e.g. Python
+        source) gets the plain text.
+        """
+        from promptmap.model_types import get_model_kind
+
+        kind = get_model_kind(spec.model_type)
+        if kind is not None and (kind.exec_fn is None or not kind.accepts_global_instruction):
+            return False
+        return self.wrap_refs
 
     def global_instruction_for(self, spec: ModelSpec) -> str | None:
         """Return the global instruction to render into *spec*, or None.

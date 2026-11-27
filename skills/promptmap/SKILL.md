@@ -242,7 +242,7 @@ Intermediate — `docs/INTERMEDIATE_USAGE.md`:
 | Pass runtime inputs (topic, audience) | `promptdata('key')`, `--promptdata k=v` | `#passing-variables-to-templates-promptdata` |
 | Attach PDFs/images to a model | `promptfiles` | `#passing-files-to-models-promptfiles` |
 | Pull search/RAG results into a prompt | `rag.py`, `rag_*()` kinds | `#rag-inside-prompts-ragpy` |
-| Organise many models | subfolders in `map/` | `#grouping-models-in-folders` |
+| Organise many models | subfolders in `map/`; `x/x.prompt` auto-refs its folder's models | `#grouping-models-in-folders` |
 | Skip a model conditionally | `skip_and_set_to_value()` | `#how-to-dynamically-skip-a-model` |
 | Change provider / model, model aliases | `settings.yml` (`aliases:`), `config(model=...)` | `#choosing-the-provider-and-model-settingsyml` |
 | Fully custom LLM call | `client.py` | `#customising-the-llm-backend-clientpy` |

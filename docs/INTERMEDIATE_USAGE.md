@@ -27,6 +27,48 @@ map/
     bom_line.prompt
 ```
 
+### Folder models: a file named like its folder
+
+A file with the same name as its folder (`node_1/node_1.prompt`) is that
+folder's model. Every model directly inside the folder is appended to the end
+of it as `{{ ref('child') }}`, unless the file already refs that child. A
+sub-folder counts as one child: its own folder model, which already holds
+everything below it. Elsewhere, `ref('node_1')` gets the whole folder's result.
+
+```
+map/
+  node_1/
+    node_1.prompt        # gets research, critique, node_a appended
+    research.prompt
+    critique.prompt
+    node_a/
+      node_a.prompt      # gets fact_1, fact_2 appended
+      fact_1.prompt
+      fact_2.prompt
+  final.prompt           # {{ ref('node_1') }}
+```
+
+Files in the folder come first, then sub-folders, each in alphabetical order.
+Your files on disk are never changed. A folder with no same-name file works as
+plain grouping.
+
+### Ref tags
+
+By default each `{{ ref('x') }}` an LLM sees is wrapped in tags so it can tell
+its inputs apart:
+
+```
+[research]
+<research's output>
+[/research]
+```
+
+Only a ref printed as-is gets tags. Text you process stays plain:
+`ref('x') | upper`, `.split()`, JSON paths like `ref('m.key')`, `each=`
+items, and kinds that make no LLM call (`template`, `execute_python`). Turn
+tags off with `promptmap run --no-wrap-refs` or `wrap_refs=False`. To use
+other tags, pass `wrap_refs=lambda name, is_open: ...` in Python.
+
 ---
 
 ## Passing variables to templates (`promptdata()`)

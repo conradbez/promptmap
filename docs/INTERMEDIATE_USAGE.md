@@ -29,8 +29,9 @@ map/
 
 ### Folder models: a file named like its folder
 
-A file with the same name as its folder (`node_1/node_1.prompt`) is that
-folder's model. Every model directly inside the folder is appended to the end
+A file with the same name as its folder is that folder's model. It can sit
+inside the folder (`node_1/node_1.prompt`) or next to it (`node_1.prompt`
+beside `node_1/`). Every model directly inside the folder is appended to the end
 of it as `{{ ref('child') }}`, unless the file already refs that child. A
 sub-folder counts as one child: its own folder model, which already holds
 everything below it. Elsewhere, `ref('node_1')` gets the whole folder's result.
@@ -46,6 +47,20 @@ map/
       fact_1.prompt
       fact_2.prompt
   final.prompt           # {{ ref('node_1') }}
+```
+
+The same tree with folder models next to their folders:
+
+```
+map/
+  node_1.prompt
+  node_1/
+    research.prompt
+    critique.prompt
+    node_a.prompt
+    node_a/
+      fact_1.prompt
+      fact_2.prompt
 ```
 
 Files in the folder come first, then sub-folders, each in alphabetical order.

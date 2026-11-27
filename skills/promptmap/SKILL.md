@@ -95,7 +95,8 @@ Return only JSON: {"headings": ["..."], "key_claim": "..."}
 
 Folders group models; the folder is not part of the name (`2_build/parts.prompt`
 is `ref('parts')`), and names stay unique across the map. A file named like
-its folder is that **folder model**: every model directly inside the folder is
+its folder, inside it (`node_1/node_1.prompt`) or next to it (`node_1.prompt`
+beside `node_1/`), is that **folder model**: every model directly inside the folder is
 appended to its end as `{{ ref('child') }}` unless it already refs that child.
 A sub-folder counts as one child, its own folder model.
 
@@ -276,7 +277,7 @@ Intermediate — `docs/INTERMEDIATE_USAGE.md`:
 | Pass runtime inputs (topic, audience) | `promptdata('key')`, `--promptdata k=v` | `#passing-variables-to-templates-promptdata` |
 | Attach PDFs/images to a model | `promptfiles` | `#passing-files-to-models-promptfiles` |
 | Pull search/RAG results into a prompt | `rag.py`, `rag_*()` kinds | `#rag-inside-prompts-ragpy` |
-| Organise many models | subfolders in `map/`; `x/x.prompt` auto-refs its folder's models | `#grouping-models-in-folders` |
+| Organise many models | subfolders in `map/`; `x/x.prompt` or `x.prompt` beside `x/` auto-refs the folder's models | `#grouping-models-in-folders` |
 | Skip a model conditionally | `skip_and_set_to_value()` | `#how-to-dynamically-skip-a-model` |
 | Change provider / model, model aliases | `settings.yml` (`aliases:`), `config(model=...)` | `#choosing-the-provider-and-model-settingsyml` |
 | Fully custom LLM call | `client.py` | `#customising-the-llm-backend-clientpy` |

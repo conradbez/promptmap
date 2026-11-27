@@ -69,6 +69,24 @@ def test_children_already_reffed_are_not_appended_again(tmp_path: Path) -> None:
     assert models["n"].source.count("ref('a')") == 1
 
 
+def test_folder_model_may_sit_next_to_its_folder(tmp_path: Path) -> None:
+    write(tmp_path / "file1.prompt", "Sum up:")
+    write(tmp_path / "file1" / "filea.prompt", "A")
+    write(tmp_path / "file1" / "fileb.prompt", "B")
+    write(tmp_path / "file1" / "sub.prompt", "S")
+    write(tmp_path / "file1" / "sub" / "x.prompt", "X")
+    write(tmp_path / "top" / "top.prompt", "Top:")
+    write(tmp_path / "top" / "file2.prompt", "F2")
+    write(tmp_path / "top" / "file2" / "y.prompt", "Y")
+    models = load_models(tmp_path)
+
+    assert models["file1"].depends_on == ["filea", "fileb", "sub"]
+    assert models["sub"].depends_on == ["x"]
+    # A sibling folder model counts as its folder inside the folder above.
+    assert models["top"].depends_on == ["file2"]
+    assert models["file2"].depends_on == ["y"]
+
+
 def test_folder_without_a_same_name_file_adds_nothing(tmp_path: Path) -> None:
     write(tmp_path / "stage" / "a.prompt", "A")
     write(tmp_path / "stage" / "b.prompt", "B")

@@ -131,25 +131,28 @@ class Construct:
 def folder_children(paths: dict[str, str]) -> dict[str, list[str]]:
     """Map each folder model to the models directly inside its folder.
 
-    A folder model is a file named like its folder (``node_1/node_1.prompt``).
-    Its children are the other models in that folder plus the folder model of
-    each direct sub-folder (``node_1/node_a/node_a.prompt``) — never the files
-    deeper down, which reach it through that sub-folder's model.  *paths* maps
-    model name → path relative to the map dir.
+    A folder model is a file named like its folder, either inside it
+    (``node_1/node_1.prompt``) or next to it (``node_1.prompt`` beside
+    ``node_1/``).  Its children are the other models in that folder plus the
+    folder model of each direct sub-folder — never the files deeper down,
+    which reach it through that sub-folder's model.  *paths* maps model
+    name → path relative to the map dir.
     """
-    by_dir: dict[str, str] = {}
+    dirs = {d.as_posix() for rel in paths.values() for d in Path(rel).parents}
+    owned: dict[str, Path] = {}  # folder model name → the folder it sums up
     for name, rel in paths.items():
         parent = Path(rel).parent
         if parent.name == name:
-            by_dir[parent.as_posix()] = name
-    children: dict[str, list[str]] = {owner: [] for owner in by_dir.values()}
+            owned[name] = parent
+        elif (parent / name).as_posix() in dirs:
+            owned[name] = parent / name
+    by_dir = {d.as_posix(): name for name, d in owned.items()}
+    children: dict[str, list[str]] = {owner: [] for owner in owned}
     # Files in the folder first, then sub-folders' models, each alphabetically.
-    for name, rel in sorted(paths.items(), key=lambda kv: (kv[1].count("/"), kv[1])):
-        parent = Path(rel).parent
-        if by_dir.get(parent.as_posix()) == name:
-            # A folder model belongs to the folder one level up.
-            parent = parent.parent
-        owner = by_dir.get(parent.as_posix())
+    for name, rel in sorted(paths.items(), key=lambda kv: (kv[0] in owned, kv[1])):
+        # A folder model belongs to the folder its own folder sits in.
+        home = owned[name].parent if name in owned else Path(rel).parent
+        owner = by_dir.get(home.as_posix())
         if owner is not None and owner != name:
             children[owner].append(name)
     return children

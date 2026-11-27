@@ -1883,7 +1883,7 @@ wheels = [
 
 [[package]]
 name = "promptmap"
-version = "0.9.3"
+version = "0.9.4"
 source = { editable = "../" }
 dependencies = [
     { name = "click" },
@@ -1931,7 +1931,7 @@ dev = [
 
 [[package]]
 name = "promptmap-code"
-version = "0.2.3"
+version = "0.2.4"
 source = { editable = "." }
 dependencies = [
     { name = "click" },

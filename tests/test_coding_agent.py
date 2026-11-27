@@ -1069,3 +1069,33 @@ def test_no_project_no_instructions(tmp_path, agent, jev, llm, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "AGENTS.md").write_text("cwd rules")
     assert "cwd rules" not in _run_maker(tmp_path, agent, {})
+
+
+def test_an_agent_continues_the_first_coding_agent_it_refs(tmp_path, monkeypatch, jev):
+    """No inherit_coding_folder: the first ref()'d coding_agent's tree is the input; false opts out."""
+    from promptmap.executor import build_models_from_dict, execute_run
+    from promptmap.storage.memory import MemoryStorageBackend
+
+    def exec_agent(task, call):
+        ws = Path(call.spec.config["agent_dir"])
+        (ws / f"{call.spec.name}.py").write_text(f"# {call.spec.name}\n")
+        return json.dumps({"output": f"made {call.spec.name}.py", "logs": [], "time_run": 0.0})
+
+    monkeypatch.setattr(fa, "_exec_agent", exec_agent)
+    agent = f'{{{{ config(model_type="{fa.NAME}") }}}}'
+    models = {
+        "api": agent + "write the api",
+        "ui": agent + "write the ui",
+        "tests": agent + "test it. {{ ref('api.output') }} {{ ref('ui.output') }}",
+        "fresh": f'{{{{ config(model_type="{fa.NAME}", inherit_coding_folder=false) }}}}'
+                 "new thing. {{ ref('api.output') }}",
+    }
+    storage = MemoryStorageBackend()
+    storage.init_db()
+    specs = list(build_models_from_dict(models).values())
+    run_id = storage.create_run(model_count=len(specs))
+    results = {r.model_name: r for r in asyncio.run(execute_run(
+        run_id=run_id, ordered_models=specs, storage_backend=storage, llm_call=lambda p: "YES"))}
+    assert not any(r.error for r in results.values()), {k: r.error for k, r in results.items()}
+    assert sorted(results["tests"].value["result"].entries) == ["api.py", "tests.py"]  # api: first ref
+    assert sorted(results["fresh"].value["result"].entries) == ["fresh.py"]

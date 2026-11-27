@@ -940,8 +940,11 @@ Add a /health endpoint and a test for it.
 
 - **Input folder:** `inherit_coding_folder="repo"` names the upstream model
   whose `Dir` the agent works on. If that model is another `coding_agent`, its
-  `result` is used (`"repo.result"` names it outright). Without it the agent
-  starts from an empty folder and creates the tree.
+  `result` is used (`"repo.result"` names it outright). Left unset, the agent
+  continues the code of the **first `coding_agent` its template `ref()`s**
+  (`{{ ref('api.output') }}` counts), since reading another agent's answer
+  almost always means building on its files. With no such ref, or with
+  `inherit_coding_folder=false`, it starts from an empty folder and creates the tree.
 - **Reference files:** `promptfiles` means what it means for every other
   model: files the model is given. As for `agent`, they are copied into the
   workspace, under `.promptmap_inputs/<name>/`, and the task lists them. That
@@ -956,7 +959,12 @@ Add a /health endpoint and a test for it.
   `write_folder=true` to get the folder). `output` is the agent's
   final reply. `changes` / `deleted` hold just what this model changed, and
   `sum_of_changes` has a per-symbol summary plus a unified diff.
-- **Chaining:** the next `coding_agent` takes `inherit_coding_folder="add_health"`.
+- **Chaining:** the next `coding_agent` takes `inherit_coding_folder="add_health"`,
+  or just `ref()`s it.
+- **`project=` is not a shared folder.** It only says where `result` is written
+  after the run. Each agent works on its own scratch copy of its input folder,
+  so two agents with the same `project=` and no input folder each start empty
+  and may overwrite each other's files there.
 - **Parallel:** agents that do not depend on each other run at the same time,
   each in its own scratch copy (see [Parallel runs](#promptmaprun); `--threads`).
 - **Into a real folder:** `project="../app"` writes `result` into that folder
@@ -1003,7 +1011,7 @@ continues from the previous run (`warm`) unless the model sets
 | `context_max_chars`   | cap on each diff put into a prompt (default `20000`) |
 | `force_refresh`       | always run the agent (default `false`) |
 | `warm_start`          | after a `.prompt` edit, continue from the old template's last result (default `true`) |
-| `inherit_coding_folder` | upstream model whose folder the agent works on, e.g. `"repo"` (default none: an empty folder) |
+| `inherit_coding_folder` | upstream model whose folder the agent works on, e.g. `"repo"`. Default: the first `coding_agent` the template `ref()`s, else an empty folder; `false`: always an empty folder |
 | `project`             | folder to write `result` into after every run, e.g. `"../app"` (default none) |
 | `write_folder`        | also write `result` to `outputs/<model>/` (default `false`) |
 

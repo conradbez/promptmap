@@ -8,10 +8,14 @@ returns the tree with its changes already applied.  The real repository is
 never touched; a later node decides what to do with the result.
 
 Input tree (optional): ``inherit_coding_folder="fix"`` — an upstream model's
-:class:`~promptmap.files.Dir`.  Without one the agent starts from an empty
-folder named after the model, so it creates the tree rather than editing one.
-If that model is another ``coding_agent``, its ``result`` is used;
-``"fix.result"`` names it outright.
+:class:`~promptmap.files.Dir`.  If that model is another ``coding_agent``,
+its ``result`` is used; ``"fix.result"`` names it outright.
+
+Unset, the agent continues the code of the **first upstream coding_agent
+its template ref()s** (``{{ ref('fix.output') }}`` counts): reading another
+agent's answer almost always means building on its files.  With no such ref,
+or with ``inherit_coding_folder=false``, it starts from an empty folder named
+after the model, so it creates the tree rather than editing one.
 
 Reference files (optional): ``promptfiles`` means what it means for every
 other model — upstream files the model is given.  As for the ``agent`` kind
@@ -103,7 +107,9 @@ Config keys (the agent always works in a scratch copy, never in place):
 ``context_max_chars``    cap on each diff put into a prompt (20000)
 ``force_refresh``        always run the agent (false)
 ``inherit_coding_folder`` the upstream model whose folder this agent works on
-                         (e.g. ``"api"`` or ``"api.result"``); none = empty folder
+                         (e.g. ``"api"`` or ``"api.result"``); unset = the first
+                         coding_agent the template ref()s, else an empty folder;
+                         false = an empty folder
 ``project``              a folder (e.g. ``"../app"``, relative to where promptmap
                          runs) to write ``result`` into after every run: changed
                          files are written, files this model deleted removed,
@@ -383,9 +389,34 @@ def _read(tree: Dir, path: str) -> bytes | None:
 # Input
 # ---------------------------------------------------------------------------
 
+#: ``inherit_coding_folder`` values that mean "start from an empty folder".
+_NO_INHERIT = frozenset({"", "false", "none", "no", "off", "0"})
+
+
+def inherit_from(call: ModelCall) -> str | None:
+    """The model whose tree this agent starts from, or None for an empty folder.
+
+    ``inherit_coding_folder`` when set (false-like values: none).  Unset, the
+    first model the template ref()s whose output holds a coding tree.
+    """
+    config = call.spec.config
+    if "inherit_coding_folder" in config and config["inherit_coding_folder"] is not None:
+        value = config["inherit_coding_folder"]
+        if value is False or str(value).strip().lower() in _NO_INHERIT:
+            return None
+        return str(value)
+    from .parser_initial import extract_dependencies
+
+    for name in extract_dependencies(call.spec.source or ""):
+        value = call.outputs.get(name)
+        if name != call.spec.name and isinstance(value, dict) and isinstance(value.get("result"), Dir):
+            return name
+    return None
+
+
 def resolve_base(call: ModelCall) -> Dir:
-    """The input tree named by ``inherit_coding_folder``, else an empty one."""
-    name = call.spec.config.get("inherit_coding_folder")
+    """The input tree :func:`inherit_from` names, else an empty one."""
+    name = inherit_from(call)
     if not name:
         _warn_old_promptfiles(call)
         # No input tree: the agent starts from an empty folder and creates one.
